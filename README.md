@@ -1,22 +1,26 @@
 # Pushify SDKs
 
-This repository contains original Pushify SDK implementations for Android, iOS, Flutter, and React Native. It is intentionally separate from the private server and dashboard repository.
+This public workspace contains original Pushify SDK implementations for Android, iOS, Flutter, and React Native. It is maintained separately from the private Pushify server and dashboard repository.
 
-The SDKs use native platform purchase APIs and Pushify's documented server protocol. No SDK source from another company is vendored or adapted here. Public documentation and compatibility descriptions are written for Pushify.
+The packages use native platform APIs and Pushify's documented server protocol. No SDK source from another company is included, adapted, or vendored.
 
-## Packages
+## SDK guides
 
-| Directory | Package | Distribution |
-|---|---|---|
-| `android/` | `app.pushify.sdk:pushify-android` | Maven Central (release setup pending) |
-| `ios/` | `PushifySDK` | Swift Package Manager (release setup pending) |
-| `flutter/` | `pushify_purchases` | pub.dev (name availability and release setup pending) |
-| `react-native/` | `@pushify/purchases` | npm (release setup pending) |
+| Platform | Package | Guide | Distribution |
+|---|---|---|---|
+| Android | Kotlin library | [Android setup and acquisition-link guide](android/README.md) | Maven Central release pending |
+| iOS | Swift package | [iOS setup and acquisition-link guide](ios/README.md) | Swift Package release pending |
+| Flutter | `pushify_purchases` | [Flutter setup and acquisition-link guide](flutter/README.md) | pub.dev release pending; package name availability unconfirmed |
+| React Native | `@pushify/purchases` | [React Native setup and acquisition-link guide](react-native/README.md) | npm release pending |
 
-Every SDK will support configuration, customer identity, products/offerings, purchase, restore, entitlements, customer info, transaction sync, native paywall presentation, and acquisition-link capture/resolution before being described as complete. Paywalls will use Pushify-owned UI and configuration, with native presentation on Compose, SwiftUI/UIKit, Flutter and React Native. The current preview does not yet implement purchases or paywalls. See [the SDK PRD](../prd/sdks/PRD.md) for scope and privacy requirements.
+## Preview capabilities
 
-The acquisition-link preview contract and platform limits are in [the SDK guide](docs/acquisition-links.md).
+The current preview implements acquisition-link token parsing and resolution. Android reads deferred tokens from Google Play Install Referrer. iOS supports a user-initiated pasteboard handoff. Flutter and React Native expose those native token readers and Pushify resolution helpers.
 
-## Status
+Each platform guide includes prerequisites, local installation, direct-link handling, deferred-token retrieval, API response fields, security notes, and current limitations. The host app remains responsible for link-domain setup and deciding how to navigate to a returned destination.
 
-Initial independent workspace. No registry release has been published. Platform support and release versions will be documented here as the implementations become complete.
+## Not production-ready yet
+
+Customer identity, offerings and products, purchases, receipt / transaction sync, restore, entitlements, and native paywall presentation are part of the planned complete SDK scope but are not implemented in this preview. No package has been published. Do not use this preview for production purchase processing.
+
+See the shared [acquisition-link contract](docs/acquisition-links.md) and the [SDK product plan](../prd/sdks/PRD.md).
