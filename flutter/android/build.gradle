@@ -1,0 +1,18 @@
+group 'app.pushify.flutter'
+version '0.1.0'
+
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:8.9.1' }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'app.pushify.flutter'
+    compileSdk 36
+    defaultConfig { minSdk 23 }
+}
+
+repositories { google(); mavenCentral() }
+dependencies { implementation 'com.android.installreferrer:installreferrer:2.2' }
