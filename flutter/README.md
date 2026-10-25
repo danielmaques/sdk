@@ -23,6 +23,8 @@ dependencies:
 
 Then run `flutter pub get`. The Android and iOS plugin code is included by Flutter's plugin tooling. Your app must still configure the platform link domains, URL schemes and route delivery.
 
+If the editor reports that `package:flutter/...` or `package:http/...` cannot be found, run `flutter pub get` from `sdk/flutter` for standalone development, or from the host app after adding this package as a path dependency. Then restart the Dart analysis server if the diagnostics remain cached.
+
 ## Configure once in `main.dart`
 
 Pass the public key at app startup, then provide the configured object to your router or link-handling service. Flutter's `--dart-define` keeps environment-specific public configuration out of source control; the key is public and must not be treated as a server secret.
