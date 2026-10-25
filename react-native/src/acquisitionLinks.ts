@@ -67,3 +67,38 @@ export async function readDeferredAcquisitionToken(): Promise<string | undefined
     ? token
     : undefined;
 }
+
+/**
+ * Small app-level facade: configure the public key once, then hand it URLs from
+ * React Native Linking and ask it to resolve supported deferred handoffs.
+ */
+export class PushifyAcquisitionLinks {
+  constructor(private readonly options: AcquisitionLinkClientOptions) {
+    if (!options.publicApiKey.trim()) {
+      throw new Error('A Pushify public app key is required.');
+    }
+    const base = new URL(options.apiBaseUrl ?? 'https://api.pushify.app');
+    if (base.protocol !== 'https:') {
+      throw new Error('Pushify API URL must use HTTPS.');
+    }
+  }
+
+  /** Resolves a direct app URL, or returns undefined when it is not a Pushify link. */
+  async handleUrl(
+    url: string,
+    appUserId = this.options.appUserId,
+  ): Promise<PushifyAcquisitionLink | undefined> {
+    const token = acquisitionTokenFromUrl(url);
+    if (!token) return undefined;
+    return resolveAcquisitionLink(token, { ...this.options, appUserId });
+  }
+
+  /** Reads and resolves a supported deferred handoff in one call. */
+  async resolveDeferred(
+    appUserId = this.options.appUserId,
+  ): Promise<PushifyAcquisitionLink | undefined> {
+    const token = await readDeferredAcquisitionToken();
+    if (!token) return undefined;
+    return resolveAcquisitionLink(token, { ...this.options, appUserId });
+  }
+}

@@ -107,6 +107,16 @@ class PushifyAcquisitionLinks {
     return true;
   }
 
+  /// Captures and resolves a direct app URL in one call.
+  /// Returns `null` when [uri] does not contain a valid Pushify token.
+  Future<PushifyAcquisitionLink?> handle(
+    Uri uri, {
+    String? appUserId,
+  }) async {
+    if (!capture(uri)) return null;
+    return getInitialLink(appUserId: appUserId);
+  }
+
   /// Reads the deferred Pushify token after explaining the iOS pasteboard prompt to the user.
   /// Android reads the referrer supplied by Google Play. Returns null when unavailable.
   Future<String?> readDeferredToken() async {
@@ -126,6 +136,16 @@ class PushifyAcquisitionLinks {
       return null;
     _pendingToken = token;
     return token;
+  }
+
+  /// Reads and resolves a deferred Android or iOS handoff in one call.
+  /// Returns `null` when the platform has no supported token available.
+  Future<PushifyAcquisitionLink?> resolveDeferredLink({
+    String? appUserId,
+  }) async {
+    final token = await readDeferredToken();
+    if (token == null) return null;
+    return resolve(token, appUserId: appUserId);
   }
 
   /// Resolves the pending token once, returning null when no valid token was captured.

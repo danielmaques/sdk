@@ -4,13 +4,13 @@ Pushify acquisition links resolve opaque click tokens through the public app API
 
 ## Direct app links
 
-Pass the incoming app URL to the platform SDK's `tokenFromUrl`, `token(from:)`, `capture(Uri)`, or `acquisitionTokenFromUrl` helper. If a valid `rdt` token is present, call the SDK resolver with that token and, when known, the same app user id used for purchases. The server accepts resolution before or after customer identification. Route to the returned `destination` after the app validates it for its own navigation policy.
+Configure one resolver at the app root, then pass incoming URLs to the platform's high-level handler: Android `resolveUrl`, iOS `resolve(url:)`, Flutter `handle(Uri)`, or React Native `handleUrl`. Each extracts and resolves the token in one call. The methods return `false`, `nil`, or `undefined` for URLs without a valid Pushify token. The app owns OS link delivery and navigation. Route to the returned `destination` only after validating it against the app's own navigation policy.
 
 ## Deferred links
 
-- Android reads the `rdit` value from the Google Play Install Referrer. The value is opaque and expires after the backend's deferred-token window.
+- Android reads the `rdit` value from the Google Play Install Referrer. `resolveDeferred` reads and resolves it in one call. The value is opaque and expires after the backend's deferred-token window.
 - iOS can read the `rdit_` clipboard value after an explicit call that the app makes with an explanatory user flow. The OS may display its pasteboard privacy prompt. Pushify SDKs never read unrelated clipboard content or poll the clipboard.
-- Flutter and React Native expose a call to request the native token. If the platform returns no token, or the user denies clipboard access, the click remains unassigned and no installation is guessed from device attributes.
+- iOS exposes `resolveDeferredPasteboard`; Flutter exposes `resolveDeferredLink`; React Native exposes `resolveDeferred`. If the platform returns no token, or the user denies clipboard access, the click remains unassigned and no installation is guessed from device attributes.
 
 ## Resolution contract
 

@@ -28,6 +28,30 @@ Install dependencies, run CocoaPods installation for iOS (for example, `npx pod-
 
 The host app is responsible for OS link association files, entitlements, intent filters and route handling.
 
+## Configure once at app startup
+
+Create one resolver in a small app-level module such as `src/pushify.ts`. Use your normal build-time configuration mechanism to provide the **public app key**. It is safe for client apps, but it is not a server secret.
+
+```ts
+// src/pushify.ts
+import { PushifyAcquisitionLinks } from '@pushify/purchases';
+import { PUSHIFY_PUBLIC_APP_KEY } from './appConfig';
+
+export const pushifyLinks = new PushifyAcquisitionLinks({
+  publicApiKey: PUSHIFY_PUBLIC_APP_KEY,
+  // appUserId can be supplied here if it is already stable at startup.
+});
+```
+
+## Connect app links
+
+The host app handles domain verification and route delivery. Replace `links.example.com` with the link domain configured in your Pushify project.
+
+- **Android:** add an `autoVerify` `VIEW` / `BROWSABLE` HTTPS intent filter to the Activity that owns navigation, then host the matching `assetlinks.json` for the application ID and signing certificate. React Native must deliver the initial URL and runtime `url` events.
+- **iOS:** enable **Associated Domains** in the app target, add `applinks:links.example.com`, and host the matching Apple App Site Association file. React Native's `Linking` API then delivers initial and runtime URLs.
+
+The SDK does not change your navigation container or register a competing URL listener for you.
+
 ## Handle and resolve incoming links
 
 React Native delivers incoming URLs through `Linking`. Use the exported helper to parse the Pushify token and then resolve it. The SDK returns the configured destination and campaign data; your app validates and navigates to the destination.
@@ -35,22 +59,15 @@ React Native delivers incoming URLs through `Linking`. Use the exported helper t
 ```tsx
 import { useEffect } from 'react';
 import { Linking } from 'react-native';
-import {
-  acquisitionTokenFromUrl,
-  resolveAcquisitionLink,
-} from '@pushify/purchases';
-
-const publicApiKey = 'pushify_public_app_key';
+import { pushifyLinks } from './pushify';
 
 async function handleUrl(url: string) {
-  const token = acquisitionTokenFromUrl(url);
-  if (!token) return;
-
   try {
-    const link = await resolveAcquisitionLink(token, {
-      publicApiKey,
-      appUserId: getCurrentPushifyAppUserId(), // omit before identity is known
-    });
+    const link = await pushifyLinks.handleUrl(
+      url,
+      getCurrentPushifyAppUserId(), // omit / pass undefined before identity is known
+    );
+    if (!link) return;
     appRouter.open(link.destination, { campaign: link.campaign });
   } catch (error) {
     showLinkFallback(error);
@@ -78,27 +95,19 @@ export function PushifyLinkListener() {
 }
 ```
 
-This example uses React Native's URL event delivery; adapt registration to your existing router if it already owns incoming links. Avoid processing the same URL twice when both your router and this listener receive it.
+Mount `PushifyLinkListener` once near the root of the app. If your navigation container already handles `Linking`, call `pushifyLinks.handleUrl(url, currentAppUserId)` from that existing handler instead; do not register both paths for the same URL.
 
 ## Read a deferred install token
 
 The native method reads Google Play Install Referrer on Android. On iOS it reads a matching Pushify token from the pasteboard and clears it. Call it only after explaining the action to the user; iOS may display a pasteboard privacy prompt.
 
 ```ts
-import {
-  readDeferredAcquisitionToken,
-  resolveAcquisitionLink,
-} from '@pushify/purchases';
+import { pushifyLinks } from './pushify';
 
 async function continueFromCampaign() {
   try {
-    const token = await readDeferredAcquisitionToken();
-    if (!token) return showDefaultOnboarding();
-
-    const link = await resolveAcquisitionLink(token, {
-      publicApiKey,
-      appUserId: getCurrentPushifyAppUserId(),
-    });
+    const link = await pushifyLinks.resolveDeferred(getCurrentPushifyAppUserId());
+    if (!link) return showDefaultOnboarding();
     appRouter.open(link.destination, { campaign: link.campaign });
   } catch (error) {
     showDefaultOnboarding();
@@ -111,6 +120,8 @@ The helper returns `undefined` when the native module is unavailable or there is
 ## API reference
 
 - `acquisitionTokenFromUrl(url)` returns the direct `rdt` token or `undefined`.
+- `PushifyAcquisitionLinks.handleUrl(url, appUserId?)` extracts and resolves a direct link in one call.
+- `PushifyAcquisitionLinks.resolveDeferred(appUserId?)` reads and resolves a supported deferred handoff in one call.
 - `resolveAcquisitionLink(token, options)` posts to `/v1/acquisition_links/resolve` using `publicApiKey`, optional `apiBaseUrl`, and optional `appUserId`.
 - `readDeferredAcquisitionToken()` asks the native module for a deferred `rdit_` token.
 - `PushifyAcquisitionLink` contains `status`, `link_id`, `name`, `slug`, `destination`, `app_scheme`, `campaign`, and `attributed`.

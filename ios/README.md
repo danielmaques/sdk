@@ -21,25 +21,49 @@ Then import the module in your app:
 import PushifySDK
 ```
 
-## Resolve a direct app link
+## Put the key in the app configuration
 
-Create the resolver once with your public app key. When your app receives a URL, extract the `rdt` token and resolve it. The app owns URL delivery and navigation, including handling links on cold launch and while already open.
+Add `PUSHIFY_PUBLIC_APP_KEY` to your app's `.xcconfig` and expose it through the target's `Info.plist` build settings. This is a public client key; do not put a server secret here.
+
+```text
+// AppConfig.xcconfig
+PUSHIFY_PUBLIC_APP_KEY = pushify_public_app_key
+```
+
+Add `PUSHIFY_PUBLIC_APP_KEY` to the app target's `Info.plist` with value `$(PUSHIFY_PUBLIC_APP_KEY)` so the build setting is available at runtime.
+
+Create the resolver once at the app composition root (your `App` type or dependency container):
+
+```swift
+private func makePushifyLinks() -> PushifyAcquisitionLinks {
+    let key = Bundle.main.object(forInfoDictionaryKey: "PUSHIFY_PUBLIC_APP_KEY") as? String ?? ""
+    do {
+        return try PushifyAcquisitionLinks(publicApiKey: key)
+    } catch {
+        fatalError("Check PUSHIFY_PUBLIC_APP_KEY in the app configuration: \(error)")
+    }
+}
+```
+
+## Connect Universal Links
+
+In the app target's **Signing & Capabilities**, enable **Associated Domains** and add `applinks:links.example.com`, replacing the example with the actual link domain shown in your Pushify project. The domain must host the Apple App Site Association file for your app. The SDK does not modify entitlements or URL callbacks.
+
+## Handle direct app links
+
+Call `resolve(url:appUserID:)` with the URL delivered by iOS. The helper extracts and resolves a Pushify token in one call and returns `nil` for other URLs. The app owns URL delivery and navigation, including handling links on cold launch and while already open.
 
 ```swift
 import PushifySDK
 
-let acquisitionLinks = try PushifyAcquisitionLinks(
-    publicApiKey: PushifyConfiguration.publicAppKey
-)
+let acquisitionLinks = makePushifyLinks() // create once in the app root
 
 func handleIncomingURL(_ url: URL) async {
-    guard let token = acquisitionLinks.token(from: url) else { return }
-
     do {
-        let link = try await acquisitionLinks.resolve(
-            token,
+        guard let link = try await acquisitionLinks.resolve(
+            url: url,
             appUserID: currentPushifyAppUserID() // Pass nil before identity is known.
-        )
+        ) else { return }
 
         // Validate the destination against the routes supported by your app.
         await MainActor.run {
@@ -54,6 +78,19 @@ func handleIncomingURL(_ url: URL) async {
 
 Call `handleIncomingURL(_:)` from your SwiftUI `.onOpenURL` handler, UIKit scene delegate, or the URL callback used by your app. The resolver returns data; it does not invoke the app router.
 
+In a SwiftUI app, keep one resolver on your `App` type and attach this handler at the root:
+
+```swift
+WindowGroup {
+    RootView()
+        .onOpenURL { url in
+            Task { await handleIncomingURL(url) }
+        }
+}
+```
+
+For UIKit, call the same method from your existing scene / application URL callback. No additional URL listener is needed.
+
 ## Read an iOS deferred token
 
 iOS does not provide a general install-referrer API equivalent for every install path. This preview supports a **user-initiated pasteboard handoff** only. Explain to the user why the app is checking for a Pushify link, then call the method in response to that action. iOS may display its pasteboard privacy prompt.
@@ -61,16 +98,10 @@ iOS does not provide a general install-referrer API equivalent for every install
 ```swift
 @MainActor
 func userTappedContinueFromCampaign() async {
-    guard let token = acquisitionLinks.consumeDeferredTokenFromPasteboard() else {
-        showDefaultOnboarding()
-        return
-    }
-
     do {
-        let link = try await acquisitionLinks.resolve(
-            token,
+        guard let link = try await acquisitionLinks.resolveDeferredPasteboard(
             appUserID: currentPushifyAppUserID()
-        )
+        ) else { showDefaultOnboarding(); return }
         appRouter.open(destination: link.destination, campaign: link.campaign)
     } catch {
         showDefaultOnboarding()
@@ -83,6 +114,8 @@ The method accepts only a correctly formatted `rdit_` token and clears the paste
 ## Resolution response
 
 `PushifyAcquisitionLink` includes the server's `status`, `linkId`, `name`, `slug`, `destination`, `appScheme`, `campaign`, and `attributed` fields. The `object` field is also decoded when present.
+
+For common flows, use `resolve(url:appUserID:)` for an incoming URL and `resolveDeferredPasteboard(appUserID:)` from a user action. Both return an optional link, so URLs without a Pushify token and unavailable deferred tokens do not need exception-based control flow. Use `resolve(_:appUserID:)` when your app already has the opaque token.
 
 Pass the same app user ID used by your Pushify customer identity when it is known. `appUserID` is optional, so resolution can happen before login. The SDK does not create an artificial customer for anonymous installs. Handle `AcquisitionLinkError` and network/decoding errors so a failed attribution lookup does not block the app.
 

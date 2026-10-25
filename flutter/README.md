@@ -23,22 +23,51 @@ dependencies:
 
 Then run `flutter pub get`. The Android and iOS plugin code is included by Flutter's plugin tooling. Your app must still configure the platform link domains, URL schemes and route delivery.
 
-## Capture and resolve a direct link
+## Configure once in `main.dart`
 
-`capture` stores a valid `rdt` token in this object in memory. Your app needs to pass both the initial URL and URLs received while running from its chosen deep-link handler. `getInitialLink` resolves the pending token with Pushify and clears it after successful resolution.
+Pass the public key at app startup, then provide the configured object to your router or link-handling service. Flutter's `--dart-define` keeps environment-specific public configuration out of source control; the key is public and must not be treated as a server secret.
 
 ```dart
+// lib/main.dart
 import 'package:pushify_purchases/pushify_purchases.dart';
 
-final acquisitionLinks = PushifyAcquisitionLinks(
-  publicApiKey: const String.fromEnvironment('PUSHIFY_PUBLIC_APP_KEY'),
-);
+void main() {
+  const publicKey = String.fromEnvironment('PUSHIFY_PUBLIC_APP_KEY');
+  final pushifyLinks = PushifyAcquisitionLinks(publicApiKey: publicKey);
+  runApp(MyApp(pushifyLinks: pushifyLinks));
+}
+```
 
-Future<void> handleIncomingUri(Uri uri) async {
-  if (!acquisitionLinks.capture(uri)) return;
+Run the app with `--dart-define=PUSHIFY_PUBLIC_APP_KEY=pushify_public_app_key` and pass the same `pushifyLinks` instance to your root router / dependency provider.
 
+## Connect app links
+
+Replace the example domain with the link domain shown in your Pushify project.
+
+For Android, add an App Links intent filter to the Activity that owns navigation and serve the matching `assetlinks.json`:
+
+```xml
+<intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="https" android:host="links.example.com" />
+</intent-filter>
+```
+
+For iOS, enable **Associated Domains** for the Runner target and add `applinks:links.example.com`; serve the corresponding Apple App Site Association file. Use your existing Flutter router/deep-link integration to forward both the initial URI and runtime URI events. The SDK does not take over Flutter navigation.
+
+## Handle direct links
+
+Call `handle` from the incoming-URI callback your router already uses. It captures and resolves a valid direct link in one call, returning `null` for a URL without a Pushify token.
+
+```dart
+// Inject pushifyLinks from main.dart into your router / link service.
+
+Future<void> handleIncomingUri(Uri uri, PushifyAcquisitionLinks pushifyLinks) async {
   try {
-    final link = await acquisitionLinks.getInitialLink(
+    final link = await pushifyLinks.handle(
+      uri,
       appUserId: currentPushifyAppUserId(), // null before login
     );
     if (link == null) return;
@@ -52,25 +81,23 @@ Future<void> handleIncomingUri(Uri uri) async {
 }
 ```
 
-Call `handleIncomingUri` for the initial link and every link event delivered by your deep-link setup. This preview does not subscribe to Flutter lifecycle events or provide an incoming-link stream.
+Call `handleIncomingUri` for the initial link and every link event delivered by your router. This preview does not subscribe to Flutter lifecycle events or provide an incoming-link stream.
 
 ## Read a deferred install token
 
 On Android, `readDeferredToken()` checks the Install Referrer supplied by Google Play. On iOS, it reads and clears a matching Pushify `rdit_` token from the pasteboard. Because iOS may show a privacy prompt, call this only after the app has explained the action and the user chose to continue.
 
 ```dart
-Future<void> continueFromCampaign() async {
+Future<void> continueFromCampaign(PushifyAcquisitionLinks pushifyLinks) async {
   try {
-    final token = await acquisitionLinks.readDeferredToken();
-    if (token == null) {
+    final link = await pushifyLinks.resolveDeferredLink(
+      appUserId: currentPushifyAppUserId(),
+    );
+    if (link == null) {
       showDefaultOnboarding();
       return;
     }
 
-    final link = await acquisitionLinks.resolve(
-      token,
-      appUserId: currentPushifyAppUserId(),
-    );
     appRouter.open(link.destination, extra: link.campaign);
   } on PushifyAcquisitionLinkException catch (error) {
     appLogger.warning('Could not resolve deferred Pushify link', error);
@@ -79,13 +106,15 @@ Future<void> continueFromCampaign() async {
 }
 ```
 
-`readDeferredToken` stores the returned token as the pending token too. If you prefer, call `getInitialLink` afterward instead of calling `resolve` yourself.
+`readDeferredToken` stores the returned token as the pending token too. If you need to customize handling, call it directly and then use `resolve` or `getInitialLink`.
 
 ## API reference
 
 - `PushifyAcquisitionLinks.capture(Uri)` returns `true` when it captured a valid direct token.
+- `PushifyAcquisitionLinks.handle(Uri, {String? appUserId})` captures and resolves a direct URL in one call.
 - `PushifyAcquisitionLinks.getInitialLink({String? appUserId})` resolves the pending token, or returns `null` if none was captured.
 - `PushifyAcquisitionLinks.readDeferredToken()` returns a deferred token or `null` when the OS/store has none.
+- `PushifyAcquisitionLinks.resolveDeferredLink({String? appUserId})` reads and resolves a deferred token in one call.
 - `PushifyAcquisitionLinks.resolve(String, {String? appUserId})` resolves a token directly.
 - `dispose()` closes the HTTP client created by this instance. If you pass a client, you retain ownership and must close it yourself. Do not use the resolver after disposal.
 - `PushifyAcquisitionLink` exposes `linkId`, `name`, `slug`, `destination`, `appScheme`, `campaign`, `attributed`, and `status`.
@@ -102,7 +131,7 @@ Future<void> continueFromCampaign() async {
 
 ## Current limitations
 
-- The app is responsible for delivering initial and runtime URLs to `capture`.
+- The app/router is responsible for delivering initial and runtime URLs to `handle` (or `capture`).
 - Deferred recovery depends on platform behavior: Google Play Install Referrer on Android, user-initiated pasteboard access on iOS. No probabilistic matching is used.
 - Purchase, restore, identity, entitlement and native paywall APIs are planned but absent from this preview.
 - The package is not published; use a local path dependency until a version is released.

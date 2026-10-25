@@ -30,17 +30,76 @@ dependencies {
 
 The library manifest declares the `INTERNET` permission and the module brings in Google Play Install Referrer. Your host app remains responsible for Android App Links, intent filters and dispatching incoming URLs.
 
-## Resolve a direct app link
+## Configure once in your application class
 
-Pass the incoming URL to `tokenFromUrl`. The helper returns a token only when it finds a valid `rdt` query parameter. Resolve it with the public app key and, if already known, the same app user ID used by your purchase integration:
+Put the public app key in your app's build configuration (for example, a `BuildConfig` field) and create one resolver in the Android `Application` class. This is the only SDK initialization point:
+
+In the app module's `build.gradle.kts`, expose the public key as a build config field. Load it from a local Gradle property or CI variable rather than committing environment-specific values:
 
 ```kotlin
+android {
+    buildFeatures { buildConfig = true }
+    defaultConfig {
+        val pushifyKey = providers.gradleProperty("PUSHIFY_PUBLIC_APP_KEY").orElse("").get()
+        buildConfigField("String", "PUSHIFY_PUBLIC_APP_KEY", "\"$pushifyKey\"")
+    }
+}
+```
+
+```kotlin
+import android.app.Application
 import app.pushify.sdk.AcquisitionLinks
 
-class MainActivity : AppCompatActivity() {
-    private val acquisitionLinks by lazy {
-        AcquisitionLinks(publicApiKey = BuildConfig.PUSHIFY_PUBLIC_API_KEY)
+class ExampleApplication : Application() {
+    lateinit var pushifyLinks: AcquisitionLinks
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        pushifyLinks = AcquisitionLinks(
+            publicApiKey = BuildConfig.PUSHIFY_PUBLIC_APP_KEY,
+        )
     }
+}
+```
+
+Register the class in `AndroidManifest.xml`:
+
+```xml
+<application
+    android:name=".ExampleApplication"
+    ...>
+</application>
+```
+
+## Connect your app links
+
+The SDK does not own Android navigation or your web domain. Add an App Links intent filter to the Activity that handles your routes and replace `links.example.com` with the link domain shown in your Pushify project. Host the matching `assetlinks.json` for your Android application ID and signing certificate so Android can verify the domain.
+
+```xml
+<activity android:name=".MainActivity" android:exported="true">
+    <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="https" android:host="links.example.com" />
+    </intent-filter>
+</activity>
+```
+
+## Handle direct links
+
+Pass the incoming URL to `resolveUrl`. If the URL is not a Pushify link, it returns `false` and you can continue normal routing. The resolver is reused from your `Application` class:
+
+```kotlin
+import android.content.Intent
+import androidx.appcompat.app.AppCompatActivity
+import app.pushify.sdk.AcquisitionLinks
+import app.pushify.sdk.NoDeferredAcquisitionLinkException
+
+class MainActivity : AppCompatActivity() {
+    private val pushifyLinks: AcquisitionLinks
+        get() = (application as ExampleApplication).pushifyLinks
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,8 +113,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handlePushifyUrl(url: String) {
-        val token = acquisitionLinks.tokenFromUrl(url) ?: return
-        acquisitionLinks.resolve(token, appUserId = currentPushifyAppUserId()) { result ->
+        val handled = pushifyLinks.resolveUrl(
+            url = url,
+            appUserId = currentPushifyAppUserId(),
+        ) { result ->
             result.onSuccess { link ->
                 // Validate the destination against your app's routing policy.
                 // Then navigate using your app's own navigation framework.
@@ -65,25 +126,28 @@ class MainActivity : AppCompatActivity() {
                 showLinkFallback(error)
             }
         }
+        if (!handled) continueNormalRouting(url)
     }
 }
 ```
 
-`resolve` performs its HTTP request on a background executor and invokes its completion on Android's main thread. Handle the `Result` and avoid blocking the UI. The SDK returns the destination; it does not navigate automatically.
+`resolveUrl` extracts and resolves the token in one call. The HTTP request runs on a background executor and its completion runs on Android's main thread. If the URL is not a Pushify link, the method returns `false`, so your normal router can handle it. The SDK returns the destination; it does not navigate automatically.
 
 ## Read a deferred Google Play token
 
-Call `deferredToken` after app startup. Google Play Install Referrer may return `null` when the install did not come through a supported Play referrer or the referrer is unavailable:
+Call `resolveDeferred` after app startup if your onboarding flow should check the Google Play Install Referrer. If no supported token is present, the callback receives `NoDeferredAcquisitionLinkException`:
 
 ```kotlin
-acquisitionLinks.deferredToken(applicationContext) { token ->
-    if (token == null) return@deferredToken
-
-    acquisitionLinks.resolve(token, appUserId = currentPushifyAppUserId()) { result ->
-        result.onSuccess { link ->
-            openDestination(link.destination, link.campaign)
-        }.onFailure(::reportLinkResolutionError)
-    }
+pushifyLinks.resolveDeferred(
+    context = applicationContext,
+    appUserId = currentPushifyAppUserId(),
+) { result ->
+    result.onSuccess { link -> openDestination(link.destination, link.campaign) }
+        .onFailure { error ->
+            if (error !is NoDeferredAcquisitionLinkException) {
+                reportLinkResolutionError(error)
+            }
+        }
 }
 ```
 
@@ -102,6 +166,10 @@ Use the documented Store listing / Install Referrer setup for your distribution 
 | `campaign` | Campaign values configured for the link. |
 | `attributed` | Whether the server associated this resolution with a customer. |
 
+For common flows, use `resolveUrl(url, appUserId, completion)` for direct app links and `resolveDeferred(context, appUserId, completion)` for the Google Play handoff. Lower-level `tokenFromUrl`, `deferredToken`, and `resolve` methods remain available for custom flows.
+
+`resolveUrl` returns whether it accepted a Pushify token; resolution success or failure is delivered exactly once through the callback. `resolveDeferred` reports a missing token with `NoDeferredAcquisitionLinkException` and reports network / response errors through `Result.failure`.
+
 Pass `appUserId` only when you have the actual app user ID. The parameter is optional so a link can be resolved before sign-in. Follow your identity flow and resolve/associate again when the user becomes known if required by your integration. Do not invent a customer ID for anonymous installs.
 
 ## Errors and security
@@ -113,7 +181,7 @@ Pass `appUserId` only when you have the actual app user ID. The parameter is opt
 
 ## Current limitations
 
-- The library does not configure Android App Links, receive links automatically, or navigate to screens.
+- The library does not configure Android App Links or navigate to screens; the host Activity forwards its incoming URLs to `resolveUrl`.
 - Deferred-token retrieval uses Google Play Install Referrer. Other stores may require a different supported handoff.
 - Customer identity, purchase / restore flows, entitlement state, paywalls and full SDK lifecycle integration are not implemented.
 - This package is not published yet; install from the source workspace during development.

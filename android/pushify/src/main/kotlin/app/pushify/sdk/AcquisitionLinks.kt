@@ -49,6 +49,17 @@ public class AcquisitionLinks(
         null
     }
 
+    /** Extracts and resolves a direct URL in one call. Returns false when [url] is not a Pushify link. */
+    public fun resolveUrl(
+        url: String,
+        appUserId: String? = null,
+        completion: (Result<AcquisitionLink>) -> Unit,
+    ): Boolean {
+        val token = tokenFromUrl(url) ?: return false
+        resolve(token, appUserId, completion)
+        return true
+    }
+
     /** Reads the opaque deferred token delivered by Google Play after an install. */
     public fun deferredToken(context: Context, completion: (String?) -> Unit) {
         val client = InstallReferrerClient.newBuilder(context.applicationContext).build()
@@ -69,6 +80,23 @@ public class AcquisitionLinks(
                 if (completed.compareAndSet(false, true)) completion(null)
             }
         })
+    }
+
+    /** Reads and resolves the Google Play deferred link in one call. */
+    public fun resolveDeferred(
+        context: Context,
+        appUserId: String? = null,
+        completion: (Result<AcquisitionLink>) -> Unit,
+    ) {
+        deferredToken(context) { token ->
+            if (token == null) {
+                mainHandler.post {
+                    completion(Result.failure(NoDeferredAcquisitionLinkException()))
+                }
+            } else {
+                resolve(token, appUserId, completion)
+            }
+        }
     }
 
     /** Resolves a direct or deferred token. Supplying [appUserId] associates an identified customer. */
@@ -138,3 +166,6 @@ public class AcquisitionLinks(
         const val MAX_RESPONSE_BYTES = 65_536
     }
 }
+
+/** There was no supported deferred acquisition token for this app launch. */
+public class NoDeferredAcquisitionLinkException : Exception("No deferred Pushify link was found.")

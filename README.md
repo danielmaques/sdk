@@ -15,7 +15,7 @@ The packages use native platform APIs and Pushify's documented server protocol. 
 
 ## Preview capabilities
 
-The current preview implements acquisition-link token parsing and resolution. Android reads deferred tokens from Google Play Install Referrer. iOS supports a user-initiated pasteboard handoff. Flutter and React Native expose those native token readers and Pushify resolution helpers.
+The current preview implements acquisition-link token parsing and resolution. Each platform has a one-call helper for handling a direct app URL; Android reads deferred tokens from Google Play Install Referrer, and iOS supports a user-initiated pasteboard handoff. Flutter and React Native expose matching deferred-resolution helpers.
 
 Each platform guide includes prerequisites, local installation, direct-link handling, deferred-token retrieval, API response fields, security notes, and current limitations. The host app remains responsible for link-domain setup and deciding how to navigate to a returned destination.
 

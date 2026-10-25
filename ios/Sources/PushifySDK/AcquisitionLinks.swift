@@ -44,6 +44,12 @@ public final class PushifyAcquisitionLinks: Sendable {
         return token
     }
 
+    /// Extracts and resolves a direct app URL in one call. Returns `nil` when it is not a Pushify link.
+    public func resolve(url: URL, appUserID: String? = nil) async throws -> PushifyAcquisitionLink? {
+        guard let token = token(from: url) else { return nil }
+        return try await resolve(token, appUserID: appUserID)
+    }
+
     /// Reads and consumes a Pushify deferred token from the pasteboard after the app has explained this action to the user.
     /// The system may show a pasteboard privacy prompt. This method never reads unrelated clipboard content.
     @MainActor
@@ -52,6 +58,13 @@ public final class PushifyAcquisitionLinks: Sendable {
               Self.isValid(value), value.hasPrefix("rdit_") else { return nil }
         UIPasteboard.general.string = nil
         return value
+    }
+
+    /// Reads and resolves a deferred pasteboard handoff after an explicit user action.
+    @MainActor
+    public func resolveDeferredPasteboard(appUserID: String? = nil) async throws -> PushifyAcquisitionLink? {
+        guard let token = consumeDeferredTokenFromPasteboard() else { return nil }
+        return try await resolve(token, appUserID: appUserID)
     }
 
     /// Resolves a direct or deferred opaque token. Pass the SDK's current app user id when known.
