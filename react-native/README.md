@@ -1,8 +1,8 @@
 # `@pushify/purchases` for React Native
 
-The Pushify React Native package currently exposes helpers for extracting an acquisition token from an app URL, resolving it through Pushify, and requesting a deferred token from the native Android or iOS implementation.
+The React Native package exposes native StoreKit 2 and Google Play Billing through first-party iOS/Android modules. It implements customer bootstrap/identity, attributes, offerings, purchase and restore, verified transaction sync, encrypted customer snapshots, update events, app events, virtual-currency spends and acquisition links.
 
-> **Preview:** native purchases, customer identity, offerings, entitlements, restore, paywall components, and automatic pending-link lifecycle handling are not implemented. This package is not ready for production purchase processing and has not been published to npm.
+> **Implementation status:** StoreKit and Play Billing clients compile, and the TypeScript facade passes strict type checking with the React Native peer types. Full React Native host-app builds, dashboard paywall rendering, Customer Center, store sandbox journeys, and release validation remain outstanding. The package is not production-ready and has not been published to npm.
 
 ## Requirements
 
@@ -30,17 +30,34 @@ The host app is responsible for OS link association files, entitlements, intent 
 
 ## Configure once at app startup
 
-Create one resolver in a small app-level module such as `src/pushify.ts`. Use your normal build-time configuration mechanism to provide the **public app key**. It is safe for client apps, but it is not a server secret.
+Create one purchases client and one link resolver in an app-level module such as `src/pushify.ts`. Use your normal build-time configuration mechanism to provide the **public app key**. It is safe for client apps, but it is not a server secret.
 
 ```ts
 // src/pushify.ts
-import { PushifyAcquisitionLinks } from '@pushify/purchases';
+import { PushifyAcquisitionLinks, PushifyPurchases } from '@pushify/purchases';
 import { PUSHIFY_PUBLIC_APP_KEY } from './appConfig';
 
 export const pushifyLinks = new PushifyAcquisitionLinks({
   publicApiKey: PUSHIFY_PUBLIC_APP_KEY,
-  // appUserId can be supplied here if it is already stable at startup.
 });
+
+export const pushifyPurchases = new PushifyPurchases({
+  publicApiKey: PUSHIFY_PUBLIC_APP_KEY,
+});
+```
+
+Call `await pushifyPurchases.configure()` once at application startup. Then load offerings and start native purchases with a package ID:
+
+```ts
+const customer = await pushifyPurchases.customerInfo();
+const offeringSet = await pushifyPurchases.offerings();
+const packageId = offeringSet.offerings[0]?.packages[0]?.id;
+if (packageId) {
+  const outcome = await pushifyPurchases.purchase(packageId);
+  if (outcome.status === 'purchased') {
+    // outcome.customerInfo contains server-verified access.
+  }
+}
 ```
 
 ## Connect app links
@@ -130,16 +147,16 @@ The optional `appUserId` should match the ID used by your Pushify identity integ
 
 ## Errors and security
 
-- The API URL must use HTTPS. Configure `apiBaseUrl` only for a compatible Pushify deployment.
+- The API URL must use HTTPS and point to Pushify Cloud.
 - Invalid tokens, network errors and non-success HTTP responses reject the promise.
 - Never log the public key or raw token. Validate `destination` against routes supported by your app before navigating.
 - The public app key is intended for client use. Never ship a server secret in the bundle.
 
 ## Current limitations
 
-- This package currently implements helpers, not a full customer-facing purchase SDK.
+- Dashboard paywalls and Customer Center are not implemented. Native offerings include localized product details where the store returns them.
+- iOS/Android sandbox purchase journeys and React Native host-app builds remain unverified, so do not ship this package for production purchase processing yet.
 - Native deferred token handling depends on supported store/platform handoff. iOS uses an explicit pasteboard action; Android reads Google Play Install Referrer.
-- Purchase, restore, identity, entitlement and React Native paywall UI are not implemented.
 - The package is not published; use the local package path until a release is available.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).

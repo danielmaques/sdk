@@ -8,19 +8,19 @@ The packages use native platform APIs and Pushify's documented server protocol. 
 
 | Platform | Package | Guide | Distribution |
 |---|---|---|---|
-| Android | Kotlin library | [Android setup and acquisition-link guide](android/README.md) | Maven Central release pending |
-| iOS | Swift package | [iOS setup and acquisition-link guide](ios/README.md) | Swift Package release pending |
-| Flutter | `pushify_purchases` | [Flutter setup and acquisition-link guide](flutter/README.md) | pub.dev release pending; package name availability unconfirmed |
-| React Native | `@pushify/purchases` | [React Native setup and acquisition-link guide](react-native/README.md) | npm release pending |
+| Android | Kotlin library | [Android setup and purchase guide](android/README.md) | Maven Central release pending |
+| iOS | Swift package | [iOS setup and purchase guide](ios/README.md) | Swift Package release pending |
+| Flutter | `pushify_purchases` | [Flutter setup and purchase guide](flutter/README.md) | pub.dev release pending |
+| React Native | `@pushify/purchases` | [React Native setup and purchase guide](react-native/README.md) | npm release pending |
 
-## Preview capabilities
+## Implemented purchase foundation
 
-The current preview implements acquisition-link token parsing and resolution. Each platform has a one-call helper for handling a direct app URL; Android reads deferred tokens from Google Play Install Referrer, and iOS supports a user-initiated pasteboard handoff. Flutter and React Native expose matching deferred-resolution helpers.
+The native iOS and Android clients and the Flutter/React Native bridges expose customer bootstrap, identity, attributes, offerings, native purchases, restore/sync, verified transaction delivery, cached customer snapshots, customer update listeners, event submission and idempotent virtual-currency spends. StoreKit 2 and Google Play Billing are the purchase engines. Acquisition-link helpers are also available on all four platforms.
 
-Each platform guide includes prerequisites, local installation, direct-link handling, deferred-token retrieval, API response fields, security notes, and current limitations. The host app remains responsible for link-domain setup and deciding how to navigate to a returned destination.
+Native localized product hydration is implemented for StoreKit and Play Billing and is forwarded by the Flutter/React Native bridges. Paywall rendering, Customer Center, published paywall schema migration, cross-platform sandbox journeys and production package validation remain incomplete. The host app still owns link-domain setup and navigation.
 
-## Not production-ready yet
+## Production readiness
 
-Customer identity, offerings and products, purchases, receipt / transaction sync, restore, entitlements, and native paywall presentation are part of the planned complete SDK scope but are not implemented in this preview. No package has been published. Do not use this preview for production purchase processing.
+The SDKs are **not production-ready yet**. Paywalls and several client-facing capabilities in the product plan are missing, and the full Apple/Google sandbox acceptance suite has not passed. No package has been published. Each guide records its platform-specific build and capability limits.
 
 See the shared [acquisition-link contract](docs/acquisition-links.md) and the [SDK product plan](../prd/sdks/PRD.md).

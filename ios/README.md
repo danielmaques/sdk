@@ -1,8 +1,8 @@
 # Pushify iOS SDK
 
-The Pushify Swift package currently provides acquisition-link token extraction and resolution. It can parse a direct token from an incoming app URL, optionally read the Pushify deferred token from the pasteboard after your app explains that action to the user, and exchange a token with the Pushify API.
+The Pushify Swift package uses StoreKit 2 and the first-party Pushify `/sdk/v1` API. It implements customer bootstrap/identity, attributes, offerings, StoreKit purchase and restore, transaction recovery, encrypted verified-customer caching, update streams, app events, virtual-currency spending and acquisition links.
 
-> **Preview:** purchases, customer identity, offerings, entitlements, restore, and native paywall UI are not implemented. Do not use this preview to process production purchases.
+> **Implementation status:** native purchase and customer flows exist, including localized StoreKit product details. Dashboard paywall rendering, Customer Center, the complete sandbox matrix, and release-package validation are still missing. This SDK is not production-ready yet.
 
 ## Requirements
 
@@ -44,6 +44,25 @@ private func makePushifyLinks() -> PushifyAcquisitionLinks {
     }
 }
 ```
+
+Configure purchases at the same app composition root:
+
+```swift
+let purchases = try await PushifyPurchases.configure(apiKey: key)
+let customer = try await purchases.customerInfo()
+let offerings = try await purchases.offerings()
+
+if let package = offerings.offerings.first?.packages.first {
+    switch try await purchases.purchase(packageID: package.id) {
+    case .purchased(let customer):
+        print(customer.entitlements.active.map(\.key))
+    case .pending, .cancelled:
+        break
+    }
+}
+```
+
+`configure` starts StoreKit transaction recovery and returns a client even when the initial network is unavailable. `customerInfo()` and `offerings()` perform fresh requests and report their errors. `cachedCustomerInfo()` is the last server-verified snapshot stored on device.
 
 ## Connect Universal Links
 
@@ -121,7 +140,7 @@ Pass the same app user ID used by your Pushify customer identity when it is know
 
 ## Errors and security
 
-- The API base URL must be HTTPS. `apiBaseURL` may point to your compatible Pushify deployment.
+- The API base URL must be HTTPS. The supported service is Pushify Cloud.
 - Invalid token syntax is rejected locally; HTTP and decoding failures throw errors.
 - Never log the public key or raw link token. Validate destinations against the routes your app supports before navigating.
 - The public app key belongs in the app; never include a server secret in the application bundle.
@@ -130,34 +149,11 @@ Pass the same app user ID used by your Pushify customer identity when it is know
 
 - The app must forward Universal Links / custom URL callbacks to the SDK helper. Automatic lifecycle capture and pending-link storage are not implemented.
 - Deferred capture uses an explicit clipboard action and may show a system privacy prompt. It cannot guarantee post-install recovery for every user or distribution path.
-- Purchases, customer identity, offerings, entitlements, restore, paywalls and complete lifecycle integration are not implemented.
+- Dashboard paywalls and Customer Center are not implemented. Offering products include localized StoreKit display price and currency data.
+- StoreKit sandbox journeys, accessibility QA and release archive validation remain outstanding. Do not ship this package for production purchase processing yet.
 - The Swift package is not published yet; add it locally during development.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).
-# Pushify iOS SDK
-
-The first-party Swift package is `PushifySDK`. It uses StoreKit 2 and the Pushify `/sdk/v1` API. Current in-branch implementation includes app/customer bootstrap, identity, attributes, offerings, verified StoreKit transaction sync, restore, and unfinished transaction recovery. Dashboard paywalls, persistent offline snapshot storage, event/customer-center APIs, and full sandbox QA are still in progress; this package is not marked production-ready yet.
-
-```swift
-import PushifySDK
-
-let purchases = try await PushifyPurchases.configure(apiKey: "appl_…")
-let customer = try await purchases.customerInfo()
-let offerings = try await purchases.offerings()
-
-if let package = offerings.offerings.first?.packages.first {
-    switch try await purchases.purchase(packageID: package.id) {
-    case .purchased(let refreshedCustomer):
-        print(refreshedCustomer.entitlements.active.map(\.key))
-    case .pending:
-        break // StoreKit will report the transaction through its updates stream.
-    case .cancelled:
-        break
-    }
-}
-```
-
-The public app key is intended for embedding in the app. Never put a Pushify project secret in a mobile binary. The package uses StoreKit signed transaction proofs and only finishes an Apple transaction after the server has accepted its sync.
 
 ## Build
 

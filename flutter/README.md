@@ -1,8 +1,8 @@
 # `pushify_purchases` for Flutter
 
-The Pushify Flutter package currently provides acquisition-link capture and resolution, plus a platform call to read a deferred token from Android Install Referrer or an explicit iOS pasteboard handoff.
+The Flutter package exposes the first-party purchase foundation through Android and iOS plugins: customer bootstrap/identity, attributes, offerings, native purchases and restore, verified transaction sync, encrypted customer snapshots, update streams, app events and idempotent virtual-currency spending. Acquisition links are included as well.
 
-> **Preview:** this package does not yet implement purchases, customer identity, offerings, entitlements, restore, full app lifecycle integration, or paywall widgets. It is not ready for production purchase processing and has not been published to pub.dev.
+> **Implementation status:** Dart analysis passes, and temporary Flutter host apps build for Android and the iOS Simulator. Dashboard paywall rendering, Customer Center, store sandbox journeys, long-term Flutter plugin migration warnings, and release validation remain outstanding. The package is not production-ready and has not been published.
 
 ## Requirements
 
@@ -35,12 +35,26 @@ import 'package:pushify_purchases/pushify_purchases.dart';
 
 void main() {
   const publicKey = String.fromEnvironment('PUSHIFY_PUBLIC_APP_KEY');
-  final pushifyLinks = PushifyAcquisitionLinks(publicApiKey: publicKey);
-  runApp(MyApp(pushifyLinks: pushifyLinks));
+  final purchases = PushifyPurchases(publicApiKey: publicKey);
+  runApp(MyApp(purchases: purchases));
 }
 ```
 
-Run the app with `--dart-define=PUSHIFY_PUBLIC_APP_KEY=pushify_public_app_key` and pass the same `pushifyLinks` instance to your root router / dependency provider.
+Run with `--dart-define=PUSHIFY_PUBLIC_APP_KEY=pushify_public_app_key`, then call `await purchases.configure()` once before purchase APIs. Keep the instance in your app-level dependency provider.
+
+```dart
+final snapshot = await purchases.customerInfo();
+final offerings = await purchases.offerings();
+final package = (offerings['offerings'] as List).first['packages'].first;
+final result = await purchases.purchase(package['id'] as String);
+if (result.isPurchased) {
+  // result.customerInfo contains server-verified entitlements.
+}
+
+final updates = purchases.customerInfoUpdates.listen((customer) {
+  // Refresh access UI from verified customer state.
+});
+```
 
 ## Connect app links
 
@@ -135,7 +149,8 @@ Future<void> continueFromCampaign(PushifyAcquisitionLinks pushifyLinks) async {
 
 - The app/router is responsible for delivering initial and runtime URLs to `handle` (or `capture`).
 - Deferred recovery depends on platform behavior: Google Play Install Referrer on Android, user-initiated pasteboard access on iOS. No probabilistic matching is used.
-- Purchase, restore, identity, entitlement and native paywall APIs are planned but absent from this preview.
+- Dashboard paywalls and Customer Center are not implemented. Offering data is returned as Pushify JSON maps enriched with localized StoreKit/Play product details.
+- Apple/Google sandbox flows and Flutter plugin integration builds have not passed in this environment, so do not ship this package for production purchase processing yet.
 - The package is not published; use a local path dependency until a version is released.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).

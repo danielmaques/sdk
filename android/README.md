@@ -2,7 +2,7 @@
 
 The Pushify Android package is an original Kotlin library using Google Play Billing and the Pushify `/sdk/v1` API. It currently implements customer bootstrap and identity, attributes, offering/package lookup, purchase flow, server transaction sync, purchase acknowledge/consume after server acceptance, and restore/reconciliation. It also contains acquisition-link helpers.
 
-> **Implementation status:** this package is not production-ready. Its Android build has not yet passed in this checkout, and localized product presentation, offline cache, listener APIs, paywalls, and sandbox journeys remain in progress.
+> **Implementation status:** the Kotlin library compiles and includes localized Play product details, encrypted cached customer snapshots, listeners, and purchase reconciliation. Dashboard paywall rendering, Customer Center, store sandbox journeys, and release validation remain outstanding. Do not ship this package for production purchase processing yet.
 
 ## Requirements
 
@@ -203,7 +203,7 @@ Pass `appUserId` only when you have the actual app user ID. The parameter is opt
 
 ## Errors and security
 
-- The API URL must use HTTPS. `apiBaseUrl` can point to a compatible Pushify server in development or self-hosted deployments, but must remain HTTPS.
+- The API URL must use HTTPS and point to Pushify Cloud.
 - Invalid token syntax is rejected before making a request. HTTP, decoding and connectivity failures are returned through `Result.failure`.
 - Never log the public key or raw link token. Treat destinations as untrusted input and allow only routes your app recognizes.
 - The public app key is intended for client apps; do not put a server secret in the APK.
@@ -212,7 +212,9 @@ Pass `appUserId` only when you have the actual app user ID. The parameter is opt
 
 - The library does not configure Android App Links or navigate to screens; the host Activity forwards its incoming URLs to `resolveUrl`.
 - Deferred-token retrieval uses Google Play Install Referrer. Other stores may require a different supported handoff.
-- Customer identity, purchase / restore flows, entitlement state, paywalls and full SDK lifecycle integration are not implemented.
+- Dashboard paywalls and Customer Center are not implemented. Localized price data is hydrated from Google Play for returned offerings.
+- Google Play sandbox purchase, pending, restore, account-switch, and interrupted-network journeys remain unverified.
+- Offline cache covers the last server-verified customer snapshot; offerings and new transactions still require network access.
 - This package is not published yet; install from the source workspace during development.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).
