@@ -134,3 +134,33 @@ Pass the same app user ID used by your Pushify customer identity when it is know
 - The Swift package is not published yet; add it locally during development.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).
+# Pushify iOS SDK
+
+The first-party Swift package is `PushifySDK`. It uses StoreKit 2 and the Pushify `/sdk/v1` API. Current in-branch implementation includes app/customer bootstrap, identity, attributes, offerings, verified StoreKit transaction sync, restore, and unfinished transaction recovery. Dashboard paywalls, persistent offline snapshot storage, event/customer-center APIs, and full sandbox QA are still in progress; this package is not marked production-ready yet.
+
+```swift
+import PushifySDK
+
+let purchases = try await PushifyPurchases.configure(apiKey: "appl_…")
+let customer = try await purchases.customerInfo()
+let offerings = try await purchases.offerings()
+
+if let package = offerings.offerings.first?.packages.first {
+    switch try await purchases.purchase(packageID: package.id) {
+    case .purchased(let refreshedCustomer):
+        print(refreshedCustomer.entitlements.active.map(\.key))
+    case .pending:
+        break // StoreKit will report the transaction through its updates stream.
+    case .cancelled:
+        break
+    }
+}
+```
+
+The public app key is intended for embedding in the app. Never put a Pushify project secret in a mobile binary. The package uses StoreKit signed transaction proofs and only finishes an Apple transaction after the server has accepted its sync.
+
+## Build
+
+```sh
+xcodebuild -scheme PushifySDK -destination 'generic/platform=iOS Simulator' build
+```
