@@ -125,7 +125,7 @@ Future<void> continueFromCampaign(PushifyAcquisitionLinks pushifyLinks) async {
 
 ## Errors and security
 
-- Use HTTPS for `apiBaseUrl`. A compatible self-hosted Pushify API can be configured there.
+- Use HTTPS for `apiBaseUrl`. The SDK connects to Pushify Cloud.
 - Invalid token syntax and non-2xx server responses throw `PushifyAcquisitionLinkException`.
 - Never log the public key or raw token. Validate the returned destination against your own navigation routes.
 - The public app key is safe for client configuration; do not include a server secret in the Flutter bundle.

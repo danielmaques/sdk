@@ -122,7 +122,7 @@ The helper returns `undefined` when the native module is unavailable or there is
 - `acquisitionTokenFromUrl(url)` returns the direct `rdt` token or `undefined`.
 - `PushifyAcquisitionLinks.handleUrl(url, appUserId?)` extracts and resolves a direct link in one call.
 - `PushifyAcquisitionLinks.resolveDeferred(appUserId?)` reads and resolves a supported deferred handoff in one call.
-- `resolveAcquisitionLink(token, options)` posts to `/v1/acquisition_links/resolve` using `publicApiKey`, optional `apiBaseUrl`, and optional `appUserId`.
+- `resolveAcquisitionLink(token, options)` posts to `/sdk/v1/acquisition-links/resolve` using `publicApiKey`, optional `apiBaseUrl`, and optional `appUserId`.
 - `readDeferredAcquisitionToken()` asks the native module for a deferred `rdit_` token.
 - `PushifyAcquisitionLink` contains `status`, `link_id`, `name`, `slug`, `destination`, `app_scheme`, `campaign`, and `attributed`.
 

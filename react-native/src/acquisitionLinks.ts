@@ -39,7 +39,7 @@ export async function resolveAcquisitionLink(
   if (!TOKEN.test(token)) throw new Error('Invalid Pushify acquisition-link token.');
   if (!options.publicApiKey) throw new Error('A Pushify public app key is required.');
   const base = options.apiBaseUrl ?? 'https://api.pushify.app';
-  const endpoint = new URL('/v1/acquisition_links/resolve', base);
+  const endpoint = new URL('/sdk/v1/acquisition-links/resolve', base);
   if (endpoint.protocol !== 'https:') throw new Error('Pushify API URL must use HTTPS.');
 
   const response = await fetch(endpoint, {
@@ -50,7 +50,7 @@ export async function resolveAcquisitionLink(
     },
     body: JSON.stringify({
       token,
-      ...(options.appUserId ? { app_user_id: options.appUserId } : {}),
+      ...(options.appUserId ? { customer_id: options.appUserId } : {}),
     }),
   });
   if (!response.ok) {
@@ -58,7 +58,24 @@ export async function resolveAcquisitionLink(
   }
   const body = await response.text();
   if (body.length > 65536) throw new Error('Pushify response was too large.');
-  return JSON.parse(body) as PushifyAcquisitionLink;
+  const payload = JSON.parse(body) as { link?: Record<string, unknown> };
+  const link = payload.link;
+  if (!link || typeof link.id !== 'string' || typeof link.destination !== 'string') {
+    throw new Error('Pushify returned an invalid acquisition-link response.');
+  }
+  return {
+    object: 'acquisition_link_resolution',
+    status: link.status === 'attributed' ? 'attributed' : 'resolved',
+    link_id: link.id,
+    name: typeof link.name === 'string' ? link.name : '',
+    slug: typeof link.slug === 'string' ? link.slug : '',
+    destination: link.destination,
+    app_scheme: typeof link.app_scheme === 'string' ? link.app_scheme : '',
+    campaign: link.campaign && typeof link.campaign === 'object'
+      ? link.campaign as Record<string, string>
+      : {},
+    attributed: link.attributed === true,
+  };
 }
 /** Reads the deferred token after your app has explained the iOS pasteboard prompt. */
 export async function readDeferredAcquisitionToken(): Promise<string | undefined> {

@@ -167,14 +167,14 @@ class PushifyAcquisitionLinks {
     if (!_isToken(token)) {
       throw const PushifyAcquisitionLinkException('Invalid token.');
     }
-    final uri = _apiBaseUrl.resolve('/v1/acquisition_links/resolve');
+    final uri = _apiBaseUrl.resolve('/sdk/v1/acquisition-links/resolve');
     try {
       final response = await _sendBoundedRequest(
         uri,
         jsonEncode({
           'token': token,
           if (appUserId != null && appUserId.isNotEmpty)
-            'app_user_id': appUserId,
+            'customer_id': appUserId,
         }),
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -190,7 +190,20 @@ class PushifyAcquisitionLinks {
           'The server response must be a JSON object.',
         );
       }
-      return PushifyAcquisitionLink.fromJson(decoded);
+      final payload = decoded['link'];
+      if (payload is! Map<String, dynamic>) {
+        throw const FormatException('The server response must include a link object.');
+      }
+      return PushifyAcquisitionLink.fromJson({
+        'link_id': payload['id'],
+        'name': payload['name'],
+        'slug': payload['slug'],
+        'destination': payload['destination'],
+        'app_scheme': payload['app_scheme'],
+        'campaign': payload['campaign'],
+        'attributed': payload['attributed'],
+        'status': payload['status'],
+      });
     } on PushifyAcquisitionLinkException {
       rethrow;
     } on TimeoutException catch (error) {

@@ -14,7 +14,7 @@ Configure one resolver at the app root, then pass incoming URLs to the platform'
 
 ## Resolution contract
 
-The client sends `POST /v1/acquisition_links/resolve` with `Authorization: Bearer <public-app-key>` and JSON `{ "token": "rdlt_...", "app_user_id": "..." }`. `app_user_id` is optional. A successful response includes `status`, `link_id`, `name`, `slug`, `destination`, `app_scheme`, `campaign`, and `attributed`. Direct and deferred resolution may be retried; the server controls token expiry and attribution.
+The client sends `POST /sdk/v1/acquisition-links/resolve` with `Authorization: Bearer <public-app-key>` and JSON `{ "token": "rdlt_...", "customer_id": "..." }`. `customer_id` is optional. A successful response includes a `link` object with `id`, `name`, `slug`, `destination`, `app_scheme`, `campaign`, `status`, and `attributed`. Direct and deferred resolution may be retried; the server controls token expiry and attribution.
 
 Never log or persist raw tokens longer than required for resolution. Do not collect IP addresses or device fingerprints, and do not infer a match when a platform handoff is unavailable.
 
