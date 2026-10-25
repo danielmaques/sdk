@@ -1,8 +1,8 @@
 # Pushify Android SDK
 
-The Pushify Android package is an original Kotlin library for resolving Pushify acquisition links. It can extract a direct token from an incoming URL, read a deferred token delivered by Google Play Install Referrer, and exchange either token with the Pushify API.
+The Pushify Android package is an original Kotlin library using Google Play Billing and the Pushify `/sdk/v1` API. It currently implements customer bootstrap and identity, attributes, offering/package lookup, purchase flow, server transaction sync, purchase acknowledge/consume after server acceptance, and restore/reconciliation. It also contains acquisition-link helpers.
 
-> **Preview:** the current package only implements acquisition-link helpers. Purchases, customer identity, offerings, entitlements, restore, and paywall UI are not implemented. Do not use this preview to process production purchases.
+> **Implementation status:** this package is not production-ready. Its Android build has not yet passed in this checkout, and localized product presentation, offline cache, listener APIs, paywalls, and sandbox journeys remain in progress.
 
 ## Requirements
 
@@ -48,20 +48,49 @@ android {
 
 ```kotlin
 import android.app.Application
-import app.pushify.sdk.AcquisitionLinks
+import app.pushify.sdk.PushifyPurchases
 
 class ExampleApplication : Application() {
-    lateinit var pushifyLinks: AcquisitionLinks
+    lateinit var pushifyPurchases: PushifyPurchases
         private set
 
     override fun onCreate() {
         super.onCreate()
-        pushifyLinks = AcquisitionLinks(
+        pushifyPurchases = PushifyPurchases(
+            context = this,
             publicApiKey = BuildConfig.PUSHIFY_PUBLIC_APP_KEY,
         )
+        pushifyPurchases.configure { result ->
+            result.onSuccess { customer -> /* use server-verified state */ }
+        }
     }
 }
 ```
+
+The acquisition-link resolver can be initialized alongside the purchases client when your app uses Pushify app links.
+
+## Purchase and restore
+
+Call `offerings` to load package IDs from the dashboard catalog. Then initiate the native Google Play sheet from an Activity:
+
+```kotlin
+pushifyPurchases.offerings { result ->
+    val packageId = result.getOrThrow().getJSONArray("offerings")
+        .getJSONObject(0).getJSONArray("packages").getJSONObject(0).getString("id")
+    pushifyPurchases.purchase(this, packageId) { purchase ->
+        purchase.onSuccess { outcome ->
+            when (outcome) {
+                is PushifyPurchases.PurchaseOutcome.Purchased -> { /* entitlements are server-verified */ }
+                PushifyPurchases.PurchaseOutcome.Pending -> { /* wait for Google Play approval */ }
+                PushifyPurchases.PurchaseOutcome.Cancelled -> Unit
+            }
+        }
+    }
+}
+pushifyPurchases.restorePurchases { result -> /* refreshed customer snapshot */ }
+```
+
+The SDK syncs the purchase token before acknowledging or consuming it. A network failure leaves the purchase available for retry during restore or the next SDK startup.
 
 Register the class in `AndroidManifest.xml`:
 
