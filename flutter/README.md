@@ -87,7 +87,7 @@ Future<void> continueFromCampaign() async {
 - `PushifyAcquisitionLinks.getInitialLink({String? appUserId})` resolves the pending token, or returns `null` if none was captured.
 - `PushifyAcquisitionLinks.readDeferredToken()` returns a deferred token or `null` when the OS/store has none.
 - `PushifyAcquisitionLinks.resolve(String, {String? appUserId})` resolves a token directly.
-- `dispose()` closes the HTTP client owned by this instance. Do not use the instance afterward.
+- `dispose()` closes the HTTP client created by this instance. If you pass a client, you retain ownership and must close it yourself. Do not use the resolver after disposal.
 - `PushifyAcquisitionLink` exposes `linkId`, `name`, `slug`, `destination`, `appScheme`, `campaign`, `attributed`, and `status`.
 
 `appUserId` is optional: resolve before login if needed, and use the same stable app user ID as your Pushify identity integration when known. The SDK does not create an artificial customer for anonymous users.
@@ -98,7 +98,7 @@ Future<void> continueFromCampaign() async {
 - Invalid token syntax and non-2xx server responses throw `PushifyAcquisitionLinkException`.
 - Never log the public key or raw token. Validate the returned destination against your own navigation routes.
 - The public app key is safe for client configuration; do not include a server secret in the Flutter bundle.
-- If you inject an `http.Client`, `dispose()` currently closes that client as well.
+- An injected `http.Client` remains caller-owned and must be closed by the caller.
 
 ## Current limitations
 
