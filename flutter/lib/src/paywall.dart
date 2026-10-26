@@ -485,6 +485,28 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     String seconds,
   ) {
     final result = Map<String, Object?>.from(node);
+    if (result['properties'] is Map) {
+      final properties = _map(result['properties']);
+      if (properties['text'] is String) {
+        properties['text'] = _countdownText(
+          properties['text'] as String,
+          days,
+          hours,
+          minutes,
+          seconds,
+        );
+      }
+      result['properties'] = properties;
+    }
+    if (result['text'] is String) {
+      result['text'] = _countdownText(
+        result['text'] as String,
+        days,
+        hours,
+        minutes,
+        seconds,
+      );
+    }
     final components = _maps(result['components'])
         .map(
           (child) =>
@@ -492,17 +514,35 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         )
         .toList();
     if (result['components'] is List) result['components'] = components;
-    if (result['text'] is String) {
-      result['text'] = (result['text'] as String)
-          .replaceAll('{{ count_days_without_zero }}', '$days')
-          .replaceAll('{{ count_hours_with_zero }}', hours)
-          .replaceAll('{{ count_minutes_with_zero }}', minutes)
-          .replaceAll('{{ count_seconds_with_zero }}', seconds);
-    }
+    final children = _maps(result['children'])
+        .map(
+          (child) =>
+              _replaceCountdownTokens(child, days, hours, minutes, seconds),
+        )
+        .toList();
+    if (result['children'] is List) result['children'] = children;
     return result;
   }
 
+  String _countdownText(
+    String value,
+    int days,
+    String hours,
+    String minutes,
+    String seconds,
+  ) => value
+      .replaceAll('{{ count_days_without_zero }}', '$days')
+      .replaceAll('{{ count_hours_with_zero }}', hours)
+      .replaceAll('{{ count_minutes_with_zero }}', minutes)
+      .replaceAll('{{ count_seconds_with_zero }}', seconds);
+
   Color _color(Object? value, Color fallback) {
+    if (value is Map) {
+      final object = _map(value);
+      final directLight = _map(object['light']);
+      final nestedValue = _map(object['value']);
+      value = directLight['value'] ?? _map(nestedValue['light'])['value'];
+    }
     if (value is! String) return fallback;
     final hex = value.replaceFirst('#', '');
     final parsed = int.tryParse(hex, radix: 16);

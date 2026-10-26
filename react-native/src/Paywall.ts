@@ -154,13 +154,27 @@ function nestedNode(value: unknown): PushifyPaywallNode | null {
 }
 function replaceCountdown(value: Record<string, unknown>, days: number, hours: string, minutes: string, seconds: string): Record<string, unknown> {
   const result = { ...value };
-  if (typeof result.text === 'string') result.text = result.text.split('{{ count_days_without_zero }}').join(String(days)).split('{{ count_hours_with_zero }}').join(hours).split('{{ count_minutes_with_zero }}').join(minutes).split('{{ count_seconds_with_zero }}').join(seconds);
+  const replace = (text: string) => text.split('{{ count_days_without_zero }}').join(String(days)).split('{{ count_hours_with_zero }}').join(hours).split('{{ count_minutes_with_zero }}').join(minutes).split('{{ count_seconds_with_zero }}').join(seconds);
+  if (typeof result.text === 'string') result.text = replace(result.text);
+  if (result.properties && typeof result.properties === 'object') {
+    const properties = { ...record(result.properties) };
+    if (typeof properties.text === 'string') properties.text = replace(properties.text);
+    result.properties = properties;
+  }
   if (Array.isArray(result.components)) result.components = result.components.map((child) => replaceCountdown(record(child), days, hours, minutes, seconds));
+  if (Array.isArray(result.children)) result.children = result.children.map((child) => replaceCountdown(record(child), days, hours, minutes, seconds));
   return result;
 }
 function twoDigits(value: number): string { return String(value).padStart(2, '0'); }
 function iconGlyph(name: string | null): string { return ({ check: '✓', checkmark: '✓', star: '★', bell: '♢', unlock: '◇' } as Record<string, string>)[name ?? ''] ?? '•'; }
-function color(value: unknown, fallback: string): string { if (typeof value === 'string' && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return value.length === 9 ? `#${value.slice(7)}${value.slice(1, 7)}` : value; return fallback; }
+function color(value: unknown, fallback: string): string {
+  if (value && typeof value === 'object') {
+    const object = record(value);
+    value = record(object.light).value ?? record(record(object.value).light).value;
+  }
+  if (typeof value === 'string' && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return value.length === 9 ? `#${value.slice(7)}${value.slice(1, 7)}` : value;
+  return fallback;
+}
 
 function findPackage(node: PushifyPaywallNode | null | undefined, selectedOnly: boolean): string | null {
   if (!node) return null;

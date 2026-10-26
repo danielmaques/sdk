@@ -109,6 +109,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 text = iconGlyph(properties.optString("icon_name"))
                 textSize = properties.optDouble("size", 24.0).toFloat().coerceIn(12f, 64f)
                 gravity = Gravity.CENTER
+                setTextColor(colorValue(properties.optJSONObject("color"), Color.rgb(49, 94, 232)))
                 contentDescription = properties.optString("accessibility_label").ifBlank { properties.optString("icon_name") }
             }
             "timeline" -> LinearLayout(context).apply {
@@ -154,11 +155,13 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
             "countdown" -> TextView(context).apply {
                 val date = properties.optJSONObject("style")?.optString("date")
+                val template = findNodeText(properties.optJSONObject("countdown_stack"))
+                val endedText = findNodeText(properties.optJSONObject("end_stack"))
                 val endMillis = runCatching { java.time.Instant.parse(date).toEpochMilli() }.getOrNull()
                 if (endMillis != null && endMillis > System.currentTimeMillis()) {
                     val timer = object : android.os.CountDownTimer(endMillis - System.currentTimeMillis(), 1000) {
-                        override fun onTick(millis: Long) { text = countdownText(millis) }
-                        override fun onFinish() { text = "Offer ended" }
+                        override fun onTick(millis: Long) { text = countdownText(millis, template) }
+                        override fun onFinish() { text = endedText ?: "Offer ended" }
                     }
                     timer.start(); addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener { override fun onViewAttachedToWindow(view: View) = Unit; override fun onViewDetachedFromWindow(view: View) { timer.cancel() } })
                 } else text = "Offer ended"
@@ -279,9 +282,24 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return JSONObject().put("id", value.optString("id")).put("kind", kind).put("properties", properties).put("children", normalized)
     }
     private fun iconGlyph(name: String): String = when (name.lowercase()) { "check", "checkmark" -> "✓"; "star" -> "★"; "bell" -> "♢"; "unlock" -> "◇"; "heart" -> "♥"; "clock" -> "◷"; else -> "●" }
-    private fun countdownText(millis: Long): String {
+    private fun colorValue(value: JSONObject?, fallback: Int): Int {
+        val light = value?.optJSONObject("light") ?: value?.optJSONObject("value")?.optJSONObject("light")
+        val hex = light?.optString("value")?.takeIf(String::isNotBlank) ?: return fallback
+        return runCatching { Color.parseColor(hex) }.getOrDefault(fallback)
+    }
+    private fun findNodeText(node: JSONObject?): String? {
+        if (node == null) return null
+        val properties = node.optJSONObject("properties")
+        properties?.optString("text")?.takeIf(String::isNotBlank)?.let { return it }
+        node.optString("text").takeIf(String::isNotBlank)?.let { return it }
+        val children = node.optJSONArray("children") ?: node.optJSONArray("components") ?: return null
+        for (i in 0 until children.length()) findNodeText(children.optJSONObject(i))?.let { return it }
+        return null
+    }
+    private fun countdownText(millis: Long, template: String?): String {
         val total = millis / 1000; val days = total / 86400; val hours = total / 3600 % 24; val minutes = total / 60 % 60; val seconds = total % 60
-        return if (days > 0) "${days}d ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}" else "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+        val fallback = if (days > 0) "${days}d ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}" else "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+        return (template ?: fallback).replace("{{ count_days_without_zero }}", days.toString()).replace("{{ count_hours_with_zero }}", hours.toString().padStart(2, '0')).replace("{{ count_minutes_with_zero }}", minutes.toString().padStart(2, '0')).replace("{{ count_seconds_with_zero }}", seconds.toString().padStart(2, '0'))
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

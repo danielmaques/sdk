@@ -151,7 +151,8 @@ public struct PushifyPaywallView: View {
         case "countdown":
             if let style = object(node.properties["style"]), let rawDate = string(style["date"]), let date = ISO8601DateFormatter().date(from: rawDate), date > .now {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(countdownLabel(from: context.date, to: date)).monospacedDigit().accessibilityLabel("Offer countdown")
+                    let template = nestedNode(node.properties["countdown_stack"]).map { firstText($0, screen: screen) } ?? "{{ count_days_without_zero }}d {{ count_hours_with_zero }}:{{ count_minutes_with_zero }}:{{ count_seconds_with_zero }}"
+                    Text(countdownLabel(from: context.date, to: date, template: template)).monospacedDigit().accessibilityLabel("Offer countdown")
                 }
             } else if let end = nestedNode(node.properties["end_stack"]) { AnyView(render(end, screen: screen)) }
         case "tab_control":
@@ -227,16 +228,30 @@ public struct PushifyPaywallView: View {
     private func symbolName(_ value: String) -> String { ["check": "checkmark", "unlock": "lock.open", "bell": "bell", "star": "star.fill", "heart": "heart.fill", "clock": "clock", "lock": "lock.fill" ][value] ?? "circle.fill" }
     private func colorString(_ value: PushifyJSONValue?) -> String? {
         if case .string(let color)? = value { return color }
-        if case .object(let object)? = value, case .object(let colors)? = object["value"], case .object(let light)? = colors["light"], case .string(let color)? = light["value"] { return color }
+        if case .object(let object)? = value {
+            let colors: [String: PushifyJSONValue]
+            if case .object(let nested)? = object["value"] { colors = nested } else { colors = object }
+            if case .object(let light)? = colors["light"], case .string(let color)? = light["value"] { return color }
+        }
         return nil
     }
-    private func countdownLabel(from now: Date, to end: Date) -> String {
+    private func firstText(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> String {
+        if node.kind == "text" || node.kind == "title" { return localized(node, screen: screen) }
+        return node.children.first(where: { $0.kind == "text" || $0.kind == "title" }).map { localized($0, screen: screen) }
+            ?? node.children.first.map { firstText($0, screen: screen) }
+            ?? "{{ count_days_without_zero }}d {{ count_hours_with_zero }}:{{ count_minutes_with_zero }}:{{ count_seconds_with_zero }}"
+    }
+    private func countdownLabel(from now: Date, to end: Date, template: String) -> String {
         let seconds = max(0, Int(end.timeIntervalSince(now)))
         let days = seconds / 86_400
         let hours = (seconds / 3_600) % 24
         let minutes = (seconds / 60) % 60
         let remainder = seconds % 60
-        return days > 0 ? "\(days)d \(String(format: "%02d:%02d:%02d", hours, minutes, remainder))" : String(format: "%02d:%02d:%02d", hours, minutes, remainder)
+        return template
+            .replacingOccurrences(of: "{{ count_days_without_zero }}", with: String(days))
+            .replacingOccurrences(of: "{{ count_hours_with_zero }}", with: String(format: "%02d", hours))
+            .replacingOccurrences(of: "{{ count_minutes_with_zero }}", with: String(format: "%02d", minutes))
+            .replacingOccurrences(of: "{{ count_seconds_with_zero }}", with: String(format: "%02d", remainder))
     }
 
     private func fontWeight(_ value: PushifyJSONValue?) -> Font.Weight {
