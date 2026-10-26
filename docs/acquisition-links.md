@@ -18,6 +18,6 @@ The client sends `POST /sdk/v1/acquisition-links/resolve` with `Authorization: B
 
 Never log or persist raw tokens longer than required for resolution. Do not collect IP addresses or device fingerprints, and do not infer a match when a platform handoff is unavailable.
 
-## Preview status
+## Implementation status
 
-The current source preview implements token extraction/resolution and platform deferred-token reads. The native purchase, restore, customer identity and entitlement clients are incomplete, so the packages are not production-ready and have not been published.
+The four source packages implement purchase, restore/sync, customer identity, entitlement snapshots, acquisition-link extraction/resolution, and their platform-specific deferred-token readers. Native library builds, Flutter analysis, the React Native TypeScript build, and npm/pub.dev archive dry-runs have passed. End-to-end acquisition attribution across all four sample hosts, store sandbox purchase journeys, and package release validation remain outstanding; the packages are still not production-ready and have not been published.
