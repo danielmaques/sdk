@@ -2,12 +2,12 @@ name: pushify_purchases
 description: Pushify in-app purchases, subscriptions, and acquisition links for Flutter.
 version: 0.1.0
 homepage: https://pushify.app
-repository: https://github.com/revenuedot/pushify-sdk
-issue_tracker: https://github.com/revenuedot/pushify-sdk/issues
+repository: https://github.com/danielmaques/sdk/tree/main/flutter
+issue_tracker: https://github.com/danielmaques/sdk/issues
 documentation: https://pushify.app/docs/sdks/flutter
 environment:
-  sdk: '>=3.4.0 <4.0.0'
-  flutter: '>=3.22.0'
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.44.0'
 dependencies:
   flutter:
     sdk: flutter

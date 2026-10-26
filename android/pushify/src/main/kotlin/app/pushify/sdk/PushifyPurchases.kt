@@ -58,6 +58,7 @@ public class PushifyPurchases(
     private val billing = BillingClient.newBuilder(appContext)
         .setListener(this)
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
+        .enableAutoServiceReconnection()
         .build()
 
     init {
@@ -394,13 +395,12 @@ public class PushifyPurchases(
             BillingClient.BillingResponseCode.OK -> {
                 val items = purchases.orEmpty()
                 if (items.isEmpty()) return completePurchase(Result.failure(error("empty_purchase_result", "Google Play returned no purchase data.", true)))
-                if (items.any { it.purchaseState == Purchase.PurchaseState.PENDING }) return completePurchase(Result.success(PurchaseOutcome.Pending))
-                val purchase = items.firstOrNull { it.purchaseState == Purchase.PurchaseState.PURCHASED }
-                    ?: return completePurchase(Result.failure(error("invalid_purchase_state", "Google Play returned an unsupported purchase state.", true)))
-                syncPurchase(purchase, pendingOffer) { sync ->
-                    sync.onSuccess(::publishSnapshot)
-                    completePurchase(sync.map { PurchaseOutcome.Purchased(it) })
+                val purchased = items.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }.distinctBy { it.purchaseToken }
+                if (purchased.isEmpty()) {
+                    return if (items.any { it.purchaseState == Purchase.PurchaseState.PENDING }) completePurchase(Result.success(PurchaseOutcome.Pending))
+                    else completePurchase(Result.failure(error("invalid_purchase_state", "Google Play returned an unsupported purchase state.", true)))
                 }
+                syncPurchaseCallbackItems(purchased, 0, null)
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> completePurchase(Result.success(PurchaseOutcome.Cancelled))
             else -> completePurchase(Result.failure(error("billing_error", result.debugMessage, result.responseCode == BillingClient.BillingResponseCode.SERVICE_DISCONNECTED)))
@@ -412,6 +412,30 @@ public class PushifyPurchases(
         pendingPurchaseCompletion = null
         pendingOffer = null
         completion?.let { post(it, result) }
+    }
+
+    private fun syncPurchaseCallbackItems(items: List<Purchase>, index: Int, latest: JSONObject?) {
+        if (index >= items.size) {
+            val finish: (Result<JSONObject>) -> Unit = { refreshed ->
+                refreshed.fold(onSuccess = { snapshot ->
+                    publishSnapshot(snapshot)
+                    completePurchase(Result.success(PurchaseOutcome.Purchased(snapshot)))
+                }, onFailure = { failure ->
+                    val snapshot = latest
+                    if (snapshot != null) completePurchase(Result.success(PurchaseOutcome.Purchased(snapshot)))
+                    else completePurchase(Result.failure(failure))
+                })
+            }
+            return customerInfo(finish)
+        }
+        val purchase = items[index]
+        val matchingOffer = pendingOffer?.takeIf { it.productId in purchase.products }
+        syncPurchase(purchase, matchingOffer) { result ->
+            result.fold(
+                onSuccess = { snapshot -> syncPurchaseCallbackItems(items, index + 1, snapshot) },
+                onFailure = { failure -> completePurchase(Result.failure(failure)) },
+            )
+        }
     }
 
     private fun syncOwnedPurchases(completion: (Result<JSONObject>) -> Unit) {
@@ -445,7 +469,7 @@ public class PushifyPurchases(
     private fun syncPurchase(purchase: Purchase, knownPackage: StorePackage?, completion: (Result<JSONObject>) -> Unit) {
         val productId = purchase.products.firstOrNull()
         if (productId == null) return post(completion, Result.failure(error("invalid_purchase", "Google Play purchase contains no product ID.", false)))
-        val selected = knownPackage ?: StorePackage("", productId, null, null)
+        val selected = knownPackage?.takeIf { it.productId == productId } ?: StorePackage("", productId, null, null)
         val body = JSONObject().put("customer_id", ensureCustomerId()).put("product_id", productId).put("proof", purchase.purchaseToken)
         selected.planId?.let { body.put("plan_id", it) }
         request("/sdk/v1/transactions/sync", "POST", body) { result ->

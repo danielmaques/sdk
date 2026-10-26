@@ -2,6 +2,7 @@ package app.pushify.flutter
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
@@ -36,6 +37,8 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
         when (call.method) {
             "configure" -> configure(call, result)
             "readDeferredToken" -> readDeferredToken(result)
+            "openManageSubscriptions" -> openManageSubscriptions(result)
+            "openUrl" -> openCustomerCenterUrl(call.argument<String>("url"), result)
             "customerInfo" -> withPurchases(result) { it.customerInfo { sendJson(result, it) } }
             "cachedCustomerInfo" -> result.success(purchases?.cachedCustomerInfo()?.let(::toFlutter))
             "offerings" -> withPurchases(result) { it.offerings(call.argument<String>("placement")) { sendJson(result, it) } }
@@ -73,8 +76,12 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
         runCatching {
             customerListener?.let { purchases?.removeCustomerInfoListener(it) }
             customerListener = null
+            purchases?.close()
             purchases = PushifyPurchases(appContext, key, baseUrl).also { sdk ->
-                sdk.configure { outcome -> sendJson(result, outcome) }
+                sdk.configure { outcome ->
+                    if (eventSink != null) listenForCustomerUpdates(sdk)
+                    sendJson(result, outcome)
+                }
             }
         }.onFailure { sendError(result, it) }
     }
@@ -120,9 +127,42 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
         })
     }
 
+    private fun openManageSubscriptions(result: MethodChannel.Result) {
+        val appContext = context ?: return result.success(false)
+        runCatching {
+            val url = Uri.parse("https://play.google.com/store/account/subscriptions?package=${Uri.encode(appContext.packageName)}")
+            val intent = Intent(Intent.ACTION_VIEW, url)
+            val currentActivity = activity
+            if (currentActivity != null) currentActivity.startActivity(intent)
+            else appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.onSuccess { result.success(true) }
+            .onFailure { result.error("open_failed", "Could not open Google Play subscription management.", null) }
+    }
+
+    private fun openCustomerCenterUrl(raw: String?, result: MethodChannel.Result) {
+        val appContext = context ?: return result.error("not_ready", "The Pushify plugin is not attached.", null)
+        val uri = runCatching { Uri.parse(raw ?: "") }.getOrNull()
+        val scheme = uri?.scheme?.lowercase()
+        if (uri == null || scheme.isNullOrBlank() || scheme in setOf("javascript", "data", "file", "blob", "about")) {
+            return result.error("invalid_url", "The Customer Center URL is invalid.", null)
+        }
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+            val currentActivity = activity
+            if (currentActivity != null) currentActivity.startActivity(intent)
+            else appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.onSuccess { result.success(true) }
+            .onFailure { result.error("open_failed", "Could not open the Customer Center URL.", null) }
+    }
+
     override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
         eventSink = sink
-        val sdk = purchases ?: return
+        purchases?.let(::listenForCustomerUpdates)
+    }
+
+    private fun listenForCustomerUpdates(sdk: PushifyPurchases) {
+        customerListener?.let(sdk::removeCustomerInfoListener)
+        val sink = eventSink ?: return
         val listener = PushifyPurchases.CustomerInfoListener { snapshot -> sink.success(toFlutter(snapshot)) }
         customerListener = listener
         sdk.addCustomerInfoListener(listener)

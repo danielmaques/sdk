@@ -5,14 +5,23 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/revenuedot/pushify-sdk.git",
+    "url": "https://github.com/danielmaques/sdk.git",
     "directory": "react-native"
   },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "files": ["lib", "android", "ios", "README.md"],
+  "files": [
+    "lib",
+    "android/build.gradle",
+    "android/src/**",
+    "ios/**/*",
+    "PushifyPurchases.podspec",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
@@ -20,6 +29,7 @@
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
+    "react-native": "^0.81.0",
     "typescript": "^5.6.3"
   }
 }

@@ -34,7 +34,10 @@ class PushifyPurchasesModule(context: ReactApplicationContext) : ReactContextBas
             customerListener = null
             val sdk = PushifyPurchases(reactApplicationContext, key, baseUrl)
             purchases = sdk
-            sdk.configure { result -> result.fold(onSuccess = { promise.resolve(toWritableMap(it)) }, onFailure = { reject(promise, it) }) }
+            sdk.configure { result -> result.fold(onSuccess = {
+                if (listenerCount > 0) listenForCustomerUpdates()
+                promise.resolve(toWritableMap(it))
+            }, onFailure = { reject(promise, it) }) }
         }.onFailure { reject(promise, it) }
     }
 
@@ -106,6 +109,7 @@ class PushifyPurchasesModule(context: ReactApplicationContext) : ReactContextBas
 
     private fun listenForCustomerUpdates() {
         val sdk = purchases ?: return
+        customerListener?.let(sdk::removeCustomerInfoListener)
         val listener = PushifyPurchases.CustomerInfoListener { snapshot -> emit("customerInfoUpdated", toWritableMap(snapshot)) }
         customerListener = listener
         sdk.addCustomerInfoListener(listener)

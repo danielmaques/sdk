@@ -75,32 +75,51 @@ class PushifyPurchases {
 
   /// Gets current offerings and published paywall documents for this app.
   Future<Map<String, Object?>> offerings({String? placement}) async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('offerings', {if (placement != null) 'placement': placement}));
+      _requireMap(await _invoke<Map<Object?, Object?>>(
+          'offerings', {if (placement != null) 'placement': placement}));
 
   /// Loads the published localized Customer Center configuration.
   Future<Map<String, Object?>> customerCenter({String? locale}) async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('customerCenter', {if (locale != null) 'locale': locale}));
+      _requireMap(await _invoke<Map<Object?, Object?>>(
+          'customerCenter', {if (locale != null) 'locale': locale}));
+
+  /// Opens the current platform's native subscription management page.
+  Future<void> openManageSubscriptions() async =>
+      _invoke<void>('openManageSubscriptions');
+
+  /// Opens a safe URL supplied by the published Customer Center configuration.
+  Future<void> openUrl(String url) async =>
+      _invoke<void>('openUrl', {'url': url});
 
   /// Submits a support request using the project's Customer Center policy.
-  Future<Map<String, Object?>> createSupportTicket({required String email, required String message}) async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('createSupportTicket', {'email': email, 'message': message}));
+  Future<Map<String, Object?>> createSupportTicket(
+          {required String email, required String message}) async =>
+      _requireMap(await _invoke<Map<Object?, Object?>>(
+          'createSupportTicket', {'email': email, 'message': message}));
 
   /// Links the current anonymous customer to the application's stable customer ID.
   Future<Map<String, Object?>> identify(String customerId) async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('identify', {'customerId': customerId}));
+      _requireMap(await _invoke<Map<Object?, Object?>>(
+          'identify', {'customerId': customerId}));
 
   /// Starts a new anonymous customer identity.
   Future<Map<String, Object?>> logOut() async =>
       _requireMap(await _invoke<Map<Object?, Object?>>('logOut'));
 
   /// Sets or clears scalar customer attributes.
-  Future<Map<String, Object?>> setAttributes(Map<String, Object?> attributes) async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('setAttributes', {'attributes': attributes}));
+  Future<Map<String, Object?>> setAttributes(
+          Map<String, Object?> attributes) async =>
+      _requireMap(await _invoke<Map<Object?, Object?>>(
+          'setAttributes', {'attributes': attributes}));
 
   /// Starts the native Apple or Google purchase flow for an offering package ID.
   Future<PushifyPurchaseResult> purchase(String packageId) async {
-    final value = await _invoke<Map<Object?, Object?>>('purchase', {'packageId': packageId});
-    if (value == null) throw const PushifyException('invalid_response', 'The store returned no purchase result.');
+    final value = await _invoke<Map<Object?, Object?>>(
+        'purchase', {'packageId': packageId});
+    if (value == null) {
+      throw const PushifyException(
+          'invalid_response', 'The store returned no purchase result.');
+    }
     return PushifyPurchaseResult.fromMap(value);
   }
 
@@ -113,9 +132,12 @@ class PushifyPurchases {
       _requireMap(await _invoke<Map<Object?, Object?>>('syncPurchases'));
 
   /// Sends a deduplicated app event. Reuse [eventId] to safely retry that event.
-  Future<int> logEvent(String name, {Map<String, Object?> properties = const {}, String? eventId}) async {
+  Future<int> logEvent(String name,
+      {Map<String, Object?> properties = const {}, String? eventId}) async {
     final id = eventId ?? _eventId();
-    return await _invoke<int>('logEvent', {'name': name, 'properties': properties, 'eventId': id}) ?? 0;
+    return await _invoke<int>('logEvent',
+            {'name': name, 'properties': properties, 'eventId': id}) ??
+        0;
   }
 
   /// Atomically spends virtual currencies. Reuse [idempotencyKey] for retries.
@@ -123,34 +145,47 @@ class PushifyPurchases {
     required Map<String, int> adjustments,
     required String idempotencyKey,
     String? reference,
-  }) async => _requireMap(await _invoke<Map<Object?, Object?>>('spendVirtualCurrency', {
+  }) async =>
+      _requireMap(await _invoke<Map<Object?, Object?>>('spendVirtualCurrency', {
         'adjustments': adjustments,
         'idempotencyKey': idempotencyKey,
         if (reference != null) 'reference': reference,
       }));
 
   /// Emits verified customer snapshots after login, restore, purchase, or refresh.
-  Stream<Map<String, Object?>> get customerInfoUpdates =>
-      _events.receiveBroadcastStream().map((value) => _requireMap(value as Map));
+  Stream<Map<String, Object?>> get customerInfoUpdates => _events
+      .receiveBroadcastStream()
+      .map((value) => _requireMap(value as Map));
 
   /// Reads an install handoff token after showing the user the pasteboard explanation on iOS.
-  Future<String?> readDeferredToken() async => _invoke<String>('readDeferredToken');
+  Future<String?> readDeferredToken() async =>
+      _invoke<String>('readDeferredToken');
 
-  Future<T?> _invoke<T>(String method, [Map<String, Object?>? arguments]) async {
-    if (method != 'configure' && method != 'readDeferredToken' && !_configured) {
-      throw const PushifyException('not_configured', 'Call configure before using Pushify purchases.');
+  Future<T?> _invoke<T>(String method,
+      [Map<String, Object?>? arguments]) async {
+    if (method != 'configure' &&
+        method != 'readDeferredToken' &&
+        !_configured) {
+      throw const PushifyException(
+          'not_configured', 'Call configure before using Pushify purchases.');
     }
     try {
       return await _channel.invokeMethod<T>(method, arguments);
     } on PlatformException catch (error) {
-      throw PushifyException(error.code, error.message ?? 'Pushify operation failed.', details: error.details);
+      throw PushifyException(
+          error.code, error.message ?? 'Pushify operation failed.',
+          details: error.details);
     } on MissingPluginException {
-      throw const PushifyException('plugin_unavailable', 'The Pushify native plugin is not available on this platform.');
+      throw const PushifyException('plugin_unavailable',
+          'The Pushify native plugin is not available on this platform.');
     }
   }
 
   Map<String, Object?> _requireMap(Map? value) {
-    if (value == null) throw const PushifyException('invalid_response', 'The Pushify plugin returned no data.');
+    if (value == null) {
+      throw const PushifyException(
+          'invalid_response', 'The Pushify plugin returned no data.');
+    }
     return _stringMap(value);
   }
 

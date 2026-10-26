@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license          = { :type => 'MIT' }
   s.author           = { 'Pushify' => 'support@pushify.app' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
+  s.source_files     = 'pushify_purchases/Sources/pushify_purchases/**/*.swift'
   s.dependency 'Flutter'
   s.platform         = :ios, '15.0'
   s.swift_version    = '5.9'

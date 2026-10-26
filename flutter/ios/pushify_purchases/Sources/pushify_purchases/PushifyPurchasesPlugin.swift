@@ -8,6 +8,7 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
     private static let eventChannelName = "app.pushify/customer-info"
     private var purchases: PushifyPurchases?
     private var updatesTask: Task<Void, Never>?
+    private var eventSink: FlutterEventSink?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = PushifyPurchasesPlugin()
@@ -29,7 +30,9 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
             Task {
                 do {
                     let client = try await PushifyPurchases.configure(apiKey: key, apiBaseURL: baseURL)
+                    self.updatesTask?.cancel()
                     purchases = client
+                    if self.eventSink != nil { self.observeCustomerInfo(from: client) }
                     if let snapshot = await client.cachedCustomerInfo() { finish(result, try encode(snapshot)) }
                     else { finish(result, NSNull()) }
                 } catch { self.finishError(result, error) }
@@ -43,6 +46,21 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
             }
             UIPasteboard.general.string = nil
             result(value)
+        case "openManageSubscriptions":
+            guard let url = URL(string: "https://apps.apple.com/account/subscriptions") else { result(FlutterError(code: "invalid_url", message: "Could not open subscription management.", details: nil)); return }
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if opened { result(nil) }
+                else { result(FlutterError(code: "open_failed", message: "Could not open Apple subscription management.", details: nil)) }
+            }
+        case "openUrl":
+            guard let raw = args["url"] as? String, let url = URL(string: raw),
+                  let scheme = url.scheme?.lowercased(), !["javascript", "data", "file", "blob", "about"].contains(scheme) else {
+                result(FlutterError(code: "invalid_url", message: "The Customer Center URL is invalid.", details: nil)); return
+            }
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if opened { result(nil) }
+                else { result(FlutterError(code: "open_failed", message: "Could not open the Customer Center URL.", details: nil)) }
+            }
         case "customerInfo":
             withClient(result) { client in self.finish(result, try await self.encode(try await client.customerInfo())) }
         case "cachedCustomerInfo":
@@ -97,20 +115,26 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
     }
 
     public func onListen(withArguments arguments: Any?, eventSink sink: @escaping FlutterEventSink) -> FlutterError? {
+        eventSink = sink
         guard let purchases else { return nil }
+        observeCustomerInfo(from: purchases)
+        return nil
+    }
+
+    private func observeCustomerInfo(from purchases: PushifyPurchases) {
         updatesTask?.cancel()
         updatesTask = Task {
             for await snapshot in await purchases.customerInfoUpdates() {
                 guard !Task.isCancelled else { return }
-                if let value = try? self.encode(snapshot) { DispatchQueue.main.async { sink(value) } }
+                if let value = try? self.encode(snapshot) { DispatchQueue.main.async { self.eventSink?(value) } }
             }
         }
-        return nil
     }
 
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         updatesTask?.cancel()
         updatesTask = nil
+        eventSink = nil
         return nil
     }
 

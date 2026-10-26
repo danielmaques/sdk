@@ -1,0 +1,7 @@
+example/.dart_tool/
+example/build/
+example/android/.gradle/
+example/android/**/build/
+example/ios/Pods/
+example/ios/.symlinks/
+example/ios/Flutter/ephemeral/

@@ -132,8 +132,9 @@ class PushifyAcquisitionLinks {
         cause: error,
       );
     }
-    if (token == null || !_isToken(token) || !token.startsWith('rdit_'))
+    if (token == null || !_isToken(token) || !token.startsWith('rdit_')) {
       return null;
+    }
     _pendingToken = token;
     return token;
   }

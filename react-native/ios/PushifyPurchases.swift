@@ -7,6 +7,7 @@ import UIKit
 final class PushifyPurchasesModule: RCTEventEmitter {
     private var purchases: PushifyPurchases?
     private var updatesTask: Task<Void, Never>?
+    private var isObservingCustomerInfo = false
 
     @objc override static func requiresMainQueueSetup() -> Bool { true }
     override func supportedEvents() -> [String]! { ["customerInfoUpdated"] }
@@ -20,7 +21,9 @@ final class PushifyPurchasesModule: RCTEventEmitter {
         Task {
             do {
                 let client = try await PushifyPurchases.configure(apiKey: key, apiBaseURL: baseURL)
+                self.updatesTask?.cancel()
                 purchases = client
+                if isObservingCustomerInfo { observeCustomerInfo(from: client) }
                 if let snapshot = await client.cachedCustomerInfo() { resolve(try encode(snapshot)) }
                 else { resolve(NSNull()) }
             } catch { self.rejectError(reject, error) }
@@ -124,7 +127,18 @@ final class PushifyPurchasesModule: RCTEventEmitter {
     }
 
     override func startObserving() {
+        isObservingCustomerInfo = true
         guard let purchases else { return }
+        observeCustomerInfo(from: purchases)
+    }
+
+    override func stopObserving() {
+        isObservingCustomerInfo = false
+        updatesTask?.cancel()
+        updatesTask = nil
+    }
+
+    private func observeCustomerInfo(from purchases: PushifyPurchases) {
         updatesTask?.cancel()
         updatesTask = Task {
             for await snapshot in await purchases.customerInfoUpdates() {
@@ -133,8 +147,6 @@ final class PushifyPurchasesModule: RCTEventEmitter {
             }
         }
     }
-
-    override func stopObserving() { updatesTask?.cancel(); updatesTask = nil }
 
     private func perform(_ resolve: @escaping RCTPromiseResolveBlock,
                          _ reject: @escaping RCTPromiseRejectBlock,

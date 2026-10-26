@@ -2,11 +2,11 @@
 
 The Flutter package exposes the first-party purchase foundation through Android and iOS plugins: customer bootstrap/identity, attributes, offerings, native purchases and restore, verified transaction sync, encrypted customer snapshots, update streams, app events and idempotent virtual-currency spending. Acquisition links are included as well.
 
-> **Implementation status:** the Dart API and Flutter widget expose published `pushify.paywall/v1` offerings, core paywall components, localized Customer Center configuration and support ticket intake through the native plugins. Advanced editor components, Customer Center actions, store sandbox journeys, plugin migration warnings and release validation remain outstanding. The package is not production-ready and has not been published.
+> **Implementation status:** the Dart API and Flutter widgets expose published `pushify.paywall/v1` offerings, a core paywall renderer, localized Customer Center configuration, common store-management actions, and support ticket intake through the native plugins. Advanced editor components, complete Customer Center action coverage, store sandbox journeys, plugin migration warnings and release validation remain outstanding. The package is not production-ready and has not been published.
 
 ## Requirements
 
-- Flutter 3.22 or newer and Dart 3.4 or newer.
+- Flutter 3.44 or newer and Dart 3.12 or newer.
 - Android API 23 or newer / iOS 15 or newer for the native plugin portions.
 - A Pushify **public app key**.
 - App Links / Universal Links or a URL scheme configured by the host app if incoming web links should open the app.
@@ -21,7 +21,7 @@ dependencies:
     path: ../pushify-sdk/flutter
 ```
 
-Then run `flutter pub get`. The Android and iOS plugin code is included by Flutter's plugin tooling. Your app must still configure the platform link domains, URL schemes and route delivery.
+Then run `flutter pub get`. The Android and iOS plugin code is included by Flutter's plugin tooling. The iOS plugin supports Swift Package Manager on current Flutter releases and keeps its CocoaPods specification for older Flutter versions. Your app must still configure the platform link domains, URL schemes and route delivery.
 
 If the editor reports that `package:flutter/...` or `package:http/...` cannot be found, run `flutter pub get` from `sdk/flutter` for standalone development, or from the host app after adding this package as a path dependency. Then restart the Dart analysis server if the diagnostics remain cached.
 
@@ -41,6 +41,8 @@ void main() {
 ```
 
 Run with `--dart-define=PUSHIFY_PUBLIC_APP_KEY=pushify_public_app_key`, then call `await purchases.configure()` once before purchase APIs. Keep the instance in your app-level dependency provider.
+
+The runnable sample is in [`example/`](example/README.md). It loads the current offering and customer, and provides buttons for the published paywall and Customer Center.
 
 ```dart
 final snapshot = await purchases.customerInfo();
@@ -152,8 +154,8 @@ Future<void> continueFromCampaign(PushifyAcquisitionLinks pushifyLinks) async {
 
 - The app/router is responsible for delivering initial and runtime URLs to `handle` (or `capture`).
 - Deferred recovery depends on platform behavior: Google Play Install Referrer on Android, user-initiated pasteboard access on iOS. No probabilistic matching is used.
-- Paywall documents and Customer Center configuration are exposed as Pushify maps, but ready-made Flutter screens are not implemented. Offering data is enriched with localized StoreKit/Play product details.
-- Apple/Google sandbox flows and Flutter plugin integration builds have not passed in this environment, so do not ship this package for production purchase processing yet.
+- `PushifyPaywall` renders the core text, image, product, purchase, restore, and navigation components. `PushifyCustomerCenterView` renders the configured active/no-active screen, restore, subscription management, custom actions, and support form. Advanced editor components and less common account actions are not yet rendered. Offering data is enriched with localized StoreKit/Play product details.
+- Apple/Google store sandbox flows have not been completed for the first-party SDKs, so do not ship this package for production purchase processing yet. The Flutter example currently builds for Android and iOS Simulator.
 - The package is not published; use a local path dependency until a version is released.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).

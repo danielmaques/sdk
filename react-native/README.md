@@ -2,7 +2,7 @@
 
 The React Native package exposes native StoreKit 2 and Google Play Billing through first-party iOS/Android modules. It implements customer bootstrap/identity, attributes, offerings, purchase and restore, verified transaction sync, encrypted customer snapshots, update events, app events, virtual-currency spends and acquisition links.
 
-> **Implementation status:** StoreKit and Play Billing clients expose published `pushify.paywall/v1` data, core React Native paywall components, localized Customer Center configuration and support ticket intake. Full React Native host-app builds, advanced editor components, Customer Center actions, store sandbox journeys, and release validation remain outstanding. The package is not production-ready and has not been published to npm.
+> **Implementation status:** StoreKit and Play Billing clients expose published `pushify.paywall/v1` data, a core React Native paywall renderer, localized Customer Center configuration, common store-management actions, and support ticket intake. Advanced editor components, complete Customer Center action coverage, store sandbox journeys, and release validation remain outstanding. The package is not production-ready and has not been published to npm.
 
 ## Requirements
 
@@ -152,7 +152,7 @@ The optional `appUserId` should match the ID used by your Pushify identity integ
 
 ## Current limitations
 
-- Paywall documents and Customer Center configuration are exposed by the native module, but ready-made React Native screens are not implemented. Offerings include localized product details where the store returns them.
+- `PushifyPaywallView` renders the core text, image, product, purchase, restore, and navigation components. `PushifyCustomerCenterView` renders the configured active/no-active screen, restore, subscription/order links, custom actions, and support form. Advanced editor components and less common account actions are not yet rendered.
 - iOS/Android sandbox purchase journeys and React Native host-app builds remain unverified, so do not ship this package for production purchase processing yet.
 - Native deferred token handling depends on supported store/platform handoff. iOS uses an explicit pasteboard action; Android reads Google Play Install Referrer.
 - The package is not published; use the local package path until a release is available.

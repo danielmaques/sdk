@@ -5,7 +5,7 @@ Pod::Spec.new do |s|
   s.homepage = 'https://pushify.app'
   s.license = { :type => 'MIT' }
   s.author = { 'Pushify' => 'support@pushify.app' }
-  s.source = { :git => 'https://github.com/revenuedot/pushify-sdk.git', :tag => s.version.to_s }
+  s.source = { :git => 'https://github.com/danielmaques/sdk.git', :tag => s.version.to_s }
   s.source_files = 'ios/**/*.{h,m,mm,swift}'
   s.dependency 'React-Core'
   s.platform = :ios, '15.0'

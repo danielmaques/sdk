@@ -105,8 +105,11 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         return TextButton(onPressed: () {
           if (properties['action'] == 'restore') { _restore(); return; }
           final next = properties['next_screen_id'];
-          if (_screens.any((item) => item['id'] == next)) setState(() => _screenId = next as String);
-          else _buy();
+          if (_screens.any((item) => item['id'] == next)) {
+            setState(() => _screenId = next as String);
+          } else {
+            _buy();
+          }
         }, child: Text(_localized(node, screen, 'Continue')));
       case 'spacer':
         return SizedBox(height: _number(properties['size']) ?? 8);
