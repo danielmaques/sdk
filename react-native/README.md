@@ -2,7 +2,7 @@
 
 The React Native package exposes native StoreKit 2 and Google Play Billing through first-party iOS/Android modules. It implements customer bootstrap/identity, attributes, offerings, purchase and restore, verified transaction sync, encrypted customer snapshots, update events, app events, virtual-currency spends and acquisition links.
 
-> **Implementation status:** StoreKit and Play Billing clients expose published `pushify.paywall/v1` data, a core React Native paywall renderer, localized Customer Center configuration, common store-management actions, and support ticket intake. Advanced editor components, complete Customer Center action coverage, store sandbox journeys, and release validation remain outstanding. The package is not production-ready and has not been published to npm.
+> **Implementation status:** StoreKit and Play Billing clients expose published `pushify.paywall/v1` data, Customer Center configuration, common store-management actions, and support ticket intake. The React Native paywall renderer handles core controls plus icons, timelines, carousels, tabs, and countdowns; editor styling/localization parity, video/web view, and complete Customer Center action coverage remain outstanding. Store sandbox journeys and release validation remain outstanding. The package is not production-ready and has not been published to npm.
 
 ## Requirements
 

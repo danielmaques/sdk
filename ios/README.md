@@ -2,7 +2,7 @@
 
 The Pushify Swift package uses StoreKit 2 and the first-party Pushify `/sdk/v1` API. It implements customer bootstrap/identity, attributes, offerings, StoreKit purchase and restore, transaction recovery, encrypted verified-customer caching, update streams, app events, virtual-currency spending and acquisition links.
 
-> **Implementation status:** native purchase and customer flows exist, including localized StoreKit product details, encrypted last-known paywall/offering cache, published `pushify.paywall/v1` data, a core SwiftUI paywall renderer, localized Customer Center configuration, and support ticket intake. Advanced editor components, native Customer Center actions, the complete sandbox matrix, and release-package validation are still missing. This SDK is not production-ready yet.
+> **Implementation status:** native purchase and customer flows exist, including localized StoreKit product details, encrypted last-known paywall/offering cache, published `pushify.paywall/v1` data, Customer Center configuration, and support ticket intake. The SwiftUI paywall renderer now handles icons, timelines, carousels, tabs, and countdowns as well as core text, package, purchase, restore, image, and navigation components. Rendering still differs from the editor in details; video/web view and several Customer Center actions remain unsupported. Store sandbox journeys and release-package validation are outstanding. This SDK is not production-ready yet.
 
 ## Requirements
 
@@ -157,7 +157,7 @@ Pass the same app user ID used by your Pushify customer identity when it is know
 
 ## Current limitations
 
-- The native renderer covers the core text, package selection, purchase, restore, image and navigation components. Advanced timeline, carousel, tabs, video and web-view designs still need matching behavior.
+- The native renderer covers text, package selection, purchase, restore, image, icon, timeline, carousel, tabs, countdown and screen navigation. Carousel timing, editor styling/localization details, video and web-view designs still need implementation or parity work.
 
 - The app must forward Universal Links / custom URL callbacks to the SDK helper. Automatic lifecycle capture and pending-link storage are not implemented.
 - Deferred capture uses an explicit clipboard action and may show a system privacy prompt. It cannot guarantee post-install recovery for every user or distribution path.

@@ -2,7 +2,7 @@
 
 The Flutter package exposes the first-party purchase foundation through Android and iOS plugins: customer bootstrap/identity, attributes, offerings, native purchases and restore, verified transaction sync, encrypted customer snapshots, update streams, app events and idempotent virtual-currency spending. Acquisition links are included as well.
 
-> **Implementation status:** the Dart API and Flutter widgets expose published `pushify.paywall/v1` offerings, a core paywall renderer, localized Customer Center configuration, common store-management actions, and support ticket intake through the native plugins. Advanced editor components, complete Customer Center action coverage, store sandbox journeys, plugin migration warnings and release validation remain outstanding. The package is not production-ready and has not been published.
+> **Implementation status:** the Dart API and Flutter widgets expose published `pushify.paywall/v1` offerings, Customer Center configuration, common store-management actions, and support ticket intake through the native plugins. The paywall renderer handles core controls plus icons, timelines, carousels, tabs, and countdowns; editor styling/localization parity, video/web view, and complete Customer Center action coverage remain outstanding. Store sandbox journeys and release validation remain outstanding. The package is not production-ready and has not been published.
 
 ## Requirements
 

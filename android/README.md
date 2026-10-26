@@ -2,7 +2,7 @@
 
 The Pushify Android package is an original Kotlin library using Google Play Billing and the Pushify `/sdk/v1` API. It currently implements customer bootstrap and identity, attributes, offering/package lookup, purchase flow, server transaction sync, purchase acknowledge/consume after server acceptance, and restore/reconciliation. It also contains acquisition-link helpers.
 
-> **Implementation status:** the Kotlin library includes localized Play product details, encrypted cached customer snapshots and offerings, listeners, purchase reconciliation, published `pushify.paywall/v1` data, a core native paywall renderer, localized Customer Center configuration and support ticket intake. Advanced editor components, Customer Center actions, store sandbox journeys, and release validation remain outstanding. Do not ship this package for production purchase processing yet.
+> **Implementation status:** the Kotlin library includes localized Play product details, encrypted cached customer snapshots and offerings, listeners, purchase reconciliation, published `pushify.paywall/v1` data, Customer Center configuration and support ticket intake. The native renderer handles core controls plus icons, timelines, carousels, tabs and countdowns. Editor-level styling/localization parity, carousel behavior, video/web view and additional Customer Center actions remain incomplete. Store sandbox journeys and release validation remain outstanding. Do not ship this package for production purchase processing yet.
 
 ## Requirements
 
@@ -208,7 +208,7 @@ Pass `appUserId` only when you have the actual app user ID. The parameter is opt
 
 - The library does not configure Android App Links or navigate to screens; the host Activity forwards its incoming URLs to `resolveUrl`.
 - Deferred-token retrieval uses Google Play Install Referrer. Other stores may require a different supported handoff.
-- Core paywall components render in `PushifyPaywallView`; advanced editor components and Customer Center screens/store-management actions remain outstanding. Localized price data is hydrated from Google Play for returned offerings.
+- Core and several advanced paywall components render in `PushifyPaywallView`; editor-level parity and video/web view are outstanding. Customer Center store-management actions remain partial. Localized price data is hydrated from Google Play for returned offerings.
 - Google Play sandbox purchase, pending, restore, account-switch, and interrupted-network journeys remain unverified.
 - Encrypted offline cache covers the last server-verified customer snapshot and hydrated offerings/paywalls; new transactions still require network access.
 - This package is not published yet; install from the source workspace during development.

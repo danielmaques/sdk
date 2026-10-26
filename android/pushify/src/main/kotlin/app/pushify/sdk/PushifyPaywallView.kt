@@ -12,6 +12,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -104,6 +105,66 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
             "spacer" -> View(context).apply { layoutParams = lp(MATCH, dp(properties.optDouble("size", 8.0).toInt())) }
             "image" -> imageView(properties)
+            "icon" -> TextView(context).apply {
+                text = iconGlyph(properties.optString("icon_name"))
+                textSize = properties.optDouble("size", 24.0).toFloat().coerceIn(12f, 64f)
+                gravity = Gravity.CENTER
+                contentDescription = properties.optString("accessibility_label").ifBlank { properties.optString("icon_name") }
+            }
+            "timeline" -> LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                val items = properties.optJSONArray("items") ?: JSONArray()
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP; setPadding(0, 0, 0, dp(14)) }
+                    val rail = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+                    val icon = item.optJSONObject("icon")
+                    rail.addView(TextView(context).apply { text = iconGlyph(icon?.optString("icon_name").orEmpty()); textSize = 18f; gravity = Gravity.CENTER; contentDescription = icon?.optString("accessibility_label") }, lp(dp(32), dp(32)))
+                    if (i < items.length() - 1) rail.addView(View(context).apply { setBackgroundColor(Color.LTGRAY) }, lp(dp(2), dp(28)))
+                    row.addView(rail, lp(dp(38), WRAP))
+                    val copy = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, 0, 0) }
+                    nestedNode(item.optJSONObject("title"))?.let { copy.addView(renderNode(it, screen), lp(MATCH, WRAP)) }
+                    nestedNode(item.optJSONObject("description"))?.let { copy.addView(renderNode(it, screen), lp(MATCH, WRAP)) }
+                    row.addView(copy, lp(0, WRAP, 1f)); addView(row, lp(MATCH, WRAP))
+                }
+            }
+            "carousel" -> HorizontalScrollView(context).apply {
+                isHorizontalScrollBarEnabled = false
+                val pages = properties.optJSONArray("pages") ?: JSONArray()
+                val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+                for (i in 0 until pages.length()) nestedNode(pages.optJSONObject(i))?.let { page ->
+                    val width = resources.displayMetrics.widthPixels - dp(32)
+                    row.addView(renderNode(page, screen), LinearLayout.LayoutParams(width, WRAP).apply { rightMargin = dp(properties.optInt("page_spacing", 12)) })
+                }
+                addView(row)
+            }
+            "tabs" -> LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                val tabs = properties.optJSONArray("tabs") ?: JSONArray()
+                val tabRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+                val content = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                var selected = properties.optString("default_tab_id", tabs.optJSONObject(0)?.optString("id").orEmpty())
+                fun showTab(id: String) {
+                    selected = id; content.removeAllViews()
+                    for (index in 0 until tabs.length()) { val tab = tabs.optJSONObject(index) ?: continue; if (tab.optString("id") == id) nestedNode(tab.optJSONObject("stack"))?.let { content.addView(renderNode(it, screen), lp(MATCH, WRAP)) } }
+                    for (index in 0 until tabRow.childCount) (tabRow.getChildAt(index) as? Button)?.isSelected = (tabRow.getChildAt(index).tag == id)
+                }
+                for (index in 0 until tabs.length()) { val tab = tabs.optJSONObject(index) ?: continue; val id = tab.optString("id"); tabRow.addView(Button(context).apply { text = tab.optString("name"); tag = id; contentDescription = "${tab.optString("name")} tab"; setOnClickListener { showTab(id) } }, lp(0, WRAP, 1f)) }
+                addView(tabRow, lp(MATCH, WRAP)); addView(content, lp(MATCH, WRAP)); showTab(selected)
+            }
+            "countdown" -> TextView(context).apply {
+                val date = properties.optJSONObject("style")?.optString("date")
+                val endMillis = runCatching { java.time.Instant.parse(date).toEpochMilli() }.getOrNull()
+                if (endMillis != null && endMillis > System.currentTimeMillis()) {
+                    val timer = object : android.os.CountDownTimer(endMillis - System.currentTimeMillis(), 1000) {
+                        override fun onTick(millis: Long) { text = countdownText(millis) }
+                        override fun onFinish() { text = "Offer ended" }
+                    }
+                    timer.start(); addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener { override fun onViewAttachedToWindow(view: View) = Unit; override fun onViewDetachedFromWindow(view: View) { timer.cancel() } })
+                } else text = "Offer ended"
+                gravity = Gravity.CENTER; textSize = 16f; setTypeface(typeface, Typeface.BOLD); contentDescription = "Offer countdown"
+            }
+            "tab_control" -> View(context)
             else -> if (children.length() > 0) LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 for (i in 0 until children.length()) children.optJSONObject(i)?.let { addView(renderNode(it, screen), lp(MATCH, WRAP)) }
@@ -205,6 +266,22 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val children = node.optJSONArray("children") ?: return null
         for (i in 0 until children.length()) findDefault(children.optJSONObject(i))?.let { return it }
         return null
+    }
+
+    private fun nestedNode(value: JSONObject?): JSONObject? {
+        if (value == null) return null
+        val kind = value.optString("kind").ifBlank { value.optString("type") }
+        if (kind.isBlank()) return null
+        val properties = value.optJSONObject("properties") ?: JSONObject(value.toString()).apply { remove("kind"); remove("type"); remove("children"); remove("components"); remove("id") }
+        val children = value.optJSONArray("children") ?: value.optJSONArray("components") ?: JSONArray()
+        val normalized = JSONArray()
+        for (i in 0 until children.length()) nestedNode(children.optJSONObject(i))?.let(normalized::put)
+        return JSONObject().put("id", value.optString("id")).put("kind", kind).put("properties", properties).put("children", normalized)
+    }
+    private fun iconGlyph(name: String): String = when (name.lowercase()) { "check", "checkmark" -> "✓"; "star" -> "★"; "bell" -> "♢"; "unlock" -> "◇"; "heart" -> "♥"; "clock" -> "◷"; else -> "●" }
+    private fun countdownText(millis: Long): String {
+        val total = millis / 1000; val days = total / 86400; val hours = total / 3600 % 24; val minutes = total / 60 % 60; val seconds = total % 60
+        return if (days > 0) "${days}d ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}" else "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

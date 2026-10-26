@@ -11,6 +11,8 @@ public struct PushifyPaywallView: View {
     @State private var screenID: String
     @State private var busy = false
     @State private var message: String?
+    @State private var selectedTabs: [String: String] = [:]
+    @State private var carouselPages: [String: Int] = [:]
 
     public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil) {
         self.document = document
@@ -101,6 +103,59 @@ public struct PushifyPaywallView: View {
                 AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { ProgressView() }
                     .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "")
             }
+        case "icon":
+            Image(systemName: symbolName(string(node.properties["icon_name"]) ?? "star"))
+                .font(.system(size: CGFloat(number(node.properties["size"]) ?? 24)))
+                .foregroundStyle(Color(hex: colorString(node.properties["color"]) ?? "#315ee8"))
+                .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "")
+        case "timeline":
+            let items = array(node.properties["items"])
+            VStack(alignment: .leading, spacing: CGFloat(number(node.properties["item_spacing"]) ?? 18)) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    HStack(alignment: .top, spacing: CGFloat(number(node.properties["column_gutter"]) ?? 14)) {
+                        VStack(spacing: 4) {
+                            if let icon = nestedNode(item["icon"]) { AnyView(render(icon, screen: screen)).frame(width: 28, height: 28) }
+                            if index < items.count - 1 { Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 2).frame(maxHeight: .infinity) }
+                        }
+                        VStack(alignment: .leading, spacing: CGFloat(number(node.properties["text_spacing"]) ?? 4)) {
+                            if let title = nestedNode(item["title"]) { AnyView(render(title, screen: screen)) }
+                            if let description = nestedNode(item["description"]) { AnyView(render(description, screen: screen)) }
+                        }
+                    }
+                }
+            }
+        case "carousel":
+            let pages = array(node.properties["pages"]).compactMap(nestedNode)
+            if !pages.isEmpty {
+                let carouselID = node.id ?? "carousel"
+                let selected = min(carouselPages[carouselID] ?? Int(number(node.properties["initial_page_index"]) ?? 0), pages.count - 1)
+                VStack(spacing: 8) {
+                    TabView(selection: Binding(get: { selected }, set: { carouselPages[carouselID] = $0 })) {
+                        ForEach(Array(pages.enumerated()), id: \.offset) { index, page in AnyView(render(page, screen: screen)).tag(index) }
+                    }.tabViewStyle(.page(indexDisplayMode: .automatic))
+                }
+            }
+        case "tabs":
+            let tabs = array(node.properties["tabs"]).compactMap { item -> (String, String, PushifyPaywallNode)? in
+                guard let id = string(item["id"]), let name = string(item["name"]), let stack = nestedNode(item["stack"]) else { return nil }
+                return (id, name, stack)
+            }
+            if let first = tabs.first {
+                let tabsID = node.id ?? "tabs"
+                let activeID = selectedTabs[tabsID] ?? string(node.properties["default_tab_id"]) ?? first.0
+                VStack(spacing: 12) {
+                    HStack { ForEach(tabs, id: \.0) { item in Button(item.1) { selectedTabs[tabsID] = item.0 }.buttonStyle(.bordered).tint(activeID == item.0 ? .accentColor : .secondary) } }
+                    if let active = tabs.first(where: { $0.0 == activeID }) { AnyView(render(active.2, screen: screen)) }
+                }
+            }
+        case "countdown":
+            if let style = object(node.properties["style"]), let rawDate = string(style["date"]), let date = ISO8601DateFormatter().date(from: rawDate), date > .now {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(countdownLabel(from: context.date, to: date)).monospacedDigit().accessibilityLabel("Offer countdown")
+                }
+            } else if let end = nestedNode(node.properties["end_stack"]) { AnyView(render(end, screen: screen)) }
+        case "tab_control":
+            EmptyView()
         default:
             if !node.children.isEmpty {
                 VStack(spacing: 8) { ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) } }
@@ -151,6 +206,37 @@ public struct PushifyPaywallView: View {
     private func mediaURL(_ properties: [String: PushifyJSONValue]) -> URL? {
         guard case .object(let source)? = properties["source"], case .object(let light)? = source["light"], case .string(let url)? = light["url"] else { return nil }
         return URL(string: url)
+    }
+
+    private func array(_ value: PushifyJSONValue?) -> [[String: PushifyJSONValue]] { if case .array(let values)? = value { return values.compactMap { if case .object(let item) = $0 { return item }; return nil } }; return [] }
+    private func object(_ value: PushifyJSONValue?) -> [String: PushifyJSONValue]? { if case .object(let item)? = value { return item }; return nil }
+    private func nestedNode(_ value: [String: PushifyJSONValue]?) -> PushifyPaywallNode? {
+        guard let value, let kind = string(value["kind"]) ?? string(value["type"]) else { return nil }
+        let components: [PushifyPaywallNode] = (value["children"] ?? value["components"]).flatMap { raw in
+            guard case .array(let items) = raw else { return nil }
+            return items.compactMap { item -> PushifyPaywallNode? in guard case .object(let object) = item else { return nil }; return nestedNode(object) }
+        } ?? []
+        var properties = object(value["properties"]) ?? value
+        ["kind", "type", "children", "components", "id", "properties"].forEach { properties.removeValue(forKey: $0) }
+        return PushifyPaywallNode(id: string(value["id"]), kind: kind, properties: properties, children: components)
+    }
+    private func nestedNode(_ value: PushifyJSONValue?) -> PushifyPaywallNode? {
+        guard case .object(let object)? = value else { return nil }
+        return nestedNode(object)
+    }
+    private func symbolName(_ value: String) -> String { ["check": "checkmark", "unlock": "lock.open", "bell": "bell", "star": "star.fill", "heart": "heart.fill", "clock": "clock", "lock": "lock.fill" ][value] ?? "circle.fill" }
+    private func colorString(_ value: PushifyJSONValue?) -> String? {
+        if case .string(let color)? = value { return color }
+        if case .object(let object)? = value, case .object(let colors)? = object["value"], case .object(let light)? = colors["light"], case .string(let color)? = light["value"] { return color }
+        return nil
+    }
+    private func countdownLabel(from now: Date, to end: Date) -> String {
+        let seconds = max(0, Int(end.timeIntervalSince(now)))
+        let days = seconds / 86_400
+        let hours = (seconds / 3_600) % 24
+        let minutes = (seconds / 60) % 60
+        let remainder = seconds % 60
+        return days > 0 ? "\(days)d \(String(format: "%02d:%02d:%02d", hours, minutes, remainder))" : String(format: "%02d:%02d:%02d", hours, minutes, remainder)
     }
 
     private func fontWeight(_ value: PushifyJSONValue?) -> Font.Weight {
