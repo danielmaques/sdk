@@ -9,10 +9,12 @@ export type PushifyCustomerInfo = {
 };
 
 export type PushifyOfferings = {
+  schema: 'pushify.offerings/v1';
   current_offering_id: string | null;
   offerings: Array<{
     id: string;
     description: string;
+    paywall: PushifyPaywallV1 | null;
     packages: Array<{ id: string; product: {
       product_id: string;
       plan_id: string | null;
@@ -34,6 +36,14 @@ export type PushifyOfferings = {
   [key: string]: unknown;
 };
 
+export type PushifyPaywallNode = { id: string | null; kind: string; properties: Record<string, unknown>; children: PushifyPaywallNode[] };
+export type PushifyPaywallV1 = {
+  schema: 'pushify.paywall/v1'; id: string; revision: number; default_locale: string;
+  locales: Record<string, Record<string, unknown>>;
+  screens: Array<{ id: string; name: string; background: unknown; content: PushifyPaywallNode | null; footer: PushifyPaywallNode | null; localizations: Record<string, Record<string, unknown>> }>;
+  automatically_scale_font_size: boolean; exit_offer: unknown; state: unknown;
+};
+
 export type PushifyPurchaseResult =
   | { status: 'purchased'; customerInfo: PushifyCustomerInfo }
   | { status: 'pending' }
@@ -48,7 +58,9 @@ type NativePurchasesModule = {
   configure(options: PushifyPurchasesOptions): Promise<PushifyCustomerInfo | null>;
   customerInfo(): Promise<PushifyCustomerInfo>;
   cachedCustomerInfo(): Promise<PushifyCustomerInfo | null>;
-  offerings(): Promise<PushifyOfferings>;
+  offerings(placement?: string): Promise<PushifyOfferings>;
+  customerCenter(locale?: string): Promise<{ schema: 'pushify.customer-center/v1'; customer_id: string; configuration: Record<string, unknown> }>;
+  createSupportTicket(email: string, message: string): Promise<{ accepted: boolean }>;
   identify(customerId: string): Promise<PushifyCustomerInfo>;
   logOut(): Promise<PushifyCustomerInfo>;
   setAttributes(attributes: Record<string, string | number | boolean | null>): Promise<PushifyCustomerInfo>;
@@ -84,7 +96,9 @@ export class PushifyPurchases {
 
   customerInfo(): Promise<PushifyCustomerInfo> { return this.requireNative().customerInfo(); }
   cachedCustomerInfo(): Promise<PushifyCustomerInfo | null> { return this.requireNative().cachedCustomerInfo(); }
-  offerings(): Promise<PushifyOfferings> { return this.requireNative().offerings(); }
+  offerings(placement?: string): Promise<PushifyOfferings> { return this.requireNative().offerings(placement); }
+  customerCenter(locale?: string): Promise<{ schema: 'pushify.customer-center/v1'; customer_id: string; configuration: Record<string, unknown> }> { return this.requireNative().customerCenter(locale); }
+  createSupportTicket(email: string, message: string): Promise<{ accepted: boolean }> { return this.requireNative().createSupportTicket(email, message); }
   identify(customerId: string): Promise<PushifyCustomerInfo> { return this.requireNative().identify(customerId); }
   logOut(): Promise<PushifyCustomerInfo> { return this.requireNative().logOut(); }
   setAttributes(attributes: Record<string, string | number | boolean | null>): Promise<PushifyCustomerInfo> { return this.requireNative().setAttributes(attributes); }

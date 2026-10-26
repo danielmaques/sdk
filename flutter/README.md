@@ -2,7 +2,7 @@
 
 The Flutter package exposes the first-party purchase foundation through Android and iOS plugins: customer bootstrap/identity, attributes, offerings, native purchases and restore, verified transaction sync, encrypted customer snapshots, update streams, app events and idempotent virtual-currency spending. Acquisition links are included as well.
 
-> **Implementation status:** Dart analysis passes, and temporary Flutter host apps build for Android and the iOS Simulator. Dashboard paywall rendering, Customer Center, store sandbox journeys, long-term Flutter plugin migration warnings, and release validation remain outstanding. The package is not production-ready and has not been published.
+> **Implementation status:** the Dart API and Flutter widget expose published `pushify.paywall/v1` offerings, core paywall components, localized Customer Center configuration and support ticket intake through the native plugins. Advanced editor components, Customer Center actions, store sandbox journeys, plugin migration warnings and release validation remain outstanding. The package is not production-ready and has not been published.
 
 ## Requirements
 
@@ -45,10 +45,13 @@ Run with `--dart-define=PUSHIFY_PUBLIC_APP_KEY=pushify_public_app_key`, then cal
 ```dart
 final snapshot = await purchases.customerInfo();
 final offerings = await purchases.offerings();
-final package = (offerings['offerings'] as List).first['packages'].first;
-final result = await purchases.purchase(package['id'] as String);
-if (result.isPurchased) {
-  // result.customerInfo contains server-verified entitlements.
+final items = (offerings['offerings'] as List).cast<Map<String, Object?>>();
+final currentId = offerings['current_offering_id'];
+final current = items.firstWhere((item) => item['id'] == currentId, orElse: () => <String, Object?>{});
+final paywall = current['paywall'];
+if (current.isNotEmpty && paywall is Map<String, Object?>) {
+  // Return this widget from a route or show it in a modal.
+  PushifyPaywall(document: paywall, offering: current, purchases: purchases);
 }
 
 final updates = purchases.customerInfoUpdates.listen((customer) {
@@ -149,7 +152,7 @@ Future<void> continueFromCampaign(PushifyAcquisitionLinks pushifyLinks) async {
 
 - The app/router is responsible for delivering initial and runtime URLs to `handle` (or `capture`).
 - Deferred recovery depends on platform behavior: Google Play Install Referrer on Android, user-initiated pasteboard access on iOS. No probabilistic matching is used.
-- Dashboard paywalls and Customer Center are not implemented. Offering data is returned as Pushify JSON maps enriched with localized StoreKit/Play product details.
+- Paywall documents and Customer Center configuration are exposed as Pushify maps, but ready-made Flutter screens are not implemented. Offering data is enriched with localized StoreKit/Play product details.
 - Apple/Google sandbox flows and Flutter plugin integration builds have not passed in this environment, so do not ship this package for production purchase processing yet.
 - The package is not published; use a local path dependency until a version is released.
 

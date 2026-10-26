@@ -12,7 +12,15 @@ RCT_EXTERN_METHOD(customerInfo:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(cachedCustomerInfo:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(offerings:(RCTPromiseResolveBlock)resolve
+RCT_EXTERN_METHOD(offerings:(NSString * _Nullable)placement
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(customerCenter:(NSString * _Nullable)locale
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(createSupportTicket:(NSString *)email
+                  message:(NSString *)message
+                  resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(identify:(NSString *)customerID
                   resolver:(RCTPromiseResolveBlock)resolve

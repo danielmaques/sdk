@@ -49,7 +49,16 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
             guard let client = purchases else { result(nil); return }
             Task { if let value = await client.cachedCustomerInfo() { self.finish(result, try self.encode(value)) } else { self.finish(result, NSNull()) } }
         case "offerings":
-            withClient(result) { client in self.finish(result, try await self.encode(try await client.offerings())) }
+            withClient(result) { client in self.finish(result, try await self.encode(try await client.offerings(placement: args["placement"] as? String))) }
+        case "customerCenter":
+            withClient(result) { client in
+                let value = try await client.customerCenter(locale: args["locale"] as? String)
+                self.finish(result, try self.encode(value))
+            }
+        case "createSupportTicket":
+            let email = args["email"] as? String ?? ""
+            let message = args["message"] as? String ?? ""
+            withClient(result) { client in try await client.createSupportTicket(email: email, message: message); self.finish(result, ["accepted": true]) }
         case "identify":
             guard let customerID = args["customerId"] as? String else { result(FlutterError(code: "invalid_customer_id", message: "customerId is required.", details: nil)); return }
             withClient(result) { client in self.finish(result, try await self.encode(try await client.identify(customerID: customerID))) }

@@ -56,6 +56,69 @@ public struct PushifyCurrencySpendResult: Codable, Sendable {
 
 private struct PushifyEventResponse: Decodable { let accepted: Int }
 
+public indirect enum PushifyJSONValue: Codable, Sendable {
+    case string(String), integer(Int64), number(Double), bool(Bool), object([String: PushifyJSONValue]), array([PushifyJSONValue]), null
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode(Int64.self) { self = .integer(v) }
+        else if let v = try? c.decode(Double.self) { self = .number(v) }
+        else if let v = try? c.decode(String.self) { self = .string(v) }
+        else if let v = try? c.decode([String: PushifyJSONValue].self) { self = .object(v) }
+        else if let v = try? c.decode([PushifyJSONValue].self) { self = .array(v) }
+        else { throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unsupported JSON value") }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .integer(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
+        case .array(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        }
+    }
+}
+
+public struct PushifyPaywallNode: Codable, Sendable {
+    public let id: String?
+    public let kind: String
+    public let properties: [String: PushifyJSONValue]
+    public let children: [PushifyPaywallNode]
+}
+
+public struct PushifyPaywallScreen: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let background: PushifyJSONValue?
+    public let content: PushifyPaywallNode?
+    public let footer: PushifyPaywallNode?
+    public let localizations: [String: [String: PushifyJSONValue]]
+}
+
+public struct PushifyPaywallDocument: Codable, Sendable {
+    public let schema: String
+    public let id: String
+    public let revision: Int
+    public let defaultLocale: String
+    public let locales: [String: [String: PushifyJSONValue]]
+    public let screens: [PushifyPaywallScreen]
+    public let automaticallyScaleFontSize: Bool
+    public let exitOffer: PushifyJSONValue?
+    public let state: PushifyJSONValue?
+}
+
+private struct PushifyCustomerCenterResponse: Decodable {
+    let customerID: String
+    let configuration: PushifyJSONValue
+}
+private struct PushifyTicketResponse: Decodable { let accepted: Bool }
+
 public struct PushifyOfferings: Codable, Sendable {
     public struct Offering: Codable, Sendable {
         public struct Package: Codable, Sendable {
@@ -74,6 +137,7 @@ public struct PushifyOfferings: Codable, Sendable {
         public let id: String
         public let description: String
         public let packages: [Package]
+        public let paywall: PushifyPaywallDocument?
     }
     public let currentOfferingId: String?
     public let offerings: [Offering]
@@ -102,6 +166,7 @@ public actor PushifyPurchases {
     private let identityKey: String
     private var customerID: String?
     private var cachedSnapshot: PushifyCustomerSnapshot?
+    private var cachedOfferings: PushifyOfferings?
     private var updatesTask: Task<Void, Never>?
     private var observers: [UUID: AsyncStream<PushifyCustomerSnapshot>.Continuation] = [:]
     private let snapshotKey: String
@@ -120,6 +185,11 @@ public actor PushifyPurchases {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             self.cachedSnapshot = try? decoder.decode(PushifyCustomerSnapshot.self, from: data)
+        }
+        let offeringsKey = "app.pushify.offerings.\(Bundle.main.bundleIdentifier ?? "default")"
+        if let encrypted = defaults.data(forKey: offeringsKey),
+           let data = try? AES.GCM.open(AES.GCM.SealedBox(combined: encrypted), using: Self.cacheEncryptionKey(service: offeringsKey)) {
+            self.cachedOfferings = try? JSONDecoder().decode(PushifyOfferings.self, from: data)
         }
     }
 
@@ -144,8 +214,21 @@ public actor PushifyPurchases {
 
     public func cachedCustomerInfo() -> PushifyCustomerSnapshot? { cachedSnapshot }
 
-    public func offerings() async throws -> PushifyOfferings {
-        let catalog: PushifyOfferings = try await request(path: "/sdk/v1/offerings", method: "GET")
+    public func offerings(placement: String? = nil) async throws -> PushifyOfferings {
+        let catalog: PushifyOfferings
+        do {
+            var query = URLComponents()
+            var items = [URLQueryItem(name: "customer_id", value: ensureCustomerID())]
+            if let placement, !placement.isEmpty { items.append(URLQueryItem(name: "placement", value: placement)) }
+            query.queryItems = items
+            catalog = try await request(path: "/sdk/v1/offerings?\(query.percentEncodedQuery ?? "")", method: "GET")
+            cachedOfferings = catalog
+            let key = "app.pushify.offerings.\(Bundle.main.bundleIdentifier ?? "default")"
+            if let data = try? JSONEncoder().encode(catalog), let sealed = try? AES.GCM.seal(data, using: Self.cacheEncryptionKey(service: key)).combined { defaults.set(sealed, forKey: key) }
+        } catch {
+            guard let cachedOfferings else { throw error }
+            catalog = cachedOfferings
+        }
         let identifiers = Array(Set(catalog.offerings.flatMap(\.packages).map(\.product.productId)))
         let storeProducts = try await Product.products(for: identifiers)
         let byIdentifier = Dictionary(uniqueKeysWithValues: storeProducts.map { ($0.id, $0) })
@@ -169,10 +252,26 @@ public actor PushifyPurchases {
                                 currencyCode: native?.priceFormatStyle.currencyCode
                             )
                         )
-                    }
+                    },
+                    paywall: offering.paywall
                 )
             }
         )
+    }
+
+    /// Loads the published, localized account-management configuration for the current customer.
+    public func customerCenter(locale: String? = nil) async throws -> PushifyJSONValue {
+        let id = ensureCustomerID().addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#"))) ?? ensureCustomerID()
+        let query = locale.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) }.map { "?locale=\($0)" } ?? ""
+        let response: PushifyCustomerCenterResponse = try await request(path: "/sdk/v1/customers/\(id)/customer-center\(query)", method: "GET")
+        return response.configuration
+    }
+
+    /// Sends a Customer Center support request using the project's configured intake policy.
+    public func createSupportTicket(email: String, message: String) async throws {
+        guard email.count <= 320, !email.isEmpty, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, message.count <= 5000 else { throw PushifyError.invalidConfiguration }
+        let id = ensureCustomerID().addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#"))) ?? ensureCustomerID()
+        let _: PushifyTicketResponse = try await request(path: "/sdk/v1/customers/\(id)/customer-center/tickets", method: "POST", body: ["email": email, "message": message])
     }
 
     public func identify(customerID newID: String) async throws -> PushifyCustomerSnapshot {
@@ -380,6 +479,9 @@ public actor PushifyPurchases {
         request.httpMethod = method
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("ios", forHTTPHeaderField: "X-Platform")
+        request.setValue(Locale.preferredLanguages.joined(separator: ","), forHTTPHeaderField: "X-Preferred-Locales")
+        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String { request.setValue(version, forHTTPHeaderField: "X-Client-Version") }
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

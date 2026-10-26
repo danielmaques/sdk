@@ -2,7 +2,7 @@
 
 The Pushify Swift package uses StoreKit 2 and the first-party Pushify `/sdk/v1` API. It implements customer bootstrap/identity, attributes, offerings, StoreKit purchase and restore, transaction recovery, encrypted verified-customer caching, update streams, app events, virtual-currency spending and acquisition links.
 
-> **Implementation status:** native purchase and customer flows exist, including localized StoreKit product details. Dashboard paywall rendering, Customer Center, the complete sandbox matrix, and release-package validation are still missing. This SDK is not production-ready yet.
+> **Implementation status:** native purchase and customer flows exist, including localized StoreKit product details, encrypted last-known paywall/offering cache, published `pushify.paywall/v1` data, a core SwiftUI paywall renderer, localized Customer Center configuration, and support ticket intake. Advanced editor components, native Customer Center actions, the complete sandbox matrix, and release-package validation are still missing. This SDK is not production-ready yet.
 
 ## Requirements
 
@@ -51,6 +51,16 @@ Configure purchases at the same app composition root:
 let purchases = try await PushifyPurchases.configure(apiKey: key)
 let customer = try await purchases.customerInfo()
 let offerings = try await purchases.offerings()
+
+if let offering = offerings.offerings.first, let paywall = offering.paywall {
+    // Embed this in a SwiftUI sheet or navigation destination.
+    let paywallView = PushifyPaywallView(document: paywall, offering: offering, purchases: purchases)
+}
+
+if let offering = offerings.offerings.first, let paywall = offering.paywall {
+    // Present PushifyPaywallView in your navigation or sheet.
+    let view = PushifyPaywallView(document: paywall, offering: offering, purchases: purchases)
+}
 
 if let package = offerings.offerings.first?.packages.first {
     switch try await purchases.purchase(packageID: package.id) {
@@ -147,9 +157,11 @@ Pass the same app user ID used by your Pushify customer identity when it is know
 
 ## Current limitations
 
+- The native renderer covers the core text, package selection, purchase, restore, image and navigation components. Advanced timeline, carousel, tabs, video and web-view designs still need matching behavior.
+
 - The app must forward Universal Links / custom URL callbacks to the SDK helper. Automatic lifecycle capture and pending-link storage are not implemented.
 - Deferred capture uses an explicit clipboard action and may show a system privacy prompt. It cannot guarantee post-install recovery for every user or distribution path.
-- Dashboard paywalls and Customer Center are not implemented. Offering products include localized StoreKit display price and currency data.
+- Paywall documents and Customer Center configuration are available, but native screens and store-management actions are not implemented. Offering products include localized StoreKit display price and currency data.
 - StoreKit sandbox journeys, accessibility QA and release archive validation remain outstanding. Do not ship this package for production purchase processing yet.
 - The Swift package is not published yet; add it locally during development.
 

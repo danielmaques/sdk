@@ -74,8 +74,16 @@ class PushifyPurchases {
   }
 
   /// Gets current offerings and published paywall documents for this app.
-  Future<Map<String, Object?>> offerings() async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('offerings'));
+  Future<Map<String, Object?>> offerings({String? placement}) async =>
+      _requireMap(await _invoke<Map<Object?, Object?>>('offerings', {if (placement != null) 'placement': placement}));
+
+  /// Loads the published localized Customer Center configuration.
+  Future<Map<String, Object?>> customerCenter({String? locale}) async =>
+      _requireMap(await _invoke<Map<Object?, Object?>>('customerCenter', {if (locale != null) 'locale': locale}));
+
+  /// Submits a support request using the project's Customer Center policy.
+  Future<Map<String, Object?>> createSupportTicket({required String email, required String message}) async =>
+      _requireMap(await _invoke<Map<Object?, Object?>>('createSupportTicket', {'email': email, 'message': message}));
 
   /// Links the current anonymous customer to the application's stable customer ID.
   Future<Map<String, Object?>> identify(String customerId) async =>

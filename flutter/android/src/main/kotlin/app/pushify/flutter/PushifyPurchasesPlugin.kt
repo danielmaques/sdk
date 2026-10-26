@@ -38,7 +38,11 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
             "readDeferredToken" -> readDeferredToken(result)
             "customerInfo" -> withPurchases(result) { it.customerInfo { sendJson(result, it) } }
             "cachedCustomerInfo" -> result.success(purchases?.cachedCustomerInfo()?.let(::toFlutter))
-            "offerings" -> withPurchases(result) { it.offerings { sendJson(result, it) } }
+            "offerings" -> withPurchases(result) { it.offerings(call.argument<String>("placement")) { sendJson(result, it) } }
+            "customerCenter" -> withPurchases(result) { it.customerCenter(call.argument<String>("locale")) { sendJson(result, it) } }
+            "createSupportTicket" -> withPurchases(result) { sdk ->
+                sdk.createSupportTicket(call.argument<String>("email").orEmpty(), call.argument<String>("message").orEmpty()) { sendJson(result, it) }
+            }
             "identify" -> withPurchases(result) { sdk -> sdk.identify(call.argument<String>("customerId").orEmpty()) { sendJson(result, it) } }
             "logOut" -> withPurchases(result) { it.logOut { sendJson(result, it) } }
             "setAttributes" -> withPurchases(result) { sdk ->

@@ -47,9 +47,11 @@ public class PushifyPurchases(
     private val prefs = appContext.getSharedPreferences("app.pushify.purchases", Context.MODE_PRIVATE)
     private val identityKey = "customer_${appContext.packageName}"
     private val snapshotKey = "snapshot_${appContext.packageName}"
+    private val offeringsKey = "offerings_${appContext.packageName}"
     private val keystoreAlias = "app.pushify.sdk.${appContext.packageName}"
     private var customerId: String? = prefs.getString(identityKey, null)
     private var lastSnapshot: JSONObject? = readCachedSnapshot()
+    private var lastOfferings: JSONObject? = readCachedOfferings()
     private val customerInfoListeners = CopyOnWriteArraySet<CustomerInfoListener>()
     private var pendingPurchaseCompletion: ((Result<PurchaseOutcome>) -> Unit)? = null
     private var pendingOffer: StorePackage? = null
@@ -97,16 +99,27 @@ public class PushifyPurchases(
         }
     }
 
-    public fun offerings(completion: (Result<JSONObject>) -> Unit) {
-        request("/sdk/v1/offerings", "GET", null) { result ->
-            result.fold(onSuccess = { hydrateOfferingPrices(it, completion) }, onFailure = { post(completion, Result.failure(it)) })
+    public fun offerings(placement: String? = null, completion: (Result<JSONObject>) -> Unit) {
+        val query = buildList {
+            add("customer_id=${java.net.URLEncoder.encode(ensureCustomerId(), "UTF-8")}")
+            placement?.takeIf(String::isNotBlank)?.let { add("placement=${java.net.URLEncoder.encode(it, "UTF-8")}") }
+        }.joinToString("&")
+        request("/sdk/v1/offerings?$query", "GET", null) { result ->
+            result.fold(onSuccess = { hydrateOfferingPrices(it, completion) }, onFailure = { failure ->
+                val cached = lastOfferings?.let { JSONObject(it.toString()) }
+                if (cached != null) post(completion, Result.success(cached)) else post(completion, Result.failure(failure))
+            })
         }
     }
 
     private data class ProductQuery(val productId: String, val productType: String)
 
     private fun hydrateOfferingPrices(body: JSONObject, completion: (Result<JSONObject>) -> Unit) {
-        if (!billing.isReady) return post(completion, Result.failure(error("billing_unavailable", "Connect Google Play Billing before loading localized prices.", true)))
+        if (!billing.isReady) {
+            val cached = lastOfferings?.let { JSONObject(it.toString()) }
+            if (cached != null) return post(completion, Result.success(cached))
+            return post(completion, Result.failure(error("billing_unavailable", "Connect Google Play Billing before loading localized prices.", true)))
+        }
         val queries = mutableListOf<ProductQuery>()
         val offerings = body.optJSONArray("offerings") ?: JSONArray()
         for (i in 0 until offerings.length()) {
@@ -123,7 +136,12 @@ public class PushifyPurchases(
         val details = mutableMapOf<String, ProductDetails>()
         queryOfferingProductGroup(groups, 0, details) { failure ->
             if (failure != null) post(completion, Result.failure(failure))
-            else post(completion, Result.success(enrichOfferingBody(body, details)))
+            else {
+                val enriched = enrichOfferingBody(body, details)
+                lastOfferings = JSONObject(enriched.toString())
+                runCatching { encrypt(enriched.toString()) }.onSuccess { prefs.edit().putString(offeringsKey, it).apply() }
+                post(completion, Result.success(enriched))
+            }
         }
     }
 
@@ -226,6 +244,23 @@ public class PushifyPurchases(
         request("/sdk/v1/customers/$id/attributes", "PATCH", JSONObject().put("attributes", attributes), completion)
     }
 
+    /** Fetches the customer's localized Pushify Customer Center configuration. */
+    public fun customerCenter(locale: String? = null, completion: (Result<JSONObject>) -> Unit) {
+        val id = encodePath(ensureCustomerId())
+        val query = locale?.takeIf(String::isNotBlank)?.let { "?locale=${java.net.URLEncoder.encode(it, "UTF-8")}" } ?: ""
+        request("/sdk/v1/customers/$id/customer-center$query", "GET", null, completion)
+    }
+
+    /** Submits a Customer Center ticket subject to the project's configured support policy. */
+    public fun createSupportTicket(email: String, message: String, completion: (Result<JSONObject>) -> Unit) {
+        if (email.isBlank() || email.length > 320 || message.isBlank() || message.length > 5000) {
+            post(completion, Result.failure(error("invalid_ticket", "A valid email and a message of at most 5,000 characters are required.", false)))
+            return
+        }
+        val id = encodePath(ensureCustomerId())
+        request("/sdk/v1/customers/$id/customer-center/tickets", "POST", JSONObject().put("email", email).put("message", message), completion)
+    }
+
     /** Sends a customer event. Pass the same event ID again when retrying the same logical event. */
     public fun logEvent(name: String, properties: JSONObject = JSONObject(), eventId: String = UUID.randomUUID().toString(), completion: (Result<Int>) -> Unit) {
         if (name.isBlank() || name.length > 64 || eventId.isBlank() || eventId.length > 64) {
@@ -321,6 +356,10 @@ public class PushifyPurchases(
 
     private fun readCachedSnapshot(): JSONObject? = runCatching {
         prefs.getString(snapshotKey, null)?.let { JSONObject(decrypt(it)) }
+    }.getOrNull()
+
+    private fun readCachedOfferings(): JSONObject? = runCatching {
+        prefs.getString(offeringsKey, null)?.let { JSONObject(decrypt(it)) }
     }.getOrNull()
 
     private fun encrypt(plaintext: String): String {
@@ -498,6 +537,8 @@ public class PushifyPurchases(
                     readTimeout = TIMEOUT_MS
                     setRequestProperty("Authorization", "Bearer $publicApiKey")
                     setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Platform", "android")
+                    setRequestProperty("X-Preferred-Locales", java.util.Locale.getDefault().toLanguageTag())
                     headers.forEach { (name, value) -> setRequestProperty(name, value) }
                     if (body != null) { doOutput = true; setRequestProperty("Content-Type", "application/json") }
                 }

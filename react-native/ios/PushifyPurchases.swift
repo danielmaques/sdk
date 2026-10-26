@@ -50,9 +50,20 @@ final class PushifyPurchasesModule: RCTEventEmitter {
         Task { if let value = await purchases.cachedCustomerInfo() { resolve(try self.encode(value)) } else { resolve(nil) } }
     }
 
-    @objc func offerings(_ resolve: @escaping RCTPromiseResolveBlock,
+    @objc func offerings(_ placement: String?, resolver resolve: @escaping RCTPromiseResolveBlock,
                          rejecter reject: @escaping RCTPromiseRejectBlock) {
-        perform(resolve, reject) { try self.encode(try await $0.offerings()) }
+        perform(resolve, reject) { try self.encode(try await $0.offerings(placement: placement)) }
+    }
+
+    @objc func customerCenter(_ locale: String?, resolver resolve: @escaping RCTPromiseResolveBlock,
+                              rejecter reject: @escaping RCTPromiseRejectBlock) {
+        perform(resolve, reject) { try self.encode(try await $0.customerCenter(locale: locale)) }
+    }
+
+    @objc func createSupportTicket(_ email: String, message: String,
+                                   resolver resolve: @escaping RCTPromiseResolveBlock,
+                                   rejecter reject: @escaping RCTPromiseRejectBlock) {
+        perform(resolve, reject) { client in try await client.createSupportTicket(email: email, message: message); return ["accepted": true] }
     }
 
     @objc func identify(_ customerID: String,

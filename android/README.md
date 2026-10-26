@@ -2,7 +2,7 @@
 
 The Pushify Android package is an original Kotlin library using Google Play Billing and the Pushify `/sdk/v1` API. It currently implements customer bootstrap and identity, attributes, offering/package lookup, purchase flow, server transaction sync, purchase acknowledge/consume after server acceptance, and restore/reconciliation. It also contains acquisition-link helpers.
 
-> **Implementation status:** the Kotlin library compiles and includes localized Play product details, encrypted cached customer snapshots, listeners, and purchase reconciliation. Dashboard paywall rendering, Customer Center, store sandbox journeys, and release validation remain outstanding. Do not ship this package for production purchase processing yet.
+> **Implementation status:** the Kotlin library includes localized Play product details, encrypted cached customer snapshots and offerings, listeners, purchase reconciliation, published `pushify.paywall/v1` data, a core native paywall renderer, localized Customer Center configuration and support ticket intake. Advanced editor components, Customer Center actions, store sandbox journeys, and release validation remain outstanding. Do not ship this package for production purchase processing yet.
 
 ## Requirements
 
@@ -71,21 +71,17 @@ The acquisition-link resolver can be initialized alongside the purchases client 
 
 ## Purchase and restore
 
-Call `offerings` to load package IDs from the dashboard catalog. Then initiate the native Google Play sheet from an Activity:
+Call `offerings` to load package IDs and the published Pushify paywall. `PushifyPaywallView` handles selection, purchase and restore for core components; add it to your Activity's view hierarchy:
 
 ```kotlin
 pushifyPurchases.offerings { result ->
-    val packageId = result.getOrThrow().getJSONArray("offerings")
-        .getJSONObject(0).getJSONArray("packages").getJSONObject(0).getString("id")
-    pushifyPurchases.purchase(this, packageId) { purchase ->
-        purchase.onSuccess { outcome ->
-            when (outcome) {
-                is PushifyPurchases.PurchaseOutcome.Purchased -> { /* entitlements are server-verified */ }
-                PushifyPurchases.PurchaseOutcome.Pending -> { /* wait for Google Play approval */ }
-                PushifyPurchases.PurchaseOutcome.Cancelled -> Unit
-            }
-        }
-    }
+    val payload = result.getOrThrow()
+    val currentId = payload.optString("current_offering_id")
+    val current = (0 until payload.getJSONArray("offerings").length())
+        .map { payload.getJSONArray("offerings").getJSONObject(it) }
+        .firstOrNull { it.optString("id") == currentId }
+    val paywall = current?.optJSONObject("paywall")
+    if (current != null && paywall != null) setContentView(PushifyPaywallView(this, paywall, current, pushifyPurchases))
 }
 pushifyPurchases.restorePurchases { result -> /* refreshed customer snapshot */ }
 ```
@@ -212,9 +208,9 @@ Pass `appUserId` only when you have the actual app user ID. The parameter is opt
 
 - The library does not configure Android App Links or navigate to screens; the host Activity forwards its incoming URLs to `resolveUrl`.
 - Deferred-token retrieval uses Google Play Install Referrer. Other stores may require a different supported handoff.
-- Dashboard paywalls and Customer Center are not implemented. Localized price data is hydrated from Google Play for returned offerings.
+- Core paywall components render in `PushifyPaywallView`; advanced editor components and Customer Center screens/store-management actions remain outstanding. Localized price data is hydrated from Google Play for returned offerings.
 - Google Play sandbox purchase, pending, restore, account-switch, and interrupted-network journeys remain unverified.
-- Offline cache covers the last server-verified customer snapshot; offerings and new transactions still require network access.
+- Encrypted offline cache covers the last server-verified customer snapshot and hydrated offerings/paywalls; new transactions still require network access.
 - This package is not published yet; install from the source workspace during development.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).

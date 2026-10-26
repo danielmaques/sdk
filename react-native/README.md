@@ -2,7 +2,7 @@
 
 The React Native package exposes native StoreKit 2 and Google Play Billing through first-party iOS/Android modules. It implements customer bootstrap/identity, attributes, offerings, purchase and restore, verified transaction sync, encrypted customer snapshots, update events, app events, virtual-currency spends and acquisition links.
 
-> **Implementation status:** StoreKit and Play Billing clients compile, and the TypeScript facade passes strict type checking with the React Native peer types. Full React Native host-app builds, dashboard paywall rendering, Customer Center, store sandbox journeys, and release validation remain outstanding. The package is not production-ready and has not been published to npm.
+> **Implementation status:** StoreKit and Play Billing clients expose published `pushify.paywall/v1` data, core React Native paywall components, localized Customer Center configuration and support ticket intake. Full React Native host-app builds, advanced editor components, Customer Center actions, store sandbox journeys, and release validation remain outstanding. The package is not production-ready and has not been published to npm.
 
 ## Requirements
 
@@ -51,12 +51,10 @@ Call `await pushifyPurchases.configure()` once at application startup. Then load
 ```ts
 const customer = await pushifyPurchases.customerInfo();
 const offeringSet = await pushifyPurchases.offerings();
-const packageId = offeringSet.offerings[0]?.packages[0]?.id;
-if (packageId) {
-  const outcome = await pushifyPurchases.purchase(packageId);
-  if (outcome.status === 'purchased') {
-    // outcome.customerInfo contains server-verified access.
-  }
+const current = offeringSet.offerings.find(item => item.id === offeringSet.current_offering_id);
+if (current?.paywall) {
+  // Return this component from a route or place it in a modal.
+  <PushifyPaywallView document={current.paywall} offering={current} purchases={pushifyPurchases} />;
 }
 ```
 
@@ -154,7 +152,7 @@ The optional `appUserId` should match the ID used by your Pushify identity integ
 
 ## Current limitations
 
-- Dashboard paywalls and Customer Center are not implemented. Native offerings include localized product details where the store returns them.
+- Paywall documents and Customer Center configuration are exposed by the native module, but ready-made React Native screens are not implemented. Offerings include localized product details where the store returns them.
 - iOS/Android sandbox purchase journeys and React Native host-app builds remain unverified, so do not ship this package for production purchase processing yet.
 - Native deferred token handling depends on supported store/platform handoff. iOS uses an explicit pasteboard action; Android reads Google Play Install Referrer.
 - The package is not published; use the local package path until a release is available.

@@ -17,7 +17,7 @@ The packages use native platform APIs and Pushify's documented server protocol. 
 
 The native iOS and Android clients and the Flutter/React Native bridges expose customer bootstrap, identity, attributes, offerings, native purchases, restore/sync, verified transaction delivery, cached customer snapshots, customer update listeners, event submission and idempotent virtual-currency spends. StoreKit 2 and Google Play Billing are the purchase engines. Acquisition-link helpers are also available on all four platforms.
 
-Native localized product hydration is implemented for StoreKit and Play Billing and is forwarded by the Flutter/React Native bridges. Paywall rendering, Customer Center, published paywall schema migration, cross-platform sandbox journeys and production package validation remain incomplete. The host app still owns link-domain setup and navigation.
+Native localized product hydration is implemented for StoreKit and Play Billing and is forwarded by the Flutter/React Native bridges. The first-party API now serves published paywalls in `pushify.paywall/v1` and localized Customer Center configuration; iOS/Flutter/React Native clients expose those documents and support ticket intake. Complete native paywall rendering, Customer Center screens/store-management actions, targeting and experiments, cross-platform sandbox journeys and production package validation remain incomplete. The host app still owns link-domain setup and navigation.
 
 ## Production readiness
 
