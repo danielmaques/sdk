@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 /// A native, accessible renderer for the core Pushify paywall components.
 @MainActor
@@ -13,6 +14,7 @@ public struct PushifyPaywallView: View {
     @State private var message: String?
     @State private var selectedTabs: [String: String] = [:]
     @State private var carouselPages: [String: Int] = [:]
+    @State private var failedExperienceIDs: Set<String> = []
 
     public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil) {
         self.document = document
@@ -102,6 +104,21 @@ public struct PushifyPaywallView: View {
             if let url = mediaURL(node.properties) {
                 AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { ProgressView() }
                     .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "")
+            }
+        case "web_view":
+            if let rawURL = string(node.properties["url"]), let url = URL(string: rawURL), url.scheme == "https" {
+                let experienceID = "\(string(node.properties["id"]) ?? "experience"):\(rawURL)"
+                if failedExperienceIDs.contains(experienceID), let fallback = nestedNode(node.properties["fallback"]) {
+                    render(fallback, screen: screen)
+                } else {
+                    PaywallExperienceWebView(url: url, onFailure: { self.failedExperienceIDs.insert(experienceID) })
+                        .frame(height: CGFloat(number(object(object(node.properties["size"])?["height"])?["value"]) ?? 240))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            } else if let fallback = nestedNode(node.properties["fallback"]) {
+                render(fallback, screen: screen)
+            } else {
+                EmptyView()
             }
         case "icon":
             Image(systemName: symbolName(string(node.properties["icon_name"]) ?? "star"))
@@ -218,6 +235,7 @@ public struct PushifyPaywallView: View {
             return items.compactMap { item -> PushifyPaywallNode? in guard case .object(let object) = item else { return nil }; return nestedNode(object) }
         } ?? []
         var properties = object(value["properties"]) ?? value
+        if properties["fallback"] == nil, let fallback = value["fallback"] { properties["fallback"] = fallback }
         ["kind", "type", "children", "components", "id", "properties"].forEach { properties.removeValue(forKey: $0) }
         return PushifyPaywallNode(id: string(value["id"]), kind: kind, properties: properties, children: components)
     }
@@ -269,6 +287,42 @@ public struct PushifyPaywallView: View {
     private static func packageNodes(_ node: PushifyPaywallNode?) -> [PushifyPaywallNode] {
         guard let node else { return [] }
         return (node.kind == "package" ? [node] : []) + node.children.flatMap(packageNodes)
+    }
+}
+
+@MainActor
+private struct PaywallExperienceWebView: UIViewRepresentable {
+    let url: URL
+    let onFailure: () -> Void
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.scrollView.isScrollEnabled = false
+        view.navigationDelegate = context.coordinator
+        view.load(URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 20))
+        return view
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFailure: onFailure) }
+
+    func updateUIView(_ view: WKWebView, context: Context) {
+        guard view.url != url else { return }
+        view.load(URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 20))
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        let onFailure: () -> Void
+        init(onFailure: @escaping () -> Void) { self.onFailure = onFailure }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { onFailure() }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { onFailure() }
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            decisionHandler(navigationAction.request.url?.scheme == "https" ? .allow : .cancel)
+        }
     }
 }
 

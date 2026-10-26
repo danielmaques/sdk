@@ -256,6 +256,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
                     const SizedBox.shrink(),
                 semanticLabel: properties['accessibility_label'] as String?,
               );
+      case 'web_view':
+        final fallback = _map(properties['fallback']);
+        return fallback.isEmpty ? const SizedBox.shrink() : _render(fallback, screen);
       case 'icon':
         final name = (properties['icon_name'] as String? ?? 'star')
             .toLowerCase();

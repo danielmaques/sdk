@@ -12,11 +12,15 @@ import android.view.Gravity
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -167,6 +171,32 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 } else text = "Offer ended"
                 gravity = Gravity.CENTER; textSize = 16f; setTypeface(typeface, Typeface.BOLD); contentDescription = "Offer countdown"
             }
+            "web_view" -> {
+                val url = properties.optString("url")
+                val fallback = nestedNode(properties.optJSONObject("fallback"))?.let { renderNode(it, screen) }
+                if (url.startsWith("https://")) FrameLayout(context).apply {
+                    minimumHeight = dp(240)
+                    fallback?.let { addView(it, FrameLayout.LayoutParams(MATCH, WRAP)); it.visibility = View.VISIBLE }
+                    val experience = WebView(context).apply {
+                        visibility = View.GONE
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                        setBackgroundColor(Color.TRANSPARENT)
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.scheme != "https"
+                            override fun onPageFinished(view: WebView, pageUrl: String) { fallback?.visibility = View.GONE; view.visibility = View.VISIBLE }
+                            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                                if (request.isForMainFrame) { view.visibility = View.GONE; fallback?.visibility = View.VISIBLE }
+                            }
+                        }
+                        loadUrl(url)
+                    }
+                    addView(experience, FrameLayout.LayoutParams(MATCH, MATCH))
+                } else fallback ?: View(context)
+            }
             "tab_control" -> View(context)
             else -> if (children.length() > 0) LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
@@ -276,6 +306,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val kind = value.optString("kind").ifBlank { value.optString("type") }
         if (kind.isBlank()) return null
         val properties = value.optJSONObject("properties") ?: JSONObject(value.toString()).apply { remove("kind"); remove("type"); remove("children"); remove("components"); remove("id") }
+        if (!properties.has("fallback") && value.has("fallback")) properties.put("fallback", value.optJSONObject("fallback"))
         val children = value.optJSONArray("children") ?: value.optJSONArray("components") ?: JSONArray()
         val normalized = JSONArray()
         for (i in 0 until children.length()) nestedNode(children.optJSONObject(i))?.let(normalized::put)

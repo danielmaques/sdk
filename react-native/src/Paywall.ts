@@ -123,6 +123,10 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
         const replaced = replaceCountdown(template, Math.floor(remaining / 86400), twoDigits(Math.floor(remaining / 3600) % 24), twoDigits(Math.floor(remaining / 60) % 60), twoDigits(remaining % 60));
         const nested = nestedNode(replaced); return nested ? renderNode(nested) : null;
       }
+      case 'web_view': {
+        const fallback = nestedNode(node.properties.fallback);
+        return fallback ? renderNode(fallback) : null;
+      }
       case 'tab_control': return null;
       default:
         return children.length ? React.createElement(View, { key: node.id ?? undefined, style: styles.stack }, ...children) : text(node.properties.text) ? React.createElement(Text, { key: node.id ?? undefined, style: styles.text }, text(node.properties.text)) : null;
