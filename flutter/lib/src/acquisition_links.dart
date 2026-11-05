@@ -100,7 +100,6 @@ class PushifyAcquisitionLinks {
   /// Captures the `rdt` token from an incoming Pushify app link.
   bool capture(Uri uri) {
     _checkNotDisposed();
-    _pendingToken = null;
     final token = uri.queryParameters['rdt'];
     if (token == null || !_isToken(token)) return false;
     _pendingToken = token;
@@ -146,7 +145,7 @@ class PushifyAcquisitionLinks {
   }) async {
     final token = await readDeferredToken();
     if (token == null) return null;
-    return resolve(token, appUserId: appUserId);
+    return getInitialLink(appUserId: appUserId);
   }
 
   /// Resolves the pending token once, returning null when no valid token was captured.
@@ -221,14 +220,27 @@ class PushifyAcquisitionLinks {
   }
 
   Future<http.Response> _sendBoundedRequest(Uri uri, String body) async {
-    final request = http.Request('POST', uri)
-      ..headers.addAll({
-        'Authorization': 'Bearer $_publicApiKey',
-        'Content-Type': 'application/json',
-      })
-      ..body = body;
-
-    return _sendAndReadBounded(request).timeout(_requestTimeout);
+    for (var attempt = 0; attempt <= 2; attempt += 1) {
+      try {
+        final request = http.Request('POST', uri)
+          ..headers.addAll({
+            'Authorization': 'Bearer $_publicApiKey',
+            'Content-Type': 'application/json',
+          })
+          ..body = body;
+        final response = await _sendAndReadBounded(request).timeout(_requestTimeout);
+        final retryable = response.statusCode == 429 || response.statusCode >= 500;
+        if (!retryable || attempt == 2) return response;
+      } on PushifyAcquisitionLinkException {
+        rethrow;
+      } on Object {
+        if (attempt == 2) rethrow;
+      }
+      await Future<void>.delayed(
+        Duration(milliseconds: attempt == 0 ? 250 : 750),
+      );
+    }
+    throw const PushifyAcquisitionLinkException('Link resolution failed.');
   }
 
   Future<http.Response> _sendAndReadBounded(http.Request request) async {

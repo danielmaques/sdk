@@ -63,26 +63,50 @@ public final class PushifyAcquisitionLinks: Sendable {
     /// Reads and resolves a deferred pasteboard handoff after an explicit user action.
     @MainActor
     public func resolveDeferredPasteboard(appUserID: String? = nil) async throws -> PushifyAcquisitionLink? {
-        guard let token = consumeDeferredTokenFromPasteboard() else { return nil }
-        return try await resolve(token, appUserID: appUserID)
+        guard let token = UIPasteboard.general.string,
+              Self.isValid(token), token.hasPrefix("rdit_") else { return nil }
+        let link = try await resolve(token, appUserID: appUserID)
+        if UIPasteboard.general.string == token { UIPasteboard.general.string = nil }
+        return link
     }
 
     /// Resolves a direct or deferred opaque token. Pass the SDK's current app user id when known.
     public func resolve(_ token: String, appUserID: String? = nil) async throws -> PushifyAcquisitionLink {
         guard Self.isValid(token) else { throw AcquisitionLinkError.invalidToken }
-        var request = URLRequest(url: endpoint, timeoutInterval: 10)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(publicApiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: String] = ["token": token]
         if let appUserID, !appUserID.isEmpty { body["app_user_id"] = appUserID }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
-        guard data.count <= 65_536 else { throw AcquisitionLinkError.resolutionFailed }
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            throw AcquisitionLinkError.resolutionFailed
+        let requestBody = try JSONSerialization.data(withJSONObject: body)
+
+        for attempt in 0...2 {
+            var request = URLRequest(url: endpoint, timeoutInterval: 10)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(publicApiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = requestBody
+
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard data.count <= 65_536 else { throw AcquisitionLinkError.resolutionFailed }
+                guard let response = response as? HTTPURLResponse else {
+                    throw AcquisitionLinkError.resolutionFailed
+                }
+                if (response.statusCode == 429 || response.statusCode >= 500), attempt < 2 {
+                    try await Self.waitBeforeRetry(attempt)
+                    continue
+                }
+                guard (200..<300).contains(response.statusCode) else {
+                    throw AcquisitionLinkError.resolutionFailed
+                }
+                return try JSONDecoder().decode(PushifyAcquisitionLink.self, from: data)
+            } catch let error as URLError where error.code != .cancelled && attempt < 2 {
+                try await Self.waitBeforeRetry(attempt)
+            }
         }
-        return try JSONDecoder().decode(PushifyAcquisitionLink.self, from: data)
+        throw AcquisitionLinkError.resolutionFailed
+    }
+
+    private static func waitBeforeRetry(_ attempt: Int) async throws {
+        try await Task.sleep(nanoseconds: attempt == 0 ? 250_000_000 : 750_000_000)
     }
 
     private static func isValid(_ token: String) -> Bool {

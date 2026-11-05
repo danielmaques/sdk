@@ -11,6 +11,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
@@ -113,38 +114,57 @@ public class AcquisitionLinks(
     }
 
     private fun resolveBlocking(token: String, appUserId: String?): AcquisitionLink {
-        val connection = (endpoint.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = TIMEOUT_MS
-            readTimeout = TIMEOUT_MS
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer $publicApiKey")
-            setRequestProperty("Content-Type", "application/json")
+        val body = JSONObject().put("token", token).apply {
+            if (!appUserId.isNullOrBlank()) put("app_user_id", appUserId)
+        }.toString().toByteArray(StandardCharsets.UTF_8)
+        for (attempt in 0..2) {
+            val connection = (endpoint.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = TIMEOUT_MS
+                readTimeout = TIMEOUT_MS
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer $publicApiKey")
+                setRequestProperty("Content-Type", "application/json")
+            }
+            try {
+                connection.outputStream.use { it.write(body) }
+                val status = connection.responseCode
+                if ((status == 429 || status >= 500) && attempt < 2) {
+                    retryPause(attempt)
+                    continue
+                }
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val response = stream?.use { readLimited(it) }.orEmpty()
+                check(status in 200..299) { "Pushify acquisition-link resolution failed (HTTP $status)." }
+                val json = JSONObject(response)
+                val campaignJson = json.optJSONObject("campaign") ?: JSONObject()
+                val campaign = campaignJson.keys().asSequence().associateWith { campaignJson.optString(it) }
+                return AcquisitionLink(
+                    status = json.getString("status"),
+                    linkId = json.getString("link_id"),
+                    name = json.getString("name"),
+                    slug = json.getString("slug"),
+                    destination = json.getString("destination"),
+                    appScheme = json.getString("app_scheme"),
+                    campaign = campaign,
+                    attributed = json.optBoolean("attributed"),
+                )
+            } catch (error: IOException) {
+                if (attempt == 2) throw error
+                retryPause(attempt)
+            } finally {
+                connection.disconnect()
+            }
         }
+        error("Pushify acquisition-link resolution failed.")
+    }
+
+    private fun retryPause(attempt: Int) {
         try {
-            val body = JSONObject().put("token", token).apply {
-                if (!appUserId.isNullOrBlank()) put("app_user_id", appUserId)
-            }.toString()
-            connection.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val response = stream?.use { readLimited(it) }.orEmpty()
-            check(status in 200..299) { "Pushify acquisition-link resolution failed (HTTP $status)." }
-            val json = JSONObject(response)
-            val campaignJson = json.optJSONObject("campaign") ?: JSONObject()
-            val campaign = campaignJson.keys().asSequence().associateWith { campaignJson.optString(it) }
-            return AcquisitionLink(
-                status = json.getString("status"),
-                linkId = json.getString("link_id"),
-                name = json.getString("name"),
-                slug = json.getString("slug"),
-                destination = json.getString("destination"),
-                appScheme = json.getString("app_scheme"),
-                campaign = campaign,
-                attributed = json.optBoolean("attributed"),
-            )
-        } finally {
-            connection.disconnect()
+            Thread.sleep(if (attempt == 0) 250L else 750L)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw error
         }
     }
 

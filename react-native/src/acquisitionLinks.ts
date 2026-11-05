@@ -20,6 +20,10 @@ export type AcquisitionLinkClientOptions = {
 };
 
 const TOKEN = /^(rdlt|rdit)_[A-Za-z0-9_-]{30,80}$/;
+const RETRY_DELAYS_MS = [250, 750] as const;
+
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 /** Finds a direct acquisition token in an incoming Pushify app URL. */
 export function acquisitionTokenFromUrl(url: string): string | undefined {
@@ -42,17 +46,38 @@ export async function resolveAcquisitionLink(
   const endpoint = new URL('/sdk/v1/acquisition-links/resolve', base);
   if (endpoint.protocol !== 'https:') throw new Error('Pushify API URL must use HTTPS.');
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.publicApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      token,
-      ...(options.appUserId ? { customer_id: options.appUserId } : {}),
-    }),
-  });
+  let response: Response | undefined;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${options.publicApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token,
+          ...(options.appUserId ? { customer_id: options.appUserId } : {}),
+        }),
+      });
+    } catch (error) {
+      if (attempt === RETRY_DELAYS_MS.length) throw error;
+      await wait(RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+
+    if ((response.status === 429 || response.status >= 500) && attempt < RETRY_DELAYS_MS.length) {
+      try {
+        await response.body?.cancel();
+      } catch {
+        // A failed body cancellation must not prevent this idempotent retry.
+      }
+      await wait(RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+    break;
+  }
+  if (!response) throw new Error('Pushify acquisition-link resolution failed.');
   if (!response.ok) {
     throw new Error(`Pushify acquisition-link resolution failed (HTTP ${response.status}).`);
   }
@@ -90,6 +115,8 @@ export async function readDeferredAcquisitionToken(): Promise<string | undefined
  * React Native Linking and ask it to resolve supported deferred handoffs.
  */
 export class PushifyAcquisitionLinks {
+  private pendingToken?: string;
+
   constructor(private readonly options: AcquisitionLinkClientOptions) {
     if (!options.publicApiKey.trim()) {
       throw new Error('A Pushify public app key is required.');
@@ -107,7 +134,8 @@ export class PushifyAcquisitionLinks {
   ): Promise<PushifyAcquisitionLink | undefined> {
     const token = acquisitionTokenFromUrl(url);
     if (!token) return undefined;
-    return resolveAcquisitionLink(token, { ...this.options, appUserId });
+    this.pendingToken = token;
+    return this.getInitialLink(appUserId);
   }
 
   /** Reads and resolves a supported deferred handoff in one call. */
@@ -116,6 +144,18 @@ export class PushifyAcquisitionLinks {
   ): Promise<PushifyAcquisitionLink | undefined> {
     const token = await readDeferredAcquisitionToken();
     if (!token) return undefined;
-    return resolveAcquisitionLink(token, { ...this.options, appUserId });
+    this.pendingToken = token;
+    return this.getInitialLink(appUserId);
+  }
+
+  /** Retries the most recently captured direct or deferred link after a resolution failure. */
+  async getInitialLink(
+    appUserId = this.options.appUserId,
+  ): Promise<PushifyAcquisitionLink | undefined> {
+    const token = this.pendingToken;
+    if (!token) return undefined;
+    const link = await resolveAcquisitionLink(token, { ...this.options, appUserId });
+    if (this.pendingToken === token) this.pendingToken = undefined;
+    return link;
   }
 }

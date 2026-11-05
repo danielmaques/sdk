@@ -137,6 +137,7 @@ The helper returns `undefined` when the native module is unavailable or there is
 - `acquisitionTokenFromUrl(url)` returns the direct `rdt` token or `undefined`.
 - `PushifyAcquisitionLinks.handleUrl(url, appUserId?)` extracts and resolves a direct link in one call.
 - `PushifyAcquisitionLinks.resolveDeferred(appUserId?)` reads and resolves a supported deferred handoff in one call.
+- `PushifyAcquisitionLinks.getInitialLink(appUserId?)` retries the pending direct or deferred token after a resolution failure; it returns `undefined` when there is no pending link.
 - `resolveAcquisitionLink(token, options)` posts to `/sdk/v1/acquisition-links/resolve` using `publicApiKey`, optional `apiBaseUrl`, and optional `appUserId`.
 - `readDeferredAcquisitionToken()` asks the native module for a deferred `rdit_` token.
 - `PushifyAcquisitionLink` contains `status`, `link_id`, `name`, `slug`, `destination`, `app_scheme`, `campaign`, and `attributed`.
@@ -147,6 +148,7 @@ The optional `appUserId` should match the ID used by your Pushify identity integ
 
 - The API URL must use HTTPS and point to Pushify Cloud.
 - Invalid tokens, network errors and non-success HTTP responses reject the promise.
+- Resolution retries network failures, HTTP 429 and 5xx twice with a short backoff. Call `getInitialLink()` to retry after the bounded automatic attempts; 4xx responses are not retried.
 - Never log the public key or raw token. Validate `destination` against routes supported by your app before navigating.
 - The public app key is intended for client use. Never ship a server secret in the bundle.
 
