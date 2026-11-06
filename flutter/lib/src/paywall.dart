@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 
 import 'purchases.dart';
@@ -219,7 +220,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
                   dimension: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : Text(_localized(node, screen, 'Continue')),
+              : children.isNotEmpty
+                  ? Column(children: children.map((child) => _render(child, screen)).toList())
+                  : Text(_localized(node, screen, 'Continue')),
         );
       case 'restore_button':
         return TextButton(
@@ -228,19 +231,10 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         );
       case 'button':
         return TextButton(
-          onPressed: () {
-            if (properties['action'] == 'restore') {
-              _restore();
-              return;
-            }
-            final next = properties['next_screen_id'];
-            if (_screens.any((item) => item['id'] == next)) {
-              setState(() => _screenId = next as String);
-            } else {
-              _buy();
-            }
-          },
-          child: Text(_localized(node, screen, 'Continue')),
+          onPressed: () => _handleButton(node, screen),
+          child: children.isNotEmpty
+              ? Column(children: children.map((child) => _render(child, screen)).toList())
+              : Text(_localized(node, screen, 'Continue')),
         );
       case 'spacer':
         return SizedBox(height: _number(properties['size']) ?? 8);
@@ -621,6 +615,77 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     return fallback.isNotEmpty
         ? fallback
         : _map(node['properties'])['text'] as String? ?? '';
+  }
+
+  String? _localizedValue(String key, Map<String, Object?> screen) {
+    final perScreen = _map(screen['localizations']);
+    final locales = _map(widget.document['locales']);
+    for (final locale in [widget.locale, widget.document['default_locale'] as String?, 'en_US']) {
+      if (locale == null) continue;
+      final value = _map(perScreen[locale])[key] ?? _map(locales[locale])[key];
+      if (value is String) return value;
+    }
+    return null;
+  }
+
+  Future<void> _handleButton(
+    Map<String, Object?> node,
+    Map<String, Object?> screen,
+  ) async {
+    final properties = _map(node['properties']);
+    final action = _map(properties['action']);
+    final kind = action['type'] ?? properties['action'];
+    if (kind == 'restore_purchases' || kind == 'restore') {
+      await _restore();
+      return;
+    }
+    if (kind == 'navigate_to') {
+      await _openActionLink(action, screen);
+      return;
+    }
+    if (kind == 'navigate_back') {
+      final index = _screens.indexWhere((item) => item['id'] == _screenId);
+      if (index > 0) {
+        setState(() => _screenId = _screens[index - 1]['id'] as String);
+      } else {
+        widget.onClose?.call();
+      }
+      return;
+    }
+    final next = properties['next_screen_id'];
+    if (next is String && _screens.any((item) => item['id'] == next)) {
+      setState(() => _screenId = next);
+      return;
+    }
+    if (kind == 'close' || kind == 'close_workflow') {
+      widget.onClose?.call();
+      return;
+    }
+    if (kind == 'purchase' || kind == 'purchase_product') {
+      await _buy();
+      return;
+    }
+    setState(() => _message = 'This button action is not supported by this SDK version.');
+  }
+
+  Future<void> _openActionLink(
+    Map<String, Object?> action,
+    Map<String, Object?> screen,
+  ) async {
+    final urlRef = _map(action['url']);
+    final key = urlRef['url_lid'];
+    final raw = key is String ? _localizedValue(key, screen) : urlRef['url'];
+    final uri = raw is String ? Uri.tryParse(raw) : null;
+    if (uri == null || !uri.hasAuthority || !['https', 'http'].contains(uri.scheme)) {
+      setState(() => _message = 'This link is unavailable.');
+      return;
+    }
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      if (!opened && mounted) setState(() => _message = 'This link could not be opened.');
+    } catch (_) {
+      if (mounted) setState(() => _message = 'This link could not be opened.');
+    }
   }
 
   Color _background(Map<String, Object?> background, Color fallback) {

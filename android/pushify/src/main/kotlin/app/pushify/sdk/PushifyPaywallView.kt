@@ -2,6 +2,8 @@ package app.pushify.sdk
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
@@ -45,6 +47,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val strings = document.optJSONObject("locales") ?: JSONObject()
     private val screens = document.optJSONArray("screens") ?: JSONArray()
     private var busy = false
+    private var message: String? = null
 
     init {
         isFillViewport = true
@@ -69,6 +72,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         }
         screen.optJSONObject("content")?.let { root.addView(renderNode(it, screen), lp(MATCH, 0, 1f)) }
         screen.optJSONObject("footer")?.let { root.addView(renderNode(it, screen), lp(MATCH, WRAP)) }
+        message?.let { status -> root.addView(TextView(context).apply { text = status; gravity = Gravity.CENTER; contentDescription = status }, lp(MATCH, WRAP)) }
         addView(root, LayoutParams(MATCH, MATCH))
     }
 
@@ -91,21 +95,14 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
             "package" -> packageView(node, screen, properties)
             "purchase_button", "cta" -> Button(context).apply {
-                text = localized(node, screen).ifBlank { "Continue" }
+                text = buttonLabel(node, screen).ifBlank { "Continue" }
                 contentDescription = text
                 setOnClickListener { purchaseSelected() }
             }
             "restore_button" -> Button(context).apply { text = localized(node, screen).ifBlank { "Restore purchases" }; setOnClickListener { restore() } }
             "button" -> Button(context).apply {
-                text = localized(node, screen).ifBlank { "Continue" }
-                setOnClickListener {
-                    if (properties.optString("action") == "restore") restore()
-                    else {
-                        val next = properties.optString("next_screen_id")
-                        if ((0 until screens.length()).any { screens.optJSONObject(it)?.optString("id") == next }) { activeScreenId = next; render() }
-                        else purchaseSelected()
-                    }
-                }
+                text = buttonLabel(node, screen).ifBlank { "Continue" }
+                setOnClickListener { handleButton(properties, screen) }
             }
             "spacer" -> View(context).apply { layoutParams = lp(MATCH, dp(properties.optDouble("size", 8.0).toInt())) }
             "image" -> imageView(properties)
@@ -283,6 +280,76 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
         }
         return node.optJSONObject("properties")?.optString("text").orEmpty()
+    }
+
+    private fun localizedValue(key: String, screen: JSONObject): String? {
+        val perScreen = screen.optJSONObject("localizations") ?: JSONObject()
+        val locale = document.optString("default_locale", "en_US")
+        for (tag in listOf(java.util.Locale.getDefault().toLanguageTag(), locale, "en_US")) {
+            val value = perScreen.optJSONObject(tag)?.optString(key) ?: strings.optJSONObject(tag)?.optString(key)
+            if (!value.isNullOrBlank() && value != "null") return value
+        }
+        return null
+    }
+
+    private fun buttonLabel(node: JSONObject, screen: JSONObject): String {
+        node.optJSONArray("children")?.let { children ->
+            for (i in 0 until children.length()) {
+                val child = children.optJSONObject(i) ?: continue
+                val value = localizedNodeText(child, screen)
+                if (!value.isNullOrBlank()) return value
+            }
+        }
+        return localized(node, screen)
+    }
+
+    private fun localizedNodeText(node: JSONObject, screen: JSONObject): String? {
+        val properties = node.optJSONObject("properties") ?: JSONObject()
+        val key = properties.optString("text_lid")
+        if (key.isNotBlank()) localizedValue(key, screen)?.let { return it }
+        properties.optString("text").takeIf(String::isNotBlank)?.let { return it }
+        val children = node.optJSONArray("children") ?: return null
+        for (i in 0 until children.length()) localizedNodeText(children.optJSONObject(i) ?: continue, screen)?.let { return it }
+        return null
+    }
+
+    private fun handleButton(properties: JSONObject, screen: JSONObject) {
+        val action = properties.optJSONObject("action") ?: JSONObject()
+        val kind = action.optString("type").ifBlank { properties.optString("action") }
+        when (kind) {
+            "restore_purchases", "restore" -> restore()
+            "navigate_to" -> openActionLink(action, screen)
+            "navigate_back" -> {
+                val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == activeScreenId }
+                if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() }
+                else onDismiss?.invoke()
+            }
+            "close", "close_workflow" -> onDismiss?.invoke()
+            "purchase", "purchase_product" -> purchaseSelected()
+            else -> {
+                val next = properties.optString("next_screen_id")
+                if ((0 until screens.length()).any { screens.optJSONObject(it)?.optString("id") == next }) { activeScreenId = next; render() }
+                else { message = "This button action is not supported by this SDK version."; render() }
+            }
+        }
+    }
+
+    private fun openActionLink(action: JSONObject, screen: JSONObject) {
+        val ref = action.optJSONObject("url") ?: JSONObject()
+        val key = ref.optString("url_lid")
+        val raw = if (key.isNotBlank()) localizedValue(key, screen) else ref.optString("url")
+        val uri = raw?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        if (uri == null || uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) {
+            message = "This link is unavailable."; render(); return
+        }
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }.onFailure {
+            message = "This link could not be opened."
+            render()
+        }
     }
 
     private fun backgroundColor(background: JSONObject?): Int {

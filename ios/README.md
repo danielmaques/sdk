@@ -2,7 +2,7 @@
 
 The Pushify Swift package uses StoreKit 2 and the first-party Pushify `/sdk/v1` API. It implements customer bootstrap/identity, attributes, offerings, StoreKit purchase and restore, transaction recovery, encrypted verified-customer caching, update streams, app events, virtual-currency spending and acquisition links.
 
-> **Implementation status:** native purchase and customer flows exist, including localized StoreKit product details, encrypted last-known paywall/offering cache, published `pushify.paywall/v1` data, Customer Center configuration, and support ticket intake. The SwiftUI paywall renderer now handles icons, timelines, carousels, tabs, and countdowns as well as core text, package, purchase, restore, image, and navigation components. Rendering still differs from the editor in details; video/web view and several Customer Center actions remain unsupported. Store sandbox journeys and release-package validation are outstanding. This SDK is not production-ready yet.
+> **Implementation status:** native purchase and customer flows exist, including localized StoreKit product details, encrypted last-known paywall/offering cache, published `pushify.paywall/v1` data, Customer Center configuration, and support ticket intake. The SwiftUI paywall renderer handles localized absolute HTTP/HTTPS button links (including Terms and Privacy), icons, timelines, carousels, tabs, countdowns, and core purchase components. Rendering still differs from the editor in details; several Customer Center actions remain unsupported. Store sandbox journeys and release-package validation are outstanding. This SDK is not production-ready yet.
 
 ## Requirements
 

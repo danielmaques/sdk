@@ -4,6 +4,7 @@ import WebKit
 /// A native, accessible renderer for the core Pushify paywall components.
 @MainActor
 public struct PushifyPaywallView: View {
+    @Environment(\.openURL) private var openURL
     private let document: PushifyPaywallDocument
     private let offering: PushifyOfferings.Offering
     private let purchases: PushifyPurchases
@@ -54,7 +55,11 @@ public struct PushifyPaywallView: View {
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
     }
 
-    @ViewBuilder private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> some View {
+    private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> AnyView {
+        AnyView(renderContent(node, screen: screen))
+    }
+
+    @ViewBuilder private func renderContent(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> some View {
         switch node.kind {
         case "stack":
             VStack(alignment: .center, spacing: CGFloat(number(node.properties["spacing"]) ?? 12)) {
@@ -86,18 +91,27 @@ public struct PushifyPaywallView: View {
             }
         case "purchase_button", "cta":
             Button(action: buySelected) {
-                HStack { if busy { ProgressView().tint(.white) }; Text(localized(node, screen: screen, fallback: "Continue")).font(.headline) }
+                HStack {
+                    if busy { ProgressView().tint(.white) }
+                    if let content = node.children.first { render(content, screen: screen) }
+                    else { Text(localized(node, screen: screen, fallback: "Continue")).font(.headline) }
+                }
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
             }
             .buttonStyle(.borderedProminent).disabled(busy || selectedPackageID.isEmpty)
         case "restore_button":
             Button(localized(node, screen: screen, fallback: "Restore purchases"), action: restore).disabled(busy)
         case "button":
-            Button(localized(node, screen: screen, fallback: "Continue")) {
-                if string(node.properties["action"]) == "restore" { restore() }
-                else if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }
-                else { buySelected() }
+            Button {
+                handleButton(node, screen: screen)
+            } label: {
+                if let content = node.children.first {
+                    AnyView(render(content, screen: screen))
+                } else {
+                    AnyView(Text(localized(node, screen: screen, fallback: "Continue")))
+                }
             }
+            .buttonStyle(.plain)
         case "spacer":
             Spacer(minLength: CGFloat(number(node.properties["size"]) ?? 8))
         case "image":
@@ -213,6 +227,43 @@ public struct PushifyPaywallView: View {
             }
         }
         return fallback ?? string(node.properties["text"]) ?? ""
+    }
+
+    private func localizedValue(_ key: String, screen: PushifyPaywallScreen) -> String? {
+        for locale in [Locale.current.identifier, document.defaultLocale, "en_US"] {
+            if case .string(let value)? = screen.localizations[locale]?[key] ?? document.locales[locale]?[key] { return value }
+        }
+        return nil
+    }
+
+    private func handleButton(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) {
+        let action = object(node.properties["action"]) ?? [:]
+        let kind = string(action["type"]) ?? string(node.properties["action"]) ?? ""
+        switch kind {
+        case "restore_purchases", "restore": restore()
+        case "navigate_to": openActionLink(action, screen: screen)
+        case "navigate_back":
+            if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
+            else { onDismiss?() }
+        case "close", "close_workflow": onDismiss?()
+        case "purchase", "purchase_product": buySelected()
+        default:
+            if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }
+            else { message = "This button action is not supported by this SDK version." }
+        }
+    }
+
+    private func openActionLink(_ action: [String: PushifyJSONValue], screen: PushifyPaywallScreen) {
+        let url = object(action["url"]) ?? [:]
+        let key = string(url["url_lid"])
+        let raw = key.flatMap { localizedValue($0, screen: screen) } ?? string(url["url"])
+        guard let raw, let value = URL(string: raw), let scheme = value.scheme?.lowercased(), ["http", "https"].contains(scheme), value.host != nil else {
+            message = "This link is unavailable."
+            return
+        }
+        openURL(value) { accepted in
+            if !accepted { message = "This link could not be opened." }
+        }
     }
 
     private func backgroundColor(_ value: PushifyJSONValue?) -> Color {

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View, FlatList } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View, FlatList } from 'react-native';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -59,6 +59,44 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     return fallback || (typeof node.properties.text === 'string' ? node.properties.text : '');
   }
 
+  function localizedValue(key: string): string | null {
+    const locales = [props.locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
+    for (const locale of locales) {
+      const value = screen?.localizations[locale]?.[key] ?? props.document.locales[locale]?.[key];
+      if (typeof value === 'string') return value;
+    }
+    return null;
+  }
+
+  async function openActionLink(action: Record<string, unknown>): Promise<void> {
+    const urlRef = record(action.url);
+    const urlKey = text(urlRef.url_lid);
+    const rawURL = urlKey ? localizedValue(urlKey) : text(urlRef.url);
+    let parsed: URL;
+    try { parsed = new URL(rawURL ?? ''); } catch { setMessage('This link is unavailable.'); return; }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') { setMessage('This link is unavailable.'); return; }
+    try { await Linking.openURL(parsed.toString()); }
+    catch { setMessage('This link could not be opened.'); }
+  }
+
+  async function handleButton(node: PushifyPaywallNode): Promise<void> {
+    const action = record(node.properties.action);
+    const kind = text(action.type) ?? text(node.properties.action);
+    if (kind === 'restore_purchases' || kind === 'restore') { await restore(); return; }
+    if (kind === 'navigate_to') { await openActionLink(action); return; }
+    if (kind === 'navigate_back') {
+      const index = props.document.screens.findIndex((candidate) => candidate.id === screen?.id);
+      if (index > 0) setScreenID(props.document.screens[index - 1]!.id);
+      else props.onClose?.();
+      return;
+    }
+    const next = text(node.properties.next_screen_id);
+    if (next && props.document.screens.some((candidate) => candidate.id === next)) { setScreenID(next); return; }
+    if (kind === 'purchase' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(); return; }
+    if (kind === 'close' || kind === 'close_workflow') { props.onClose?.(); return; }
+    setMessage('This button action is not supported by this SDK version.');
+  }
+
   function renderNode(node: PushifyPaywallNode): React.ReactNode {
     const children = node.children.map((child) => renderNode(child));
     switch (node.kind) {
@@ -78,14 +116,9 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
         }, React.createElement(Text, { style: styles.packageTitle }, `${active ? '◉' : '○'}  ${label}`), item.product.localized_price ? React.createElement(Text, { style: styles.price }, item.product.localized_price) : null);
       }
       case 'purchase_button':
-      case 'cta': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: purchase, disabled: busy || !selected, accessibilityRole: 'button', accessibilityState: { disabled: busy || !selected }, style: [styles.cta, (busy || !selected) && styles.disabled] }, busy ? React.createElement(ActivityIndicator, { color: '#ffffff' }) : React.createElement(Text, { style: styles.ctaText }, localized(node, 'Continue')));
+      case 'cta': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: purchase, disabled: busy || !selected, accessibilityRole: 'button', accessibilityState: { disabled: busy || !selected }, style: [styles.cta, (busy || !selected) && styles.disabled] }, busy ? React.createElement(ActivityIndicator, { color: '#ffffff' }) : children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, { style: styles.ctaText }, localized(node, 'Continue')));
       case 'restore_button': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: restore, disabled: busy, accessibilityRole: 'button', style: styles.quiet }, React.createElement(Text, null, localized(node, 'Restore purchases')));
-      case 'button': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => {
-        if (node.properties.action === 'restore') { void restore(); return; }
-        const next = node.properties.next_screen_id;
-        if (typeof next === 'string' && props.document.screens.some((candidate) => candidate.id === next)) setScreenID(next);
-        else void purchase();
-      }, accessibilityRole: 'button', style: styles.quiet }, React.createElement(Text, null, localized(node, 'Continue')));
+      case 'button': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { void handleButton(node); }, accessibilityRole: 'button', style: styles.quiet }, children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, null, localized(node, 'Continue')));
       case 'spacer': return React.createElement(View, { key: node.id ?? undefined, style: { height: number(node.properties.size) ?? 8 } });
       case 'image': {
         const source = record(node.properties.source);
