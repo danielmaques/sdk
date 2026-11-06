@@ -27,7 +27,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
   const screen = props.document.screens.find((candidate) => candidate.id === screenID) ?? firstScreen;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
-  async function purchase(packageID?: string) {
+  async function purchase(packageID?: string, action: Record<string, unknown> = {}, sourceScreen = screen) {
     const productID = packageID ?? selected;
     if (busy) return;
     if (!packages.some((item) => item.id === productID)) { setMessage('This purchase option is unavailable.'); return; }
@@ -35,10 +35,30 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     try {
       const result = await props.purchases.purchase(productID);
       if (result.status === 'purchased') props.onPurchased?.(result.customerInfo);
+      if (result.status === 'purchased') runPurchaseOutcome('after_purchase', 'close', action, sourceScreen);
+      if (result.status === 'cancelled') runPurchaseOutcome('on_abandon', 'none', action, sourceScreen);
       if (result.status === 'pending') setMessage('Purchase is pending approval.');
     } catch {
       setMessage('Purchase could not be completed. Please try again.');
     } finally { setBusy(false); }
+  }
+
+  function runPurchaseOutcome(key: string, fallback: string, action: Record<string, unknown>, sourceScreen?: PushifyPaywallV1['screens'][number]): void {
+    const outcome = record(action[key]);
+    const kind = text(outcome.type) ?? fallback;
+    if (kind === 'none') return;
+    if (kind === 'close') { props.onClose?.(); return; }
+    const index = props.document.screens.findIndex((candidate) => candidate.id === sourceScreen?.id);
+    if (kind === 'navigate_back') {
+      if (index > 0) setScreenID(props.document.screens[index - 1]!.id);
+      else props.onClose?.();
+    } else if (kind === 'workflow') {
+      const nextScreen = index >= 0 ? props.document.screens[index + 1] : undefined;
+      if (nextScreen) setScreenID(nextScreen.id);
+      else setMessage('This flow has no next screen.');
+    } else {
+      setMessage('This purchase outcome is not supported by this SDK version.');
+    }
   }
 
   async function restore() {
@@ -103,7 +123,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     }
     const next = text(node.properties.next_screen_id);
     if (next && props.document.screens.some((candidate) => candidate.id === next)) { setScreenID(next); return; }
-    if (kind === 'purchase' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(text(action.package_id) ?? undefined); return; }
+    if (kind === 'purchase' || kind === 'purchase_with_outcome' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(text(action.package_id) ?? undefined, action, screen); return; }
     if (kind === 'close' || kind === 'close_workflow') { props.onClose?.(); return; }
     setMessage('This button action is not supported by this SDK version.');
   }

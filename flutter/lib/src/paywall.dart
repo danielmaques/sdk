@@ -214,7 +214,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       case 'purchase_button':
       case 'cta':
         return FilledButton(
-          onPressed: _busy || _selectedPackage.isEmpty ? null : _buy,
+          onPressed: _busy || _selectedPackage.isEmpty ? null : () => _buy(screen: screen),
           child: _busy
               ? const SizedBox.square(
                   dimension: 20,
@@ -551,7 +551,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     );
   }
 
-  Future<void> _buy({String? packageId}) async {
+  Future<void> _buy({String? packageId, Map<String, Object?> action = const {}, Map<String, Object?>? screen}) async {
     if (_busy) return;
     final productId = packageId ?? _selectedPackage;
     final available = _maps(widget.offering['packages']).any((item) => item['id'] == productId);
@@ -567,7 +567,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       final result = await widget.purchases.purchase(productId);
       if (result.isPurchased && result.customerInfo != null) {
         widget.onPurchased?.call(result.customerInfo!);
+        _runPurchaseOutcome('after_purchase', 'close', action, screen);
       }
+      if (result.isCancelled) _runPurchaseOutcome('on_abandon', 'none', action, screen);
       if (result.isPending) {
         setState(() => _message = 'Purchase is pending approval.');
       }
@@ -577,6 +579,22 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       );
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _runPurchaseOutcome(String key, String fallback, Map<String, Object?> action, Map<String, Object?>? screen) {
+    final type = _map(action[key])['type'] as String? ?? fallback;
+    if (type == 'none') return;
+    if (type == 'close') { widget.onClose?.call(); return; }
+    final index = _screens.indexWhere((item) => item['id'] == screen?['id']);
+    if (type == 'navigate_back') {
+      if (index > 0) { setState(() => _screenId = _screens[index - 1]['id'] as String); }
+      else { widget.onClose?.call(); }
+    } else if (type == 'workflow') {
+      if (index >= 0 && index + 1 < _screens.length) { setState(() => _screenId = _screens[index + 1]['id'] as String); }
+      else { setState(() => _message = 'This flow has no next screen.'); }
+    } else {
+      setState(() => _message = 'This purchase outcome is not supported by this SDK version.');
     }
   }
 
@@ -678,9 +696,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       widget.onClose?.call();
       return;
     }
-    if (kind == 'purchase' || kind == 'purchase_product') {
+    if (kind == 'purchase' || kind == 'purchase_with_outcome' || kind == 'purchase_product') {
       final packageId = action['package_id'];
-      await _buy(packageId: packageId is String && packageId.isNotEmpty ? packageId : null);
+      await _buy(packageId: packageId is String && packageId.isNotEmpty ? packageId : null, action: action, screen: screen);
       return;
     }
     setState(() => _message = 'This button action is not supported by this SDK version.');

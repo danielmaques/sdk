@@ -97,7 +97,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             "purchase_button", "cta" -> Button(context).apply {
                 text = buttonLabel(node, screen).ifBlank { "Continue" }
                 contentDescription = text
-                setOnClickListener { purchaseSelected() }
+                setOnClickListener { purchaseSelected(screen = screen) }
             }
             "restore_button" -> Button(context).apply { text = localized(node, screen).ifBlank { "Restore purchases" }; setOnClickListener { restore() } }
             "button" -> Button(context).apply {
@@ -253,7 +253,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return image
     }
 
-    private fun purchaseSelected(packageId: String? = null) {
+    private fun purchaseSelected(packageId: String? = null, action: JSONObject = JSONObject(), screen: JSONObject? = null) {
         val productId = packageId ?: selectedPackageId
         if (busy) return
         if (productId.isBlank() || (0 until packages.length()).none { packages.optJSONObject(it)?.optString("id") == productId }) {
@@ -263,7 +263,25 @@ public class PushifyPaywallView @JvmOverloads constructor(
         busy = true
         purchases.purchase(activity, productId) { result ->
             busy = false
-            result.onSuccess { outcome -> if (outcome is PushifyPurchases.PurchaseOutcome.Purchased) onDismiss?.invoke() }
+            result.onSuccess { outcome ->
+                when (outcome) {
+                    is PushifyPurchases.PurchaseOutcome.Purchased -> runPurchaseOutcome("after_purchase", "close", action, screen)
+                    PushifyPurchases.PurchaseOutcome.Cancelled -> runPurchaseOutcome("on_abandon", "none", action, screen)
+                    PushifyPurchases.PurchaseOutcome.Pending -> { message = "Purchase is pending approval."; render() }
+                }
+            }.onFailure { message = "Purchase could not be completed. Please try again."; render() }
+        }
+    }
+
+    private fun runPurchaseOutcome(key: String, fallback: String, action: JSONObject, screen: JSONObject?) {
+        val type = action.optJSONObject(key)?.optString("type")?.takeIf(String::isNotBlank) ?: fallback
+        if (type == "none") return
+        if (type == "close") { onDismiss?.invoke(); return }
+        val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == screen?.optString("id") }
+        when (type) {
+            "navigate_back" -> if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() } else onDismiss?.invoke()
+            "workflow" -> if (index >= 0 && index + 1 < screens.length()) { activeScreenId = screens.optJSONObject(index + 1)?.optString("id").orEmpty(); render() } else { message = "This flow has no next screen."; render() }
+            else -> { message = "This purchase outcome is not supported by this SDK version."; render() }
         }
     }
 
@@ -340,7 +358,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 render()
             }
             "close", "close_workflow" -> onDismiss?.invoke()
-            "purchase", "purchase_product" -> purchaseSelected(action.optString("package_id").takeIf(String::isNotBlank))
+            "purchase", "purchase_with_outcome", "purchase_product" -> purchaseSelected(action.optString("package_id").takeIf(String::isNotBlank), action, screen)
             else -> {
                 val next = properties.optString("next_screen_id")
                 if ((0 until screens.length()).any { screens.optJSONObject(it)?.optString("id") == next }) { activeScreenId = next; render() }

@@ -90,7 +90,7 @@ public struct PushifyPaywallView: View {
                 .accessibilityAddTraits(selectedPackageID == packageID ? .isSelected : [])
             }
         case "purchase_button", "cta":
-            Button(action: { buySelected() }) {
+            Button(action: { buySelected(screen: screen) }) {
                 HStack {
                     if busy { ProgressView().tint(.white) }
                     if let content = node.children.first { render(content, screen: screen) }
@@ -195,7 +195,7 @@ public struct PushifyPaywallView: View {
         }
     }
 
-    private func buySelected(packageID: String? = nil) {
+    private func buySelected(packageID: String? = nil, action: [String: PushifyJSONValue] = [:], screen: PushifyPaywallScreen? = nil) {
         let productID = packageID ?? selectedPackageID
         guard !busy else { return }
         guard offering.packages.contains(where: { $0.id == productID }) else { message = "This purchase option is unavailable."; return }
@@ -204,11 +204,28 @@ public struct PushifyPaywallView: View {
             defer { busy = false }
             do {
                 switch try await purchases.purchase(packageID: productID) {
-                case .purchased: onDismiss?()
+                case .purchased: runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
                 case .pending: message = "Purchase is pending approval."
-                case .cancelled: break
+                case .cancelled: runPurchaseOutcome("on_abandon", fallback: "none", action: action, screen: screen)
                 }
             } catch { message = "Purchase could not be completed. Please try again." }
+        }
+    }
+
+    private func runPurchaseOutcome(_ key: String, fallback: String, action: [String: PushifyJSONValue], screen: PushifyPaywallScreen?) {
+        let route = object(action[key])
+        let type = string(route?["type"]) ?? fallback
+        guard type != "none" else { return }
+        guard let screen else { if type == "close" { onDismiss?() }; return }
+        switch type {
+        case "close": onDismiss?()
+        case "navigate_back":
+            if let index = document.screens.firstIndex(where: { $0.id == screen.id }), index > 0 { screenID = document.screens[index - 1].id }
+            else { onDismiss?() }
+        case "workflow":
+            if let index = document.screens.firstIndex(where: { $0.id == screen.id }), index + 1 < document.screens.count { screenID = document.screens[index + 1].id }
+            else { message = "This flow has no next screen." }
+        default: message = "This purchase outcome is not supported by this SDK version."
         }
     }
 
@@ -254,7 +271,7 @@ public struct PushifyPaywallView: View {
                 message = "This flow has no next screen."
             }
         case "close", "close_workflow": onDismiss?()
-        case "purchase", "purchase_product": buySelected(packageID: string(action["package_id"]))
+        case "purchase", "purchase_with_outcome", "purchase_product": buySelected(packageID: string(action["package_id"]), action: action, screen: screen)
         default:
             if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }
             else { message = "This button action is not supported by this SDK version." }
