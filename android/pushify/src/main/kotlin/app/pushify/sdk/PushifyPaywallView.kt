@@ -330,6 +330,15 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() }
                 else onDismiss?.invoke()
             }
+            "workflow" -> {
+                val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == screen.optString("id") }
+                if (index >= 0 && index + 1 < screens.length()) {
+                    activeScreenId = screens.optJSONObject(index + 1)?.optString("id").orEmpty()
+                } else {
+                    message = "This flow has no next screen."
+                }
+                render()
+            }
             "close", "close_workflow" -> onDismiss?.invoke()
             "purchase", "purchase_product" -> purchaseSelected(action.optString("package_id").takeIf(String::isNotBlank))
             else -> {

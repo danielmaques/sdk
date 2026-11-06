@@ -94,6 +94,13 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       else props.onClose?.();
       return;
     }
+    if (kind === 'workflow') {
+      const index = props.document.screens.findIndex((candidate) => candidate.id === screen?.id);
+      const nextScreen = index >= 0 ? props.document.screens[index + 1] : undefined;
+      if (nextScreen) setScreenID(nextScreen.id);
+      else setMessage('This flow has no next screen.');
+      return;
+    }
     const next = text(node.properties.next_screen_id);
     if (next && props.document.screens.some((candidate) => candidate.id === next)) { setScreenID(next); return; }
     if (kind === 'purchase' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(text(action.package_id) ?? undefined); return; }

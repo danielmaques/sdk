@@ -247,6 +247,12 @@ public struct PushifyPaywallView: View {
         case "navigate_back":
             if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
             else { onDismiss?() }
+        case "workflow":
+            if let index = document.screens.firstIndex(where: { $0.id == screen.id }), index + 1 < document.screens.count {
+                screenID = document.screens[index + 1].id
+            } else {
+                message = "This flow has no next screen."
+            }
         case "close", "close_workflow": onDismiss?()
         case "purchase", "purchase_product": buySelected(packageID: string(action["package_id"]))
         default:

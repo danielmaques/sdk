@@ -660,6 +660,15 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       }
       return;
     }
+    if (kind == 'workflow') {
+      final index = _screens.indexWhere((item) => item['id'] == screen['id']);
+      if (index >= 0 && index + 1 < _screens.length) {
+        setState(() => _screenId = _screens[index + 1]['id'] as String);
+      } else {
+        setState(() => _message = 'This flow has no next screen.');
+      }
+      return;
+    }
     final next = properties['next_screen_id'];
     if (next is String && _screens.any((item) => item['id'] == next)) {
       setState(() => _screenId = next);
