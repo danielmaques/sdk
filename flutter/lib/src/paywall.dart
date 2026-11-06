@@ -622,8 +622,10 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     final locales = _map(widget.document['locales']);
     for (final locale in [widget.locale, widget.document['default_locale'] as String?, 'en_US']) {
       if (locale == null) continue;
-      final value = _map(perScreen[locale])[key] ?? _map(locales[locale])[key];
-      if (value is String) return value;
+      for (final candidate in {locale, locale.replaceAll('-', '_'), locale.replaceAll('_', '-')}) {
+        final value = _map(perScreen[candidate])[key] ?? _map(locales[candidate])[key];
+        if (value is String) return value;
+      }
     }
     return null;
   }

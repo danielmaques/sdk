@@ -222,7 +222,7 @@ public struct PushifyPaywallView: View {
 
     private func localized(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen, fallback: String? = nil) -> String {
         if let key = string(node.properties["text_lid"]) {
-            for locale in [Locale.current.identifier, document.defaultLocale, "en_US"] {
+            for locale in [Locale.current.identifier.replacingOccurrences(of: "-", with: "_"), Locale.current.identifier, document.defaultLocale, "en_US"] {
                 if case .string(let value)? = screen.localizations[locale]?[key] ?? document.locales[locale]?[key] { return value }
             }
         }
@@ -230,7 +230,7 @@ public struct PushifyPaywallView: View {
     }
 
     private func localizedValue(_ key: String, screen: PushifyPaywallScreen) -> String? {
-        for locale in [Locale.current.identifier, document.defaultLocale, "en_US"] {
+        for locale in [Locale.current.identifier.replacingOccurrences(of: "-", with: "_"), Locale.current.identifier, document.defaultLocale, "en_US"] {
             if case .string(let value)? = screen.localizations[locale]?[key] ?? document.locales[locale]?[key] { return value }
         }
         return nil

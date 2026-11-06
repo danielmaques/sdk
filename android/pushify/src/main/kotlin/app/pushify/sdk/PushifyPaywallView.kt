@@ -274,7 +274,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
         if (key.isNotBlank()) {
             val perScreen = screen.optJSONObject("localizations") ?: JSONObject()
             val locale = document.optString("default_locale", "en_US")
-            for (tag in listOf(java.util.Locale.getDefault().toLanguageTag(), locale, "en_US")) {
+            val deviceLocale = java.util.Locale.getDefault().toLanguageTag()
+            for (tag in listOf(deviceLocale.replace('-', '_'), deviceLocale, locale, "en_US")) {
                 val value = perScreen.optJSONObject(tag)?.optString(key) ?: strings.optJSONObject(tag)?.optString(key)
                 if (!value.isNullOrBlank() && value != "null") return value
             }
@@ -285,7 +286,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private fun localizedValue(key: String, screen: JSONObject): String? {
         val perScreen = screen.optJSONObject("localizations") ?: JSONObject()
         val locale = document.optString("default_locale", "en_US")
-        for (tag in listOf(java.util.Locale.getDefault().toLanguageTag(), locale, "en_US")) {
+        val deviceLocale = java.util.Locale.getDefault().toLanguageTag()
+        for (tag in listOf(deviceLocale.replace('-', '_'), deviceLocale, locale, "en_US")) {
             val value = perScreen.optJSONObject(tag)?.optString(key) ?: strings.optJSONObject(tag)?.optString(key)
             if (!value.isNullOrBlank() && value != "null") return value
         }

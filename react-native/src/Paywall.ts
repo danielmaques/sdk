@@ -62,8 +62,10 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
   function localizedValue(key: string): string | null {
     const locales = [props.locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
     for (const locale of locales) {
-      const value = screen?.localizations[locale]?.[key] ?? props.document.locales[locale]?.[key];
-      if (typeof value === 'string') return value;
+      for (const candidate of new Set([locale, locale.replace(/-/g, '_'), locale.replace(/_/g, '-')])) {
+        const value = screen?.localizations[candidate]?.[key] ?? props.document.locales[candidate]?.[key];
+        if (typeof value === 'string') return value;
+      }
     }
     return null;
   }
