@@ -27,11 +27,13 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
   const screen = props.document.screens.find((candidate) => candidate.id === screenID) ?? firstScreen;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
-  async function purchase() {
-    if (!selected || busy) return;
+  async function purchase(packageID?: string) {
+    const productID = packageID ?? selected;
+    if (busy) return;
+    if (!packages.some((item) => item.id === productID)) { setMessage('This purchase option is unavailable.'); return; }
     setBusy(true); setMessage(null);
     try {
-      const result = await props.purchases.purchase(selected);
+      const result = await props.purchases.purchase(productID);
       if (result.status === 'purchased') props.onPurchased?.(result.customerInfo);
       if (result.status === 'pending') setMessage('Purchase is pending approval.');
     } catch {
@@ -94,7 +96,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     }
     const next = text(node.properties.next_screen_id);
     if (next && props.document.screens.some((candidate) => candidate.id === next)) { setScreenID(next); return; }
-    if (kind === 'purchase' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(); return; }
+    if (kind === 'purchase' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(text(action.package_id) ?? undefined); return; }
     if (kind === 'close' || kind === 'close_workflow') { props.onClose?.(); return; }
     setMessage('This button action is not supported by this SDK version.');
   }
@@ -118,7 +120,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
         }, React.createElement(Text, { style: styles.packageTitle }, `${active ? '◉' : '○'}  ${label}`), item.product.localized_price ? React.createElement(Text, { style: styles.price }, item.product.localized_price) : null);
       }
       case 'purchase_button':
-      case 'cta': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: purchase, disabled: busy || !selected, accessibilityRole: 'button', accessibilityState: { disabled: busy || !selected }, style: [styles.cta, (busy || !selected) && styles.disabled] }, busy ? React.createElement(ActivityIndicator, { color: '#ffffff' }) : children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, { style: styles.ctaText }, localized(node, 'Continue')));
+      case 'cta': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { void purchase(); }, disabled: busy || !selected, accessibilityRole: 'button', accessibilityState: { disabled: busy || !selected }, style: [styles.cta, (busy || !selected) && styles.disabled] }, busy ? React.createElement(ActivityIndicator, { color: '#ffffff' }) : children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, { style: styles.ctaText }, localized(node, 'Continue')));
       case 'restore_button': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: restore, disabled: busy, accessibilityRole: 'button', style: styles.quiet }, React.createElement(Text, null, localized(node, 'Restore purchases')));
       case 'button': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { void handleButton(node); }, accessibilityRole: 'button', style: styles.quiet }, children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, null, localized(node, 'Continue')));
       case 'spacer': return React.createElement(View, { key: node.id ?? undefined, style: { height: number(node.properties.size) ?? 8 } });

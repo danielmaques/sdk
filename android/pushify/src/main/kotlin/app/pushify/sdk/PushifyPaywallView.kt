@@ -253,11 +253,15 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return image
     }
 
-    private fun purchaseSelected() {
-        if (busy || selectedPackageId.isBlank()) return
+    private fun purchaseSelected(packageId: String? = null) {
+        val productId = packageId ?: selectedPackageId
+        if (busy) return
+        if (productId.isBlank() || (0 until packages.length()).none { packages.optJSONObject(it)?.optString("id") == productId }) {
+            message = "This purchase option is unavailable."; render(); return
+        }
         val activity = context as? Activity ?: return
         busy = true
-        purchases.purchase(activity, selectedPackageId) { result ->
+        purchases.purchase(activity, productId) { result ->
             busy = false
             result.onSuccess { outcome -> if (outcome is PushifyPurchases.PurchaseOutcome.Purchased) onDismiss?.invoke() }
         }
@@ -327,7 +331,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 else onDismiss?.invoke()
             }
             "close", "close_workflow" -> onDismiss?.invoke()
-            "purchase", "purchase_product" -> purchaseSelected()
+            "purchase", "purchase_product" -> purchaseSelected(action.optString("package_id").takeIf(String::isNotBlank))
             else -> {
                 val next = properties.optString("next_screen_id")
                 if ((0 until screens.length()).any { screens.optJSONObject(it)?.optString("id") == next }) { activeScreenId = next; render() }

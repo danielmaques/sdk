@@ -90,7 +90,7 @@ public struct PushifyPaywallView: View {
                 .accessibilityAddTraits(selectedPackageID == packageID ? .isSelected : [])
             }
         case "purchase_button", "cta":
-            Button(action: buySelected) {
+            Button(action: { buySelected() }) {
                 HStack {
                     if busy { ProgressView().tint(.white) }
                     if let content = node.children.first { render(content, screen: screen) }
@@ -195,13 +195,15 @@ public struct PushifyPaywallView: View {
         }
     }
 
-    private func buySelected() {
+    private func buySelected(packageID: String? = nil) {
+        let productID = packageID ?? selectedPackageID
         guard !busy else { return }
+        guard offering.packages.contains(where: { $0.id == productID }) else { message = "This purchase option is unavailable."; return }
         busy = true; message = nil
         Task {
             defer { busy = false }
             do {
-                switch try await purchases.purchase(packageID: selectedPackageID) {
+                switch try await purchases.purchase(packageID: productID) {
                 case .purchased: onDismiss?()
                 case .pending: message = "Purchase is pending approval."
                 case .cancelled: break
@@ -246,7 +248,7 @@ public struct PushifyPaywallView: View {
             if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
             else { onDismiss?() }
         case "close", "close_workflow": onDismiss?()
-        case "purchase", "purchase_product": buySelected()
+        case "purchase", "purchase_product": buySelected(packageID: string(action["package_id"]))
         default:
             if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }
             else { message = "This button action is not supported by this SDK version." }

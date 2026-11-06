@@ -551,14 +551,20 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     );
   }
 
-  Future<void> _buy() async {
+  Future<void> _buy({String? packageId}) async {
     if (_busy) return;
+    final productId = packageId ?? _selectedPackage;
+    final available = _maps(widget.offering['packages']).any((item) => item['id'] == productId);
+    if (!available) {
+      setState(() => _message = 'This purchase option is unavailable.');
+      return;
+    }
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
-      final result = await widget.purchases.purchase(_selectedPackage);
+      final result = await widget.purchases.purchase(productId);
       if (result.isPurchased && result.customerInfo != null) {
         widget.onPurchased?.call(result.customerInfo!);
       }
@@ -664,7 +670,8 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       return;
     }
     if (kind == 'purchase' || kind == 'purchase_product') {
-      await _buy();
+      final packageId = action['package_id'];
+      await _buy(packageId: packageId is String && packageId.isNotEmpty ? packageId : null);
       return;
     }
     setState(() => _message = 'This button action is not supported by this SDK version.');
