@@ -26,10 +26,11 @@ public struct PushifyPaywallView: View {
         self.offering = offering
         self.purchases = purchases
         self.onDismiss = onDismiss
-        let defaultPackage = Self.packageNodes(document.screens.first?.content)
+        let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
+        let defaultPackage = Self.packageNodes(entryScreen?.content)
             .first(where: { Self.bool($0.properties["is_selected_by_default"]) })
         _selectedPackageID = State(initialValue: Self.string(defaultPackage?.properties["package_id"]) ?? offering.packages.first?.id ?? "")
-        _screenID = State(initialValue: document.screens.first?.id ?? "")
+        _screenID = State(initialValue: entryScreen?.id ?? "")
         _variables = State(initialValue: document.customVariables?.mapValues(\.initialValue) ?? [:])
     }
 

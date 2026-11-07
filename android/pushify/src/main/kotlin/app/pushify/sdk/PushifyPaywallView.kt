@@ -43,9 +43,13 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val main = Handler(Looper.getMainLooper())
     private val imageExecutor = Executors.newFixedThreadPool(2)
     private val packages = offering.optJSONArray("packages") ?: JSONArray()
-    private var selectedPackageId: String = findDefault(document.optJSONArray("screens")?.optJSONObject(0)?.optJSONObject("content"))
+    private val entryScreen = (0 until (document.optJSONArray("screens")?.length() ?: 0))
+        .mapNotNull { document.optJSONArray("screens")?.optJSONObject(it) }
+        .firstOrNull { it.optString("id") == document.optString("initial_screen_id") }
+        ?: document.optJSONArray("screens")?.optJSONObject(0)
+    private var selectedPackageId: String = findDefault(entryScreen?.optJSONObject("content"))
         ?: packages.optJSONObject(0)?.optString("id").orEmpty()
-    private var activeScreenId: String = document.optJSONArray("screens")?.optJSONObject(0)?.optString("id").orEmpty()
+    private var activeScreenId: String = entryScreen?.optString("id").orEmpty()
     private val strings = document.optJSONObject("locales") ?: JSONObject()
     private val variableDeclarations = document.optJSONObject("custom_variables") ?: JSONObject()
     private val variables = JSONObject().apply {

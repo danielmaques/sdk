@@ -46,7 +46,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     super.initState();
     _screens = _maps(widget.document['screens']);
     for (final entry in _map(widget.document['custom_variables']).entries) { _variables[entry.key] = _map(entry.value)['initial_value']; }
-    final firstScreen = _screens.isEmpty ? null : _screens.first;
+    final requestedStart = widget.document['initial_screen_id'];
+    final entryScreens = _screens.where((screen) => screen['id'] == requestedStart);
+    final firstScreen = entryScreens.isEmpty ? (_screens.isEmpty ? null : _screens.first) : entryScreens.first;
     _screenId = firstScreen?['id'] as String? ?? '';
     final firstContent = _map(firstScreen?['content']);
     _selectedPackage =

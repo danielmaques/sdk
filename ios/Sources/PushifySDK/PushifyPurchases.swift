@@ -107,6 +107,7 @@ public struct PushifyPaywallDocument: Codable, Sendable {
     public let revision: Int
     public let defaultLocale: String
     public let locales: [String: [String: PushifyJSONValue]]
+    public let initialScreenID: String?
     public let screens: [PushifyPaywallScreen]
     public let automaticallyScaleFontSize: Bool
     public let exitOffer: PushifyJSONValue?

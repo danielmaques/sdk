@@ -14,7 +14,7 @@ export type PushifyPaywallProps = {
 
 /** Accessible renderer for the core Pushify paywall document components. */
 export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactElement {
-  const firstScreen = props.document.screens[0];
+  const firstScreen = props.document.screens.find((candidate) => candidate.id === props.document.initial_screen_id) ?? props.document.screens[0];
   const packages = props.offering.packages;
   const defaultPackage = useMemo(() => findPackage(firstScreen?.content, true), [firstScreen]);
   const [selected, setSelected] = useState(defaultPackage ?? packages[0]?.id ?? '');
