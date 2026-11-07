@@ -27,7 +27,7 @@ extension _PaywallLocalization on _PushifyPaywallState {
   }
 
   String _interpolate(String value) => value.replaceAllMapped(
-    RegExp(r'\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*))\s*\}\}'),
+    RegExp(r'\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*)|products\.(purchased|abandoned)\.([A-Za-z_][A-Za-z0-9_]*))\s*\}\}'),
     (match) {
       final stateName = match[1];
       if (stateName != null) {
@@ -36,6 +36,18 @@ extension _PaywallLocalization on _PushifyPaywallState {
         return stateValue is List ? stateValue.join(', ') : '$stateValue';
       }
       final callbackName = match[2], dataKey = match[3];
+      if (callbackName == null && match[4] != null && match[5] != null) {
+        final product = _transactionProducts[match[4]!];
+        final field = match[5]!;
+        final result = product == null ? null : switch (field) {
+          'price' || 'localized_price' => product['localized_price'],
+          'product_id' => product['product_id'],
+          'store_product_name' => product['display_name'],
+          'currency_code' => product['currency_code'],
+          _ => null,
+        };
+        return result == null ? match[0]! : '$result';
+      }
       final result = callbackName == null || dataKey == null ? null : _callbackData[callbackName]?[dataKey];
       return result == null ? match[0]! : '$result';
     },

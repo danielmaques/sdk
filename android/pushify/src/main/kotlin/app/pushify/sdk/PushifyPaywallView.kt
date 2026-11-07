@@ -73,6 +73,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private var variableDeclarations = JSONObject()
     private val variables = JSONObject()
     private val callbackData = JSONObject()
+    private val transactionProducts = mutableMapOf<String, JSONObject>()
     private var screens = JSONArray()
     private var showingExitOffer = false
     private var dismissing = false
@@ -747,12 +748,18 @@ public class PushifyPaywallView @JvmOverloads constructor(
             result.onSuccess { outcome ->
                 when (outcome) {
                     is PushifyPurchases.PurchaseOutcome.Purchased -> {
+                        transactionProducts.clear()
+                        (0 until packages.length()).mapNotNull(packages::optJSONObject).firstOrNull { it.optString("id") == productId }
+                            ?.optJSONObject("product")?.let { transactionProducts["purchased"] = JSONObject(it.toString()) }
                         setTransactionState(completed = true)
                         val survey = document.optJSONObject("surveys")?.optJSONObject("post_purchase")
                         if (survey != null && surveyedTriggers.add("post_purchase") && screen != null) presentSurvey("post_purchase", survey, screen) { runPurchaseOutcome("after_purchase", "close", action, screen) }
                         else runPurchaseOutcome("after_purchase", "close", action, screen)
                     }
                     PushifyPurchases.PurchaseOutcome.Cancelled -> {
+                        transactionProducts.clear()
+                        (0 until packages.length()).mapNotNull(packages::optJSONObject).firstOrNull { it.optString("id") == productId }
+                            ?.optJSONObject("product")?.let { transactionProducts["abandoned"] = JSONObject(it.toString()) }
                         setTransactionState(completed = false)
                         runPurchaseOutcome("on_abandon", "none", action, screen)
                     }
@@ -855,13 +862,23 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return interpolate(node.optJSONObject("properties")?.optString("text").orEmpty())
     }
 
-    private fun interpolate(value: String): String = Regex("\\{\\{\\s*(?:state\\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\\.([A-Za-z_][A-Za-z0-9_]*)\\.data\\.([A-Za-z_][A-Za-z0-9_.-]*))\\s*}}")
+    private fun interpolate(value: String): String = Regex("\\{\\{\\s*(?:state\\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\\.([A-Za-z_][A-Za-z0-9_]*)\\.data\\.([A-Za-z_][A-Za-z0-9_.-]*)|products\\.(purchased|abandoned)\\.([A-Za-z_][A-Za-z0-9_]*))\\s*}}")
         .replace(value) { match ->
             val stateName = match.groupValues[1]
             if (stateName.isNotEmpty()) when (val state = variables.opt(stateName)) {
                 is JSONArray -> (0 until state.length()).joinToString(", ") { state.optString(it) }
                 null, JSONObject.NULL -> match.value
                 else -> state.toString()
+            } else if (match.groupValues[4].isNotEmpty()) {
+                val product = transactionProducts[match.groupValues[4]] ?: return@replace match.value
+                val result = when (match.groupValues[5]) {
+                    "price", "localized_price" -> product.opt("localized_price")
+                    "product_id" -> product.opt("product_id")
+                    "store_product_name" -> product.opt("display_name")
+                    "currency_code" -> product.opt("currency_code")
+                    else -> null
+                }
+                if (result == null || result == JSONObject.NULL) match.value else result.toString()
             } else when (val result = callbackData.optJSONObject(match.groupValues[2])?.opt(match.groupValues[3])) {
                 null, JSONObject.NULL -> match.value
                 is JSONArray -> (0 until result.length()).joinToString(", ") { result.optString(it) }

@@ -44,6 +44,7 @@ public struct PushifyPaywallView: View {
     @State private var failedExperienceIDs: Set<String> = []
     @State private var variables: [String: PushifyJSONValue]
     @State private var callbackData: [String: [String: PushifyJSONValue]] = [:]
+    @State private var transactionProducts: [String: PushifyOfferings.Offering.Package.StoreProduct] = [:]
     @State private var exitOffering: PushifyOfferings.Offering?
     @State private var dismissing = false
     @State private var presentedSurvey: PresentedPaywallSurvey?
@@ -506,11 +507,13 @@ public struct PushifyPaywallView: View {
                 let body = reminder.map { surveyText($0.bodyLid, localizations: screen?.localizations ?? [:]) }
                 switch try await purchases.purchase(packageID: productID, trialReminder: reminder, title: title, subtitle: subtitle, body: body) {
                 case .purchased:
+                    transactionProducts = offering.packages.first(where: { $0.id == productID }).map { ["purchased": $0.product] } ?? [:]
                     setTransactionState(completed: true)
                     if let screen { await presentSurvey("post_purchase", screen: screen) }
                     await runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
                 case .pending: message = "Purchase is pending approval."
                 case .cancelled:
+                    transactionProducts = offering.packages.first(where: { $0.id == productID }).map { ["abandoned": $0.product] } ?? [:]
                     setTransactionState(completed: false)
                     await runPurchaseOutcome("on_abandon", fallback: "none", action: action, screen: screen)
                 }
@@ -582,7 +585,7 @@ public struct PushifyPaywallView: View {
     }
 
     private func interpolate(_ text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*))\s*\}\}"#) else { return text }
+        guard let regex = try? NSRegularExpression(pattern: #"\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*)|products\.(purchased|abandoned)\.([A-Za-z_][A-Za-z0-9_]*))\s*\}\}"#) else { return text }
         let ns = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
         var result = text
@@ -593,6 +596,20 @@ public struct PushifyPaywallView: View {
             else if match.range(at: 2).location != NSNotFound, match.range(at: 3).location != NSNotFound {
                 let callback = ns.substring(with: match.range(at: 2)), key = ns.substring(with: match.range(at: 3))
                 value = callbackData[callback]?[key]
+            } else if match.range(at: 4).location != NSNotFound, match.range(at: 5).location != NSNotFound {
+                let outcome = ns.substring(with: match.range(at: 4)), field = ns.substring(with: match.range(at: 5))
+                guard let product = transactionProducts[outcome] else { continue }
+                let raw: String?
+                switch field {
+                case "price", "localized_price": raw = product.localizedPrice
+                case "product_id": raw = product.productId
+                case "store_product_name": raw = product.displayName
+                case "currency_code": raw = product.currencyCode
+                default: raw = nil
+                }
+                guard let raw else { continue }
+                result = (result as NSString).replacingCharacters(in: match.range, with: raw)
+                continue
             } else { value = nil }
             guard let value else { continue }
             let formatted: String

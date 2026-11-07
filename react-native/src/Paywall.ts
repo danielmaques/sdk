@@ -218,6 +218,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     };
   });
   const [callbackData, setCallbackData] = useState<Record<string, Record<string, string | number | boolean | null>>>({});
+  const [transactionProducts, setTransactionProducts] = useState<{ purchased?: PushifyOfferings['offerings'][number]['packages'][number]['product']; abandoned?: PushifyOfferings['offerings'][number]['packages'][number]['product'] }>({});
   const [activeSurvey, setActiveSurvey] = useState<{ trigger: 'close' | 'post_purchase'; survey: NonNullable<PushifyPaywallV1['surveys']>['close'] } | null>(null);
   const surveyedTriggers = useRef(new Set<string>());
   const surveyResolver = useRef<(() => void) | null>(null);
@@ -283,6 +284,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       } : null;
       const result = await props.purchases.purchase(productID, trialReminder);
       if (result.status === 'purchased') {
+        const product = packages.find((item) => item.id === productID)?.product;
+        setTransactionProducts(product ? { purchased: product } : {});
         setVariables((current) => ({ ...current,
           ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didCompleteTransaction') ? { didCompleteTransaction: true } : {}),
           ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didAbandonTransaction') ? { didAbandonTransaction: false } : {}),
@@ -292,6 +295,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       if (result.status === 'purchased') await presentSurvey('post_purchase', sourceScreen);
       if (result.status === 'purchased') await runPurchaseOutcome('after_purchase', 'close', action, sourceScreen);
       if (result.status === 'cancelled') {
+        const product = packages.find((item) => item.id === productID)?.product;
+        setTransactionProducts(product ? { abandoned: product } : {});
         setVariables((current) => ({ ...current,
           ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didCompleteTransaction') ? { didCompleteTransaction: false } : {}),
           ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didAbandonTransaction') ? { didAbandonTransaction: true } : {}),
@@ -373,7 +378,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return interpolate(fallback || (typeof node.properties.text === 'string' ? node.properties.text : ''));
   }
 
-  function interpolate(value: string): string { return value.replace(/\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*))\s*\}\}/g, (token, stateKey?: string, callbackName?: string, dataKey?: string) => { if (stateKey) return variables[stateKey] === undefined ? token : Array.isArray(variables[stateKey]) ? variables[stateKey].join(', ') : String(variables[stateKey]); const result = callbackName && dataKey ? callbackData[callbackName]?.[dataKey] : undefined; return result === undefined || result === null ? token : String(result); }); }
+  function interpolate(value: string): string { return value.replace(/\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*)|products\.(purchased|abandoned)\.([A-Za-z_][A-Za-z0-9_]*))\s*\}\}/g, (token, stateKey?: string, callbackName?: string, dataKey?: string, outcome?: 'purchased' | 'abandoned', productField?: string) => { if (stateKey) return variables[stateKey] === undefined ? token : Array.isArray(variables[stateKey]) ? variables[stateKey].join(', ') : String(variables[stateKey]); if (callbackName && dataKey) { const result = callbackData[callbackName]?.[dataKey]; return result === undefined || result === null ? token : String(result); } const product = outcome ? transactionProducts[outcome] : undefined; if (!product || !productField) return token; const fields: Record<string, unknown> = { price: product.localized_price, localized_price: product.localized_price, product_id: product.product_id, store_product_name: product.display_name, currency_code: product.currency_code }; const result = fields[productField]; return result === undefined || result === null ? token : String(result); }); }
 
   function localizedValue(key: string): string | null {
     const locales = [props.locale, Intl.DateTimeFormat().resolvedOptions().locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));

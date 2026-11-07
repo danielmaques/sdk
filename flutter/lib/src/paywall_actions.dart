@@ -26,12 +26,16 @@ extension _PaywallActions on _PushifyPaywallState {
         trialReminder: reminder,
       );
       if (result.isPurchased && result.customerInfo != null) {
+        final product = _map(_maps(widget.offering['packages']).firstWhere((item) => item['id'] == productId, orElse: () => {})['product']);
+        _update(() { _transactionProducts.clear(); if (product.isNotEmpty) _transactionProducts['purchased'] = product; });
         _setTransactionState(completed: true);
         widget.onPurchased?.call(result.customerInfo!);
         await _presentSurvey('post_purchase', screen);
         await _runPurchaseOutcome('after_purchase', 'close', action, screen);
       }
       if (result.isCancelled) {
+        final product = _map(_maps(widget.offering['packages']).firstWhere((item) => item['id'] == productId, orElse: () => {})['product']);
+        _update(() { _transactionProducts.clear(); if (product.isNotEmpty) _transactionProducts['abandoned'] = product; });
         _setTransactionState(completed: false);
         await _runPurchaseOutcome('on_abandon', 'none', action, screen);
       }

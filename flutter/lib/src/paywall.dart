@@ -77,6 +77,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, TextEditingController> _inputControllers = {};
   final Map<String, Object?> _variables = {};
   final Map<String, Map<String, Object?>> _callbackData = {};
+  final Map<String, Map<String, Object?>> _transactionProducts = {};
   late final int _randomizationSeed = DateTime.now().microsecondsSinceEpoch;
   Map<String, Object?>? _exitOffering;
   bool _dismissing = false;
