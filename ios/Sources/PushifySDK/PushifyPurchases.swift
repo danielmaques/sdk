@@ -113,6 +113,19 @@ public struct PushifyPaywallDocument: Codable, Sendable {
     public let exitOffer: PushifyJSONValue?
     public let state: PushifyJSONValue?
     public let customVariables: [String: PushifyPaywallCustomVariable]?
+    public let surveys: [String: PushifyPaywallSurvey]?
+}
+
+public struct PushifyPaywallSurvey: Codable, Sendable {
+    public let id: String
+    public let questionLid: String
+    public let options: [PushifyPaywallSurveyOption]
+    public let skipLabelLid: String?
+}
+
+public struct PushifyPaywallSurveyOption: Codable, Sendable {
+    public let id: String
+    public let labelLid: String
 }
 
 public struct PushifyPaywallCustomVariable: Codable, Sendable {

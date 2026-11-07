@@ -37,6 +37,7 @@ export type PushifyOfferings = {
 };
 
 export type PushifyPaywallNode = { id: string | null; kind: string; properties: Record<string, unknown>; children: PushifyPaywallNode[] };
+export type PushifyPaywallSurvey = { id: string; question_lid: string; options: Array<{ id: string; label_lid: string }>; skip_label_lid?: string };
 export type PushifyPaywallV1 = {
   schema: 'pushify.paywall/v1' | 'pushify.paywall/v2'; id: string; revision: number; default_locale: string;
   locales: Record<string, Record<string, unknown>>;
@@ -44,6 +45,7 @@ export type PushifyPaywallV1 = {
   screens: Array<{ id: string; name: string; background: unknown; content: PushifyPaywallNode | null; footer: PushifyPaywallNode | null; localizations: Record<string, Record<string, unknown>> }>;
   automatically_scale_font_size: boolean; exit_offer: unknown; state: unknown;
   custom_variables?: Record<string, { type: 'state'; value_type: 'text' | 'number' | 'boolean'; initial_value: string | number | boolean }>;
+  surveys?: { close?: PushifyPaywallSurvey; post_purchase?: PushifyPaywallSurvey };
 };
 
 export type PushifyPurchaseResult =
