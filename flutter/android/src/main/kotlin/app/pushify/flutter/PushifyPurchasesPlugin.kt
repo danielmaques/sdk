@@ -31,6 +31,7 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         binding.platformViewRegistry.registerViewFactory("app.pushify/paywall-video", PushifyFlutterVideoFactory())
+        binding.platformViewRegistry.registerViewFactory("app.pushify/paywall-web", PushifyFlutterWebViewFactory(binding.binaryMessenger))
         channel = MethodChannel(binding.binaryMessenger, "app.pushify/purchases").also { it.setMethodCallHandler(this) }
         events = EventChannel(binding.binaryMessenger, "app.pushify/customer-info").also { it.setStreamHandler(this) }
     }
