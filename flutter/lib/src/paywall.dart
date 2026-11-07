@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 
@@ -232,11 +233,15 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
           child: Text(_localized(node, screen, 'Restore purchases')),
         );
       case 'button':
-        return TextButton(
-          onPressed: () => _handleButton(node, screen),
-          child: children.isNotEmpty
-              ? Column(children: children.map((child) => _render(child, screen)).toList())
-              : Text(_localized(node, screen, 'Continue')),
+        final action = _map(properties['action']);
+        return _ActionFeedback(
+          animation: action['animation'] as String? ?? 'none',
+          child: TextButton(
+            onPressed: () { _performActionHaptics(action['haptics'] as String?); _handleButton(node, screen); },
+            child: children.isNotEmpty
+                ? Column(children: children.map((child) => _render(child, screen)).toList())
+                : Text(_localized(node, screen, 'Continue')),
+          ),
         );
       case 'spacer':
         return SizedBox(height: _number(properties['size']) ?? 8);
@@ -746,6 +751,18 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     setState(() => _message = 'This button action is not supported by this SDK version.');
   }
 
+  void _performActionHaptics(String? kind) {
+    switch (kind) {
+      case 'light': HapticFeedback.lightImpact();
+      case 'medium': HapticFeedback.mediumImpact();
+      case 'heavy': HapticFeedback.heavyImpact();
+      case 'success': HapticFeedback.heavyImpact();
+      case 'warning': HapticFeedback.mediumImpact();
+      case 'error': HapticFeedback.heavyImpact();
+      case 'selection': HapticFeedback.selectionClick();
+    }
+  }
+
   Future<void> _openActionLink(
     Map<String, Object?> action,
     Map<String, Object?> screen,
@@ -796,6 +813,40 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       if (found != null) return found;
     }
     return null;
+  }
+}
+
+class _ActionFeedback extends StatefulWidget {
+  const _ActionFeedback({required this.animation, required this.child});
+  final String animation;
+  final Widget child;
+  @override
+  State<_ActionFeedback> createState() => _ActionFeedbackState();
+}
+
+class _ActionFeedbackState extends State<_ActionFeedback> {
+  bool _pressed = false;
+  @override
+  Widget build(BuildContext context) {
+    final scale = widget.animation == 'shrink' && _pressed
+        ? 0.96
+        : widget.animation == 'grow' && _pressed ? 1.04 : 1.0;
+    final opacity = widget.animation == 'fade' && _pressed ? 0.55 : 1.0;
+    return Listener(
+      onPointerDown: (_) => setState(() => _pressed = true),
+      onPointerUp: (_) => setState(() => _pressed = false),
+      onPointerCancel: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: scale,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: AnimatedOpacity(
+          opacity: opacity,
+          duration: const Duration(milliseconds: 160),
+          child: widget.child,
+        ),
+      ),
+    );
   }
 }
 

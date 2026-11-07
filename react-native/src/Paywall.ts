@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View, FlatList } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration } from 'react-native';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -160,6 +160,13 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     setMessage('This button action is not supported by this SDK version.');
   }
 
+  function actionFeedback(node: PushifyPaywallNode): void {
+    const action = record(node.properties.action);
+    const vibration: Record<string, number> = { light: 10, medium: 20, heavy: 35, success: 18, warning: 28, error: 38, selection: 6 };
+    const duration = vibration[text(action.haptics) ?? ''];
+    if (duration) Vibration.vibrate(duration);
+  }
+
   function renderNode(node: PushifyPaywallNode): React.ReactNode {
     const children = node.children.map((child) => renderNode(child));
     switch (node.kind) {
@@ -181,7 +188,11 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       case 'purchase_button':
       case 'cta': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { void purchase(); }, disabled: busy || !selected, accessibilityRole: 'button', accessibilityState: { disabled: busy || !selected }, style: [styles.cta, (busy || !selected) && styles.disabled] }, busy ? React.createElement(ActivityIndicator, { color: '#ffffff' }) : children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, { style: styles.ctaText }, localized(node, 'Continue')));
       case 'restore_button': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: restore, disabled: busy, accessibilityRole: 'button', style: styles.quiet }, React.createElement(Text, null, localized(node, 'Restore purchases')));
-      case 'button': return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { void handleButton(node); }, accessibilityRole: 'button', style: styles.quiet }, children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, null, localized(node, 'Continue')));
+      case 'button': {
+        const action = record(node.properties.action);
+        const animation = text(action.animation) ?? 'none';
+        return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { actionFeedback(node); void handleButton(node); }, accessibilityRole: 'button', style: (state: { pressed: boolean }) => [styles.quiet, animation === 'shrink' && state.pressed ? { transform: [{ scale: 0.96 }] } : animation === 'grow' && state.pressed ? { transform: [{ scale: 1.04 }] } : undefined, animation === 'fade' && state.pressed ? { opacity: 0.55 } : undefined] }, children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, null, localized(node, 'Continue')));
+      }
       case 'spacer': return React.createElement(View, { key: node.id ?? undefined, style: { height: number(node.properties.size) ?? 8 } });
       case 'image': {
         const source = record(node.properties.source);

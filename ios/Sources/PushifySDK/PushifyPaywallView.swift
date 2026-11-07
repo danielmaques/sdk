@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import UIKit
 
 /// A native, accessible renderer for the core Pushify paywall components.
 @MainActor
@@ -105,6 +106,7 @@ public struct PushifyPaywallView: View {
             Button(localized(node, screen: screen, fallback: "Restore purchases"), action: restore).disabled(busy)
         case "button":
             Button {
+                actionFeedback(node)
                 handleButton(node, screen: screen)
             } label: {
                 if let content = node.children.first {
@@ -113,7 +115,7 @@ public struct PushifyPaywallView: View {
                     AnyView(Text(localized(node, screen: screen, fallback: "Continue")))
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PushifyActionButtonStyle(animation: actionString(node, key: "animation") ?? "none"))
         case "spacer":
             Spacer(minLength: CGFloat(number(node.properties["size"]) ?? 8))
         case "image":
@@ -295,6 +297,25 @@ public struct PushifyPaywallView: View {
         }
     }
 
+    private func actionFeedback(_ node: PushifyPaywallNode) {
+        guard let kind = actionString(node, key: "haptics"), kind != "none" else { return }
+        switch kind {
+        case "light": UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        case "medium": UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case "heavy": UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        case "success": UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case "warning": UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        case "error": UINotificationFeedbackGenerator().notificationOccurred(.error)
+        case "selection": UISelectionFeedbackGenerator().selectionChanged()
+        default: break
+        }
+    }
+
+    private func actionString(_ node: PushifyPaywallNode, key: String) -> String? {
+        guard case .object(let action)? = node.properties["action"] else { return nil }
+        return string(action[key])
+    }
+
     private func updateVariable(_ action: [String: PushifyJSONValue]) {
         guard let reference = string(action["variable"]), reference.hasPrefix("state."), let key = document.customVariables?[String(reference.dropFirst(6))], key.type == "state" else { message = "This state variable is not declared."; return }
         let name = String(reference.dropFirst(6)); let before = variables[name] ?? key.initialValue
@@ -464,6 +485,16 @@ private struct PaywallExperienceWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             decisionHandler(navigationAction.request.url?.scheme == "https" ? .allow : .cancel)
         }
+    }
+}
+
+private struct PushifyActionButtonStyle: ButtonStyle {
+    let animation: String
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(animation == "shrink" && configuration.isPressed ? 0.96 : animation == "grow" && configuration.isPressed ? 1.04 : 1)
+            .opacity(animation == "fade" && configuration.isPressed ? 0.55 : 1)
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
     }
 }
 

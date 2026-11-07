@@ -154,7 +154,7 @@ Future<void> continueFromCampaign(PushifyAcquisitionLinks pushifyLinks) async {
 
 - The app/router is responsible for delivering initial and runtime URLs to `handle` (or `capture`).
 - Deferred recovery depends on platform behavior: Google Play Install Referrer on Android, user-initiated pasteboard access on iOS. No probabilistic matching is used.
-- `PushifyPaywall` renders the core text, image, product, purchase, restore, and navigation components. `PushifyCustomerCenterView` renders the configured active/no-active screen, restore, subscription management, custom actions, and support form. Advanced editor components and less common account actions are not yet rendered. Offering data is enriched with localized StoreKit/Play product details.
+- `PushifyPaywall` renders core text, image, product, purchase, restore and navigation components, session State variables, and button Shrink/Grow/Fade animations with Flutter haptic feedback. `PushifyCustomerCenterView` renders the configured active/no-active screen, restore, subscription management, custom actions, and support form. Advanced editor components and less common account actions are not yet rendered. Offering data is enriched with localized StoreKit/Play product details.
 - Apple/Google store sandbox flows have not been completed for the first-party SDKs, so do not ship this package for production purchase processing yet. The Flutter example currently builds for Android and iOS Simulator.
 - The package is not published; use a local path dependency until a version is released.
 

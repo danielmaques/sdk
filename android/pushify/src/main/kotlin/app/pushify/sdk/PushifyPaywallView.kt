@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
@@ -107,7 +108,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             "restore_button" -> Button(context).apply { text = localized(node, screen).ifBlank { "Restore purchases" }; setOnClickListener { restore() } }
             "button" -> Button(context).apply {
                 text = buttonLabel(node, screen).ifBlank { "Continue" }
-                setOnClickListener { handleButton(properties, screen) }
+                setOnClickListener { performActionFeedback(this, properties.optJSONObject("action") ?: JSONObject()); handleButton(properties, screen) }
             }
             "spacer" -> View(context).apply { layoutParams = lp(MATCH, dp(properties.optDouble("size", 8.0).toInt())) }
             "image" -> imageView(properties)
@@ -387,6 +388,22 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 else { message = "This button action is not supported by this SDK version."; render() }
             }
         }
+    }
+
+    private fun performActionFeedback(view: View, action: JSONObject) {
+        when (action.optString("animation")) {
+            "shrink" -> view.animate().scaleX(0.96f).scaleY(0.96f).setDuration(80).withEndAction { view.animate().scaleX(1f).scaleY(1f).setDuration(100).start() }.start()
+            "grow" -> view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(80).withEndAction { view.animate().scaleX(1f).scaleY(1f).setDuration(100).start() }.start()
+            "fade" -> view.animate().alpha(0.55f).setDuration(80).withEndAction { view.animate().alpha(1f).setDuration(100).start() }.start()
+        }
+        val feedback = when (action.optString("haptics")) {
+            "light", "selection" -> HapticFeedbackConstants.KEYBOARD_TAP
+            "medium" -> HapticFeedbackConstants.CONTEXT_CLICK
+            "heavy", "warning", "error" -> HapticFeedbackConstants.LONG_PRESS
+            "success" -> HapticFeedbackConstants.VIRTUAL_KEY
+            else -> return
+        }
+        view.performHapticFeedback(feedback)
     }
 
     private fun setUserAttributes(action: JSONObject) {

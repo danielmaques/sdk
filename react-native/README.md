@@ -154,7 +154,8 @@ The optional `appUserId` should match the ID used by your Pushify identity integ
 
 ## Current limitations
 
-- `PushifyPaywallView` renders the core text, image, product, purchase, restore, and navigation components. `PushifyCustomerCenterView` renders the configured active/no-active screen, restore, subscription/order links, custom actions, and support form. Advanced editor components and less common account actions are not yet rendered.
+- `PushifyPaywallView` renders core text, image, product, purchase, restore and navigation components, session State variables, button Shrink/Grow/Fade animations, and vibration feedback. `PushifyCustomerCenterView` renders the configured active/no-active screen, restore, subscription/order links, custom actions, and support form. Advanced editor components and less common account actions are not yet rendered.
+- Android's library manifest adds the `VIBRATE` permission for configured button feedback. React Native uses platform vibration durations as the closest available mapping; devices and operating systems may adjust or ignore them.
 - iOS/Android sandbox purchase journeys and React Native host-app builds remain unverified, so do not ship this package for production purchase processing yet.
 - Native deferred token handling depends on supported store/platform handoff. iOS uses an explicit pasteboard action; Android reads Google Play Install Referrer.
 - The package is not published; use the local package path until a release is available.
