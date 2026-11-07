@@ -203,7 +203,14 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [now, setNow] = useState(Date.now());
   const [carouselPages, setCarouselPages] = useState<Record<string, number>>({});
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
-  const [variables, setVariables] = useState<Record<string, string | number | boolean | string[]>>(() => Object.fromEntries(Object.entries(props.document.custom_variables ?? {}).map(([key, value]) => [key, value.initial_value])));
+  const [variables, setVariables] = useState<Record<string, string | number | boolean | string[]>>(() => {
+    const custom = props.document.custom_variables ?? {};
+    return {
+      ...Object.fromEntries(Object.entries(custom).map(([key, value]) => [key, value.initial_value])),
+      ...(!Object.prototype.hasOwnProperty.call(custom, 'didCompleteTransaction') ? { didCompleteTransaction: false } : {}),
+      ...(!Object.prototype.hasOwnProperty.call(custom, 'didAbandonTransaction') ? { didAbandonTransaction: false } : {}),
+    };
+  });
   const [activeSurvey, setActiveSurvey] = useState<{ trigger: 'close' | 'post_purchase'; survey: NonNullable<PushifyPaywallV1['surveys']>['close'] } | null>(null);
   const surveyedTriggers = useRef(new Set<string>());
   const surveyResolver = useRef<(() => void) | null>(null);
@@ -261,10 +268,22 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         body: reminderBody,
       } : null;
       const result = await props.purchases.purchase(productID, trialReminder);
-      if (result.status === 'purchased') props.onPurchased?.(result.customerInfo);
+      if (result.status === 'purchased') {
+        setVariables((current) => ({ ...current,
+          ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didCompleteTransaction') ? { didCompleteTransaction: true } : {}),
+          ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didAbandonTransaction') ? { didAbandonTransaction: false } : {}),
+        }));
+        props.onPurchased?.(result.customerInfo);
+      }
       if (result.status === 'purchased') await presentSurvey('post_purchase', sourceScreen);
       if (result.status === 'purchased') await runPurchaseOutcome('after_purchase', 'close', action, sourceScreen);
-      if (result.status === 'cancelled') await runPurchaseOutcome('on_abandon', 'none', action, sourceScreen);
+      if (result.status === 'cancelled') {
+        setVariables((current) => ({ ...current,
+          ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didCompleteTransaction') ? { didCompleteTransaction: false } : {}),
+          ...(!Object.prototype.hasOwnProperty.call(props.document.custom_variables ?? {}, 'didAbandonTransaction') ? { didAbandonTransaction: true } : {}),
+        }));
+        await runPurchaseOutcome('on_abandon', 'none', action, sourceScreen);
+      }
       if (result.status === 'pending') setMessage('Purchase is pending approval.');
     } catch {
       setMessage('Purchase could not be completed. Please try again.');
@@ -562,15 +581,17 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       if (!reference?.startsWith('state.')) return true;
       const key = reference.slice(6);
       const declaration = props.document.custom_variables?.[key];
-      if (!declaration || declaration.type !== 'state') return true;
-      const current = variables[key] ?? declaration.initial_value;
+      const systemState = (key === 'didCompleteTransaction' || key === 'didAbandonTransaction') && !declaration;
+      if ((!declaration || declaration.type !== 'state') && !systemState) return true;
+      const current = variables[key] ?? (systemState ? false : declaration!.initial_value);
       const expected = rule.value;
-      if ((declaration.value_type === 'text' && typeof expected !== 'string') || (declaration.value_type === 'number' && typeof expected !== 'number') || (declaration.value_type === 'boolean' && typeof expected !== 'boolean') || (declaration.value_type === 'selection' && typeof expected !== 'string')) return true;
+      const valueType = systemState ? 'boolean' : declaration!.value_type;
+      if ((valueType === 'text' && typeof expected !== 'string') || (valueType === 'number' && typeof expected !== 'number') || (valueType === 'boolean' && typeof expected !== 'boolean') || (valueType === 'selection' && typeof expected !== 'string')) return true;
       switch (rule.operator) {
         case 'equals': results.push(current === expected); break;
         case 'not_equals': results.push(current !== expected); break;
-        case 'contains': if (declaration.value_type !== 'selection' || typeof expected !== 'string') return true; else results.push(Array.isArray(current) ? current.includes(expected) : current === expected); break;
-        case 'not_contains': if (declaration.value_type !== 'selection' || typeof expected !== 'string') return true; else results.push(Array.isArray(current) ? !current.includes(expected) : current !== expected); break;
+        case 'contains': if (valueType !== 'selection' || typeof expected !== 'string') return true; else results.push(Array.isArray(current) ? current.includes(expected) : current === expected); break;
+        case 'not_contains': if (valueType !== 'selection' || typeof expected !== 'string') return true; else results.push(Array.isArray(current) ? !current.includes(expected) : current !== expected); break;
         case 'greater_than': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current > expected); break;
         case 'less_than': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current < expected); break;
         case 'greater_than_or_equal': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current >= expected); break;

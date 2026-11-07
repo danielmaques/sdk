@@ -180,11 +180,13 @@ extension _PaywallRendering on _PushifyPaywallState {
       final rule = _map(rawRule);
       final reference = rule['variable'];
       if (reference is! String || !reference.startsWith('state.')) return true;
-      final declaration = _map(declarations[reference.substring(6)]);
-      if (declaration.isEmpty) return true;
-      final current = _variables[reference.substring(6)] ?? declaration['initial_value'];
+      final name = reference.substring(6);
+      final systemState = (name == 'didCompleteTransaction' || name == 'didAbandonTransaction') && !declarations.containsKey(name);
+      final declaration = _map(declarations[name]);
+      if (declaration.isEmpty && !systemState) return true;
+      final type = systemState ? 'boolean' : declaration['value_type'];
+      final current = _variables[name] ?? (systemState ? false : declaration['initial_value']);
       final expected = rule['value'];
-      final type = declaration['value_type'];
       if ((type == 'text' && expected is! String) ||
           (type == 'number' && expected is! num) ||
           (type == 'boolean' && expected is! bool) ||

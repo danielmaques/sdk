@@ -79,6 +79,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     for (final entry in _map(widget.document['custom_variables']).entries) {
       _variables[entry.key] = _map(entry.value)['initial_value'];
     }
+    final declarations = _map(widget.document['custom_variables']);
+    if (!declarations.containsKey('didCompleteTransaction')) _variables['didCompleteTransaction'] = false;
+    if (!declarations.containsKey('didAbandonTransaction')) _variables['didAbandonTransaction'] = false;
     final requestedStart = widget.document['initial_screen_id'];
     final entryScreens = _screens.where(
       (screen) => screen['id'] == requestedStart,

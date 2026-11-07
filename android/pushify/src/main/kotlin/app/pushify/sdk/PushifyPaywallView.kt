@@ -106,6 +106,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
             val key = keys.next()
             variables.put(key, variableDeclarations.optJSONObject(key)?.opt("initial_value"))
         }
+        if (!variableDeclarations.has("didCompleteTransaction")) variables.put("didCompleteTransaction", false)
+        if (!variableDeclarations.has("didAbandonTransaction")) variables.put("didAbandonTransaction", false)
     }
 
     private fun render() {
@@ -218,8 +220,10 @@ public class PushifyPaywallView @JvmOverloads constructor(
             val reference = rule.optString("variable")
             if (!reference.startsWith("state.")) return true
             val name = reference.removePrefix("state.")
-            val declaration = variableDeclarations.optJSONObject(name) ?: return true
-            val current = variables.opt(name) ?: declaration.opt("initial_value")
+            val declaration = variableDeclarations.optJSONObject(name)
+            val systemState = name in setOf("didCompleteTransaction", "didAbandonTransaction") && declaration == null
+            if (declaration == null && !systemState) return true
+            val current = variables.opt(name) ?: if (systemState) false else declaration?.opt("initial_value")
             val expected = rule.opt("value") ?: return true
             when (rule.optString("operator")) {
                 "equals" -> if (current is Number && expected is Number) current.toDouble() == expected.toDouble() else current == expected
@@ -735,15 +739,25 @@ public class PushifyPaywallView @JvmOverloads constructor(
             result.onSuccess { outcome ->
                 when (outcome) {
                     is PushifyPurchases.PurchaseOutcome.Purchased -> {
+                        setTransactionState(completed = true)
                         val survey = document.optJSONObject("surveys")?.optJSONObject("post_purchase")
                         if (survey != null && surveyedTriggers.add("post_purchase") && screen != null) presentSurvey("post_purchase", survey, screen) { runPurchaseOutcome("after_purchase", "close", action, screen) }
                         else runPurchaseOutcome("after_purchase", "close", action, screen)
                     }
-                    PushifyPurchases.PurchaseOutcome.Cancelled -> runPurchaseOutcome("on_abandon", "none", action, screen)
+                    PushifyPurchases.PurchaseOutcome.Cancelled -> {
+                        setTransactionState(completed = false)
+                        runPurchaseOutcome("on_abandon", "none", action, screen)
+                    }
                     PushifyPurchases.PurchaseOutcome.Pending -> { message = "Purchase is pending approval."; render() }
                 }
             }.onFailure { message = "Purchase could not be completed. Please try again."; render() }
         }
+    }
+
+    private fun setTransactionState(completed: Boolean) {
+        if (!variableDeclarations.has("didCompleteTransaction")) variables.put("didCompleteTransaction", completed)
+        if (!variableDeclarations.has("didAbandonTransaction")) variables.put("didAbandonTransaction", !completed)
+        render()
     }
 
     private fun trialReminderRequest(screen: JSONObject?): JSONObject? {

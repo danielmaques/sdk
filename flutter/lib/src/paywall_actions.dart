@@ -26,11 +26,13 @@ extension _PaywallActions on _PushifyPaywallState {
         trialReminder: reminder,
       );
       if (result.isPurchased && result.customerInfo != null) {
+        _setTransactionState(completed: true);
         widget.onPurchased?.call(result.customerInfo!);
         await _presentSurvey('post_purchase', screen);
         await _runPurchaseOutcome('after_purchase', 'close', action, screen);
       }
       if (result.isCancelled) {
+        _setTransactionState(completed: false);
         await _runPurchaseOutcome('on_abandon', 'none', action, screen);
       }
       if (result.isPending) {
@@ -43,6 +45,14 @@ extension _PaywallActions on _PushifyPaywallState {
     } finally {
       if (mounted) _update(() => _busy = false);
     }
+  }
+
+  void _setTransactionState({required bool completed}) {
+    final declarations = _map(widget.document['custom_variables']);
+    _update(() {
+      if (!declarations.containsKey('didCompleteTransaction')) _variables['didCompleteTransaction'] = completed;
+      if (!declarations.containsKey('didAbandonTransaction')) _variables['didAbandonTransaction'] = !completed;
+    });
   }
 
   Map<String, Object?>? _trialReminderRequest(

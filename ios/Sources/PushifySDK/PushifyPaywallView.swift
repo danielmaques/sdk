@@ -60,7 +60,10 @@ public struct PushifyPaywallView: View {
             .first(where: { Self.bool($0.properties["is_selected_by_default"]) })
         _selectedPackageID = State(initialValue: Self.string(defaultPackage?.properties["package_id"]) ?? offering.packages.first?.id ?? "")
         _screenID = State(initialValue: entryScreen?.id ?? "")
-        _variables = State(initialValue: document.customVariables?.mapValues(\.initialValue) ?? [:])
+        var initialVariables = document.customVariables?.mapValues(\.initialValue) ?? [:]
+        if document.customVariables?["didCompleteTransaction"] == nil { initialVariables["didCompleteTransaction"] = .bool(false) }
+        if document.customVariables?["didAbandonTransaction"] == nil { initialVariables["didAbandonTransaction"] = .bool(false) }
+        _variables = State(initialValue: initialVariables)
     }
 
     private init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)?, onCustomAction: ((String) -> Void)?, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)?, isExitOffer: Bool) {
@@ -76,7 +79,10 @@ public struct PushifyPaywallView: View {
             .first(where: { Self.bool($0.properties["is_selected_by_default"]) })
         _selectedPackageID = State(initialValue: Self.string(defaultPackage?.properties["package_id"]) ?? offering.packages.first?.id ?? "")
         _screenID = State(initialValue: entryScreen?.id ?? "")
-        _variables = State(initialValue: document.customVariables?.mapValues(\.initialValue) ?? [:])
+        var initialVariables = document.customVariables?.mapValues(\.initialValue) ?? [:]
+        if document.customVariables?["didCompleteTransaction"] == nil { initialVariables["didCompleteTransaction"] = .bool(false) }
+        if document.customVariables?["didAbandonTransaction"] == nil { initialVariables["didAbandonTransaction"] = .bool(false) }
+        _variables = State(initialValue: initialVariables)
     }
 
     public var body: some View {
@@ -493,13 +499,21 @@ public struct PushifyPaywallView: View {
                 let body = reminder.map { surveyText($0.bodyLid, localizations: screen?.localizations ?? [:]) }
                 switch try await purchases.purchase(packageID: productID, trialReminder: reminder, title: title, subtitle: subtitle, body: body) {
                 case .purchased:
+                    setTransactionState(completed: true)
                     if let screen { await presentSurvey("post_purchase", screen: screen) }
                     await runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
                 case .pending: message = "Purchase is pending approval."
-                case .cancelled: await runPurchaseOutcome("on_abandon", fallback: "none", action: action, screen: screen)
+                case .cancelled:
+                    setTransactionState(completed: false)
+                    await runPurchaseOutcome("on_abandon", fallback: "none", action: action, screen: screen)
                 }
             } catch { message = "Purchase could not be completed. Please try again." }
         }
+    }
+
+    private func setTransactionState(completed: Bool) {
+        if document.customVariables?["didCompleteTransaction"] == nil { variables["didCompleteTransaction"] = .bool(completed) }
+        if document.customVariables?["didAbandonTransaction"] == nil { variables["didAbandonTransaction"] = .bool(!completed) }
     }
 
     private func runPurchaseOutcome(_ key: String, fallback: String, action: [String: PushifyJSONValue], screen: PushifyPaywallScreen?) async {
@@ -717,8 +731,11 @@ public struct PushifyPaywallView: View {
             guard case .object(let rule) = value, let reference = string(rule["variable"]), reference.hasPrefix("state."),
                   let expected = rule["value"] else { return true }
             let name = String(reference.dropFirst(6))
-            guard let declaration = document.customVariables?[name], declaration.type == "state" else { return true }
-            let current = variables[name] ?? declaration.initialValue
+            let declaration = document.customVariables?[name]
+            let systemState = (name == "didCompleteTransaction" || name == "didAbandonTransaction") && declaration == nil
+            guard (declaration?.type == "state") || systemState else { return true }
+            let current = variables[name] ?? (systemState ? .bool(false) : declaration?.initialValue)
+            guard let current else { return true }
             switch string(rule["operator"]) {
             case "equals": results.append(sameValue(current, expected))
             case "not_equals": results.append(!sameValue(current, expected))
