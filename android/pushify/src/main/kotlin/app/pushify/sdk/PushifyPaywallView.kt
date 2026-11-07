@@ -56,7 +56,9 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val onCustomAction: ((String) -> Unit)? = null,
     private val onCustomPlacement: ((String, JSONObject) -> Unit)? = null,
 ) : ScrollView(context) {
+    private data class TapActionRun(var waiting: Boolean = false, var interruptible: Boolean = false, var cancelled: Boolean = false, var runnable: Runnable? = null)
     private val main = Handler(Looper.getMainLooper())
+    private val tapActionRuns = mutableMapOf<String, TapActionRun>()
     private val imageExecutor = Executors.newFixedThreadPool(2)
     private var packages = JSONArray()
     private var selectedPackageId = ""
@@ -73,6 +75,12 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private var focusedInputSelection = 0
     private val surveyedTriggers = mutableSetOf<String>()
     private val randomizationSeed = System.nanoTime()
+
+    override fun onDetachedFromWindow() {
+        tapActionRuns.values.forEach { run -> run.cancelled = true; run.runnable?.let(main::removeCallbacks) }
+        tapActionRuns.clear()
+        super.onDetachedFromWindow()
+    }
 
     init {
         isFillViewport = true
@@ -384,7 +392,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             "restore_button" -> Button(context).apply { text = localized(node, screen).ifBlank { "Restore purchases" }; setOnClickListener { restore() } }
             "button" -> Button(context).apply {
                 text = buttonLabel(node, screen).ifBlank { "Continue" }
-                setOnClickListener { performActionFeedback(this, properties.optJSONObject("action") ?: JSONObject()); handleButton(properties, screen) }
+                setOnClickListener { performActionFeedback(this, properties.optJSONObject("action") ?: JSONObject()); runTapActions(node, properties, screen) }
             }
             "spacer" -> View(context).apply { layoutParams = lp(MATCH, dp(properties.optDouble("size", 8.0).toInt())) }
             "image" -> imageView(properties)
@@ -865,6 +873,83 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val children = node.optJSONArray("children") ?: return null
         for (i in 0 until children.length()) localizedNodeText(children.optJSONObject(i) ?: continue, screen)?.let { return it }
         return null
+    }
+
+    private fun runTapActions(node: JSONObject, properties: JSONObject, screen: JSONObject) {
+        val action = properties.optJSONObject("action") ?: JSONObject()
+        val steps = action.optJSONObject("pushify_actions")?.optJSONArray("on_tap") ?: JSONArray()
+        if (steps.length() == 0) { handleButton(properties, screen); return }
+        val id = node.optString("id")
+        if (id.isBlank()) { message = "This button action sequence has no component id."; render(); return }
+        val active = tapActionRuns[id]
+        if (active != null) {
+            if (!active.waiting || !active.interruptible) return
+            active.cancelled = true
+            active.runnable?.let(main::removeCallbacks)
+            tapActionRuns.remove(id)
+        }
+        val run = TapActionRun()
+        tapActionRuns[id] = run
+        fun current() = tapActionRuns[id] === run && !run.cancelled
+        fun finish() {
+            if (current()) {
+                handleButton(properties, screen)
+                if (tapActionRuns[id] === run) tapActionRuns.remove(id)
+            }
+        }
+        fun runStep(index: Int) {
+            if (!current()) return
+            if (index >= steps.length()) { finish(); return }
+            val step = steps.optJSONObject(index)
+            if (step == null) { runStep(index + 1); return }
+            when (step.optString("type")) {
+                "delay" -> {
+                    val rawSeconds = step.opt("seconds")
+                    val seconds = (rawSeconds as? Number)?.toDouble()
+                    val interruptible = step.opt("interruptible")
+                    if (seconds == null || !seconds.isFinite() || seconds < 0 || seconds > 60 || interruptible !is Boolean) {
+                        message = "This delay action is invalid."; render(); tapActionRuns.remove(id); return
+                    }
+                    run.waiting = true
+                    run.interruptible = interruptible
+                    run.runnable = Runnable { run.waiting = false; run.runnable = null; runStep(index + 1) }
+                    main.postDelayed(run.runnable!!, (seconds * 1000).roundToInt().toLong())
+                }
+                "update_variable" -> {
+                    val variable = step.optString("variable").removePrefix("state.")
+                    val definition = variableDeclarations.optJSONObject(variable)
+                    if (definition == null) { message = "This state variable is not declared."; render(); tapActionRuns.remove(id); return }
+                    val before = variables.opt(variable) ?: definition.opt("initial_value")
+                    val raw = step.opt("value")
+                    val value: Any? = when (definition.optString("value_type")) {
+                        "number" -> { val amount = (raw as? Number)?.toDouble() ?: 0.0; val currentValue = (before as? Number)?.toDouble() ?: 0.0; when (step.optString("operation")) { "increment" -> currentValue + amount; "decrement" -> currentValue - amount; else -> amount } }
+                        "boolean" -> if (step.optString("operation") == "toggle") !(before as? Boolean ?: false) else raw as? Boolean ?: false
+                        else -> raw as? String ?: before?.toString().orEmpty()
+                    }
+                    variables.put(variable, value); render(); runStep(index + 1)
+                }
+                "set_user_attributes" -> {
+                    val attributes = step.optJSONObject("attributes")
+                    val valid = attributes != null && attributes.length() > 0 && attributes.keys().asSequence().all { key -> val value = attributes.opt(key); key.isNotBlank() && key.length <= 100 && (value == JSONObject.NULL || value is String || value is Number && value.toDouble().isFinite() || value is Boolean) }
+                    if (!valid) { message = if (attributes == null || attributes.length() == 0) "No user attributes are configured." else "This user attribute is invalid."; render(); tapActionRuns.remove(id); return }
+                    purchases.setAttributes(attributes!!) { result -> main.post {
+                        if (!current()) return@post
+                        if (result.isSuccess) runStep(index + 1) else { message = "User attributes could not be updated. Please try again."; render(); tapActionRuns.remove(id) }
+                    } }
+                }
+                "navigate_to" -> { openActionLink(step, screen); runStep(index + 1) }
+                "custom_action" -> {
+                    val name = step.optString("name").trim()
+                    val callback = onCustomAction
+                    if (name.isBlank()) { message = "This custom action has no name."; render(); tapActionRuns.remove(id) }
+                    else if (callback == null) { message = "This app action is unavailable."; render(); tapActionRuns.remove(id) }
+                    else { callback(name); runStep(index + 1) }
+                }
+                "custom_placement" -> { dispatchCustomPlacement(step); runStep(index + 1) }
+                else -> { message = "This tap action is not supported by this SDK version."; render(); tapActionRuns.remove(id) }
+            }
+        }
+        runStep(0)
     }
 
     private fun handleButton(properties: JSONObject, screen: JSONObject) {

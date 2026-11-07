@@ -256,6 +256,80 @@ extension _PaywallActions on _PushifyPaywallState {
     }
   }
 
+  Future<void> _runTapActions(
+    Map<String, Object?> node,
+    Map<String, Object?> screen,
+  ) async {
+    final action = _map(_map(node['properties'])['action']);
+    final steps = _maps(_map(action['pushify_actions'])['on_tap']);
+    if (steps.isEmpty) { await _handleButton(node, screen); return; }
+    final id = node['id'];
+    if (id is! String || id.isEmpty) { _update(() => _message = 'This button action sequence has no component id.'); return; }
+    final active = _tapActionRuns[id];
+    if (active != null) {
+      if (!active.waiting || !active.interruptible) return;
+      active.cancelled = true;
+      active.timer?.cancel();
+      if (!(active.delayCompleter?.isCompleted ?? true)) active.delayCompleter!.complete(false);
+      _tapActionRuns.remove(id);
+    }
+    final run = _TapActionRun();
+    _tapActionRuns[id] = run;
+    try {
+      for (final step in steps) {
+        if (run.cancelled) return;
+        if (step['type'] == 'delay') {
+          final seconds = step['seconds'];
+          final interruptible = step['interruptible'];
+          if (seconds is! num || !seconds.isFinite || seconds < 0 || seconds > 60 || interruptible is! bool) { _update(() => _message = 'This delay action is invalid.'); return; }
+          run.waiting = true;
+          run.interruptible = interruptible;
+          final completer = Completer<bool>();
+          run.delayCompleter = completer;
+          run.timer = Timer(Duration(microseconds: (seconds * Duration.microsecondsPerSecond).round()), () {
+            run.waiting = false; run.delayCompleter = null; run.timer = null;
+            if (!completer.isCompleted) completer.complete(true);
+          });
+          final completed = await completer.future;
+          if (!completed || run.cancelled) return;
+        } else if (step['type'] == 'update_variable') {
+          final name = (step['variable'] as String? ?? '').replaceFirst(RegExp(r'^state\.'), '');
+          final definition = _map(_map(widget.document['custom_variables'])[name]);
+          if (definition.isEmpty) { _update(() => _message = 'This state variable is not declared.'); return; }
+          final before = _variables[name] ?? definition['initial_value'];
+          final operation = step['operation'] as String? ?? 'set';
+          final Object? value;
+          if (definition['value_type'] == 'number') {
+            final amount = step['value'] as num? ?? 0; final current = before as num? ?? 0;
+            value = operation == 'increment' ? current + amount : operation == 'decrement' ? current - amount : amount;
+          } else if (definition['value_type'] == 'boolean') {
+            value = operation == 'toggle' ? !(before as bool? ?? false) : step['value'] == true;
+          } else { value = step['value'] as String? ?? before?.toString() ?? ''; }
+          _update(() => _variables[name] = value);
+        } else if (step['type'] == 'set_user_attributes') {
+          final attributes = Map<String, Object?>.from(_map(step['attributes']));
+          final valid = attributes.isNotEmpty && attributes.entries.every((entry) => entry.key.trim().isNotEmpty && entry.key.length <= 100 && (entry.value == null || entry.value is String || entry.value is num && (entry.value as num).isFinite || entry.value is bool));
+          if (!valid) { _update(() => _message = attributes.isEmpty ? 'No user attributes are configured.' : 'This user attribute is invalid.'); return; }
+          try { await widget.purchases.setAttributes(attributes); }
+          catch (_) { _update(() => _message = 'User attributes could not be updated. Please try again.'); return; }
+        } else if (step['type'] == 'navigate_to') {
+          await _openActionLink(step, screen);
+        } else if (step['type'] == 'custom_action') {
+          final name = (step['name'] as String? ?? '').trim();
+          if (name.isEmpty) { _update(() => _message = 'This custom action has no name.'); return; }
+          final callback = widget.onCustomAction;
+          if (callback == null) { _update(() => _message = 'This app action is unavailable.'); return; }
+          callback(name);
+        } else if (step['type'] == 'custom_placement') {
+          _dispatchCustomPlacement(step);
+        }
+      }
+      if (!run.cancelled && mounted) await _handleButton(node, screen);
+    } finally {
+      if (identical(_tapActionRuns[id], run)) _tapActionRuns.remove(id);
+    }
+  }
+
   Future<void> _handleButton(
     Map<String, Object?> node,
     Map<String, Object?> screen,

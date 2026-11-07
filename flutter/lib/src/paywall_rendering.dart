@@ -497,7 +497,7 @@ extension _PaywallRendering on _PushifyPaywallState {
           child: TextButton(
             onPressed: () {
               _performActionHaptics(action['haptics'] as String?);
-              _handleButton(node, screen);
+              _runTapActions(node, screen);
             },
             child: children.isNotEmpty
                 ? Column(

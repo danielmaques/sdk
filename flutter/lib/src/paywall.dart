@@ -14,6 +14,14 @@ part 'paywall_experience.dart';
 part 'paywall_feedback.dart';
 part 'paywall_helpers.dart';
 
+class _TapActionRun {
+  bool waiting = false;
+  bool interruptible = false;
+  bool cancelled = false;
+  Timer? timer;
+  Completer<bool>? delayCompleter;
+}
+
 /// Renders the core Pushify paywall components using the platform's native widgets.
 class PushifyPaywall extends StatefulWidget {
   const PushifyPaywall({
@@ -60,6 +68,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   Map<String, Object?>? _exitOffering;
   bool _dismissing = false;
   final Set<String> _surveyedTriggers = {};
+  final Map<String, _TapActionRun> _tapActionRuns = {};
 
   void _update(VoidCallback callback) => setState(callback);
 
@@ -91,6 +100,12 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   @override
   void dispose() {
     _clock?.cancel();
+    for (final run in _tapActionRuns.values) {
+      run.cancelled = true;
+      run.timer?.cancel();
+      if (!(run.delayCompleter?.isCompleted ?? true)) run.delayCompleter!.complete(false);
+    }
+    _tapActionRuns.clear();
     for (final controller in _carouselControllers.values) {
       controller.dispose();
     }

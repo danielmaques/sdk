@@ -33,6 +33,8 @@ type PushifyNativeVideoProps = {
   style?: StyleProp<ViewStyle>;
 };
 
+type TapActionRun = { waiting: boolean; interruptible: boolean; cancelled: boolean; timer?: ReturnType<typeof setTimeout>; resolveDelay?: (completed: boolean) => void };
+
 const NativePushifyVideo = requireNativeComponent<PushifyNativeVideoProps>('PushifyVideoView');
 
 function PaywallSlider({ value, minimum, maximum, step, orientation, label, onChange }: { value: number; minimum: number; maximum: number; step: number; orientation: 'horizontal' | 'vertical'; label: string; onChange: (value: number) => void }) {
@@ -205,8 +207,13 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [activeSurvey, setActiveSurvey] = useState<{ trigger: 'close' | 'post_purchase'; survey: NonNullable<PushifyPaywallV1['surveys']>['close'] } | null>(null);
   const surveyedTriggers = useRef(new Set<string>());
   const surveyResolver = useRef<(() => void) | null>(null);
+  const tapActionRuns = useRef(new Map<string, TapActionRun>());
   const screen = props.document.screens.find((candidate) => candidate.id === screenID) ?? firstScreen;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => () => {
+    for (const run of tapActionRuns.current.values()) { if (run.timer) clearTimeout(run.timer); run.cancelled = true; run.resolveDelay?.(false); }
+    tapActionRuns.current.clear();
+  }, []);
 
   function finishSurvey(optionID?: string): void {
     if (optionID && activeSurvey) {
@@ -450,6 +457,76 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     setMessage('This button action is not supported by this SDK version.');
   }
 
+  async function runTapActions(node: PushifyPaywallNode): Promise<void> {
+    const action = record(node.properties.action);
+    const steps = array(record(action.pushify_actions).on_tap).map(record);
+    if (!steps.length) { await handleButton(node); return; }
+    const id = node.id;
+    if (!id) { setMessage('This button action sequence has no component id.'); return; }
+    const active = tapActionRuns.current.get(id);
+    if (active) {
+      if (!active.waiting || !active.interruptible) return;
+      active.cancelled = true;
+      if (active.timer) clearTimeout(active.timer);
+      active.resolveDelay?.(false);
+      tapActionRuns.current.delete(id);
+    }
+    const run: TapActionRun = { waiting: false, interruptible: false, cancelled: false };
+    tapActionRuns.current.set(id, run);
+    try {
+      for (const step of steps) {
+        if (run.cancelled) return;
+        if (step.type === 'delay') {
+          const seconds = number(step.seconds);
+          if (seconds === null || seconds < 0 || seconds > 60 || typeof step.interruptible !== 'boolean') { setMessage('This delay action is invalid.'); return; }
+          run.waiting = true;
+          run.interruptible = step.interruptible;
+          const completed = await new Promise<boolean>((resolve) => {
+            run.resolveDelay = resolve;
+            run.timer = setTimeout(() => { run.waiting = false; run.resolveDelay = undefined; run.timer = undefined; resolve(true); }, seconds * 1000);
+          });
+          if (!completed || run.cancelled) return;
+        } else if (step.type === 'update_variable') {
+          const name = text(step.variable)?.replace(/^state\./, '');
+          const declaration = name ? props.document.custom_variables?.[name] : undefined;
+          if (!name || !declaration) { setMessage('This state variable is not declared.'); return; }
+          setVariables((current) => {
+            const before = current[name] ?? declaration.initial_value;
+            const operation = text(step.operation) ?? 'set';
+            let next: string | number | boolean | string[];
+            if (declaration.value_type === 'number') { const value = number(step.value) ?? 0; next = operation === 'increment' ? Number(before) + value : operation === 'decrement' ? Number(before) - value : value; }
+            else if (declaration.value_type === 'boolean') next = operation === 'toggle' ? !Boolean(before) : step.value === true;
+            else next = text(step.value) ?? String(before);
+            return { ...current, [name]: next };
+          });
+        } else if (step.type === 'set_user_attributes') {
+          const configured = record(step.attributes);
+          const attributes: Record<string, string | number | boolean | null> = {};
+          for (const [key, value] of Object.entries(configured)) {
+            if (!key.trim() || key.length > 100 || (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')) { setMessage('This user attribute is invalid.'); return; }
+            attributes[key] = value as string | number | boolean | null;
+          }
+          if (!Object.keys(attributes).length) { setMessage('No user attributes are configured.'); return; }
+          try { await props.purchases.setAttributes(attributes); }
+          catch { setMessage('User attributes could not be updated. Please try again.'); return; }
+        } else if (step.type === 'navigate_to') {
+          await openActionLink(step);
+        } else if (step.type === 'custom_action') {
+          const name = text(step.name)?.trim();
+          if (!name) { setMessage('This custom action has no name.'); return; }
+          if (!props.onCustomAction) { setMessage('This app action is unavailable.'); return; }
+          try { await props.onCustomAction(name); }
+          catch { setMessage('This app action could not be completed. Please try again.'); return; }
+        } else if (step.type === 'custom_placement') {
+          dispatchCustomPlacement(step);
+        }
+      }
+      if (!run.cancelled) await handleButton(node);
+    } finally {
+      if (tapActionRuns.current.get(id) === run) tapActionRuns.current.delete(id);
+    }
+  }
+
   function dispatchCustomPlacement(action: Record<string, unknown>): void {
     const name = text(action.name)?.trim();
     if (!name) { setMessage('This custom placement has no name.'); return; }
@@ -604,7 +681,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       case 'button': {
         const action = record(node.properties.action);
         const animation = text(action.animation) ?? 'none';
-        return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { actionFeedback(node); void handleButton(node); }, accessibilityRole: 'button', style: (state: { pressed: boolean }) => [styles.quiet, animation === 'shrink' && state.pressed ? { transform: [{ scale: 0.96 }] } : animation === 'grow' && state.pressed ? { transform: [{ scale: 1.04 }] } : undefined, animation === 'fade' && state.pressed ? { opacity: 0.55 } : undefined] }, children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, null, localized(node, 'Continue')));
+        return React.createElement(Pressable, { key: node.id ?? undefined, onPress: () => { actionFeedback(node); void runTapActions(node); }, accessibilityRole: 'button', style: (state: { pressed: boolean }) => [styles.quiet, animation === 'shrink' && state.pressed ? { transform: [{ scale: 0.96 }] } : animation === 'grow' && state.pressed ? { transform: [{ scale: 1.04 }] } : undefined, animation === 'fade' && state.pressed ? { opacity: 0.55 } : undefined] }, children.length ? React.createElement(View, { style: styles.stack }, ...children) : React.createElement(Text, null, localized(node, 'Continue')));
       }
       case 'spacer': return React.createElement(View, { key: node.id ?? undefined, style: { height: number(node.properties.size) ?? 8 } });
       case 'image': {

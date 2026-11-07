@@ -11,6 +11,13 @@ private struct PresentedPaywallSurvey: Identifiable {
     let localizations: [String: [String: PushifyJSONValue]]
 }
 
+@MainActor private final class TapActionRun {
+    let id = UUID()
+    var waiting = false
+    var interruptible = false
+    var task: Task<Void, Never>?
+}
+
 /// A native, accessible renderer for the core Pushify paywall components.
 @MainActor
 public struct PushifyPaywallView: View {
@@ -38,6 +45,7 @@ public struct PushifyPaywallView: View {
     @State private var surveyedTriggers: Set<String> = []
     @State private var randomizationSeed = Int.random(in: Int.min...Int.max)
     @State private var surveyContinuation: CheckedContinuation<Void, Never>?
+    @State private var tapActionRuns: [String: TapActionRun] = [:]
 
     public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)? = nil) {
         self.document = document
@@ -113,6 +121,10 @@ public struct PushifyPaywallView: View {
             .interactiveDismissDisabled()
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
+        .onDisappear {
+            for run in tapActionRuns.values { run.task?.cancel() }
+            tapActionRuns.removeAll()
+        }
     }
 
     private func dismissManually() async {
@@ -352,7 +364,7 @@ public struct PushifyPaywallView: View {
         case "button":
             Button {
                 actionFeedback(node)
-                handleButton(node, screen: screen)
+                runTapActions(node, screen: screen)
             } label: {
                 if let content = node.children.first {
                     AnyView(render(content, screen: screen))
@@ -569,6 +581,63 @@ public struct PushifyPaywallView: View {
             if case .string(let value)? = screen.localizations[locale]?[key] ?? document.locales[locale]?[key] { return value }
         }
         return nil
+    }
+
+    private func runTapActions(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) {
+        let action = object(node.properties["action"]) ?? [:]
+        let steps = array(object(action["pushify_actions"])?["on_tap"])
+        guard !steps.isEmpty else { handleButton(node, screen: screen); return }
+        guard let id = node.id, !id.isEmpty else { message = "This button action sequence has no component id."; return }
+        if let active = tapActionRuns[id] {
+            guard active.waiting && active.interruptible else { return }
+            active.task?.cancel()
+            tapActionRuns.removeValue(forKey: id)
+        }
+        let run = TapActionRun()
+        tapActionRuns[id] = run
+        run.task = Task {
+            for step in steps {
+                guard !Task.isCancelled, tapActionRuns[id] === run else { return }
+                switch string(step["type"]) {
+                case "delay":
+                    guard let seconds = number(step["seconds"]), seconds.isFinite, (0...60).contains(seconds), let interruptible = step["interruptible"] else { message = "This delay action is invalid."; tapActionRuns.removeValue(forKey: id); return }
+                    guard case .bool(let isInterruptible) = interruptible else { message = "This delay action is invalid."; tapActionRuns.removeValue(forKey: id); return }
+                    run.waiting = true
+                    run.interruptible = isInterruptible
+                    do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+                    catch { return }
+                    guard !Task.isCancelled, tapActionRuns[id] === run else { return }
+                    run.waiting = false
+                case "update_variable":
+                    updateVariable(step)
+                case "navigate_to":
+                    openActionLink(step, screen: screen)
+                case "set_user_attributes":
+                    let configured = object(step["attributes"]) ?? [:]
+                    guard !configured.isEmpty else { message = "No user attributes are configured."; tapActionRuns.removeValue(forKey: id); return }
+                    let valid = configured.allSatisfy { key, value in
+                        guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, key.count <= 100 else { return false }
+                        switch value { case .string, .integer, .number, .bool, .null: return true; case .object, .array: return false }
+                    }
+                    guard valid else { message = "This user attribute is invalid."; tapActionRuns.removeValue(forKey: id); return }
+                    do { _ = try await purchases.setAttributes(configured.mapValues(foundationValue)) }
+                    catch { message = "User attributes could not be updated. Please try again."; tapActionRuns.removeValue(forKey: id); return }
+                case "custom_action":
+                    guard let name = string(step["name"]), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { message = "This custom action has no name."; tapActionRuns.removeValue(forKey: id); return }
+                    guard let onCustomAction else { message = "This app action is unavailable."; tapActionRuns.removeValue(forKey: id); return }
+                    onCustomAction(name.trimmingCharacters(in: .whitespacesAndNewlines))
+                case "custom_placement":
+                    dispatchCustomPlacement(step)
+                default:
+                    message = "This tap action is not supported by this SDK version."
+                    tapActionRuns.removeValue(forKey: id)
+                    return
+                }
+            }
+            guard !Task.isCancelled, tapActionRuns[id] === run else { return }
+            handleButton(node, screen: screen)
+            tapActionRuns.removeValue(forKey: id)
+        }
     }
 
     private func handleButton(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) {
