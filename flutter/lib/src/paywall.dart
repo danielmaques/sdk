@@ -106,7 +106,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         onClose: widget.onClose,
         onPurchased: widget.onPurchased,
         onCustomAction: widget.onCustomAction,
-        _isExitOffer: true,
+        isExitOffer: true,
       );
     }
     final matches = _screens.where((item) => item['id'] == _screenId);
@@ -124,7 +124,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              if (widget.onClose case final close?)
+              if (widget.onClose case final _?)
                 Align(
                   alignment: Alignment.centerRight,
                   child: IconButton(
