@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration } from 'react-native';
+import { ActivityIndicator, Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -13,10 +14,25 @@ export type PushifyPaywallProps = {
   onCustomAction?: (name: string) => void | Promise<void>;
 };
 
+type PushifyNativeVideoProps = {
+  videoUrl?: string;
+  posterUrl?: string;
+  autoPlay?: boolean;
+  loops?: boolean;
+  muted?: boolean;
+  showControls?: boolean;
+  fitMode?: string;
+  accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
+};
+
+const NativePushifyVideo = requireNativeComponent<PushifyNativeVideoProps>('PushifyVideoView');
+
 /** Accessible renderer for the core Pushify paywall document components. */
 export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactElement {
   const firstScreen = props.document.screens.find((candidate) => candidate.id === props.document.initial_screen_id) ?? props.document.screens[0];
   const packages = props.offering.packages;
+  const colorScheme = useColorScheme();
   const defaultPackage = useMemo(() => findPackage(firstScreen?.content, true), [firstScreen]);
   const [selected, setSelected] = useState(defaultPackage ?? packages[0]?.id ?? '');
   const [screenID, setScreenID] = useState(firstScreen?.id ?? '');
@@ -263,6 +279,41 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
         const light = record(source.light);
         const uri = text(light.url);
         return uri?.startsWith('https://') ? React.createElement(Image, { key: node.id ?? uri, source: { uri }, resizeMode: 'contain', accessibilityLabel: text(node.properties.accessibility_label) ?? '', style: styles.image }) : null;
+      }
+      case 'video': {
+        const sources = record(node.properties.source);
+        const dark = colorScheme === 'dark';
+        const selectedSource = record(sources[dark ? 'dark' : 'light']);
+        const lightSource = record(sources.light);
+        const source = Object.keys(selectedSource).length ? selectedSource : lightSource;
+        const uri = text(source.url);
+        const fallback = record(node.properties.fallback_source);
+        const selectedPoster = record(fallback[dark ? 'dark' : 'light']);
+        const posterSource = Object.keys(selectedPoster).length ? selectedPoster : record(fallback.light);
+        const poster = text(posterSource.original) ?? text(posterSource.url);
+        const fitMode = text(node.properties.fit_mode) === 'fit' ? 'fit' : 'fill';
+        const heightSize = record(record(node.properties.size).height);
+        const fixedHeight = heightSize.type === 'fixed' ? number(heightSize.value) : undefined;
+        const width = number(source.width) ?? 1;
+        const height = number(source.height) ?? 1;
+        const style = { width: '100%' as const, height: fixedHeight ?? undefined, aspectRatio: fixedHeight ? undefined : width / height, backgroundColor: '#000000' };
+        if (!uri?.startsWith('https://') || (Platform.OS !== 'ios' && Platform.OS !== 'android')) {
+          return poster?.startsWith('https://')
+            ? React.createElement(Image, { key: node.id ?? poster, source: { uri: poster }, resizeMode: fitMode === 'fit' ? 'contain' : 'cover', accessibilityLabel: 'Video preview', style })
+            : React.createElement(View, { key: node.id ?? undefined, accessibilityRole: 'image', accessibilityLabel: 'Video unavailable', style });
+        }
+        return React.createElement(NativePushifyVideo, {
+          key: node.id ?? uri,
+          videoUrl: uri,
+          posterUrl: poster?.startsWith('https://') ? poster : undefined,
+          autoPlay: node.properties.auto_play !== false,
+          loops: node.properties.loop !== false,
+          muted: node.properties.mute_audio !== false,
+          showControls: node.properties.show_controls === true,
+          fitMode,
+          accessibilityLabel: text(node.properties.accessibility_label) ?? 'Video',
+          style,
+        });
       }
       case 'icon': {
         const name = text(node.properties.icon_name) ?? '★';

@@ -9,5 +9,5 @@ class PushifyPurchasesPackage : ReactPackage {
     override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> =
         listOf(PushifyPurchasesModule(context))
 
-    override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
+    override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> = listOf(PushifyVideoViewManager())
 }

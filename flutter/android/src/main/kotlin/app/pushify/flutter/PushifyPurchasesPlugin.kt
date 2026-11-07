@@ -13,6 +13,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.platform.PlatformViewRegistry
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,6 +30,7 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
+        binding.platformViewRegistry.registerViewFactory("app.pushify/paywall-video", PushifyFlutterVideoFactory())
         channel = MethodChannel(binding.binaryMessenger, "app.pushify/purchases").also { it.setMethodCallHandler(this) }
         events = EventChannel(binding.binaryMessenger, "app.pushify/customer-info").also { it.setStreamHandler(this) }
     }

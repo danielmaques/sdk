@@ -1,0 +1,12 @@
+#import <React/RCTViewManager.h>
+
+@interface RCT_EXTERN_MODULE(PushifyVideoManager, RCTViewManager)
+RCT_EXPORT_VIEW_PROPERTY(videoUrl, NSString)
+RCT_EXPORT_VIEW_PROPERTY(posterUrl, NSString)
+RCT_EXPORT_VIEW_PROPERTY(autoPlay, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(loops, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(muted, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(showControls, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(fitMode, NSString)
+RCT_EXPORT_VIEW_PROPERTY(accessibilityLabel, NSString)
+@end

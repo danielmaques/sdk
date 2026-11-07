@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 import WebKit
 import UIKit
 import SafariServices
@@ -7,6 +8,7 @@ import SafariServices
 @MainActor
 public struct PushifyPaywallView: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
     private let document: PushifyPaywallDocument
     private let offering: PushifyOfferings.Offering
     private let purchases: PushifyPurchases
@@ -125,9 +127,32 @@ public struct PushifyPaywallView: View {
         case "spacer":
             Spacer(minLength: CGFloat(number(node.properties["size"]) ?? 8))
         case "image":
-            if let url = mediaURL(node.properties) {
+            if let url = mediaURL(node.properties, key: "source", dark: colorScheme == .dark) {
                 AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { ProgressView() }
                     .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "")
+            }
+        case "video":
+            if let url = mediaURL(node.properties, key: "source", dark: colorScheme == .dark), url.scheme?.lowercased() == "https" {
+                let sources = object(node.properties["source"])
+                let selectedSource = object((colorScheme == .dark ? sources?["dark"] : nil) ?? sources?["light"])
+                let size = object(node.properties["size"])
+                let heightSize = object(size?["height"])
+                let fixedHeight = string(heightSize?["type"]) == "fixed" ? number(heightSize?["value"]) : nil
+                PushifyPaywallVideo(
+                    url: url,
+                    posterURL: mediaURL(node.properties, key: "fallback_source", dark: colorScheme == .dark).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil },
+                    width: number(selectedSource?["width"]) ?? 1,
+                    height: number(selectedSource?["height"]) ?? 1,
+                    autoPlay: Self.bool(node.properties["auto_play"], default: true),
+                    loops: Self.bool(node.properties["loop"], default: true),
+                    muted: Self.bool(node.properties["mute_audio"], default: true),
+                    showsControls: Self.bool(node.properties["show_controls"], default: false),
+                    fitMode: string(node.properties["fit_mode"]) ?? "fill",
+                    fixedHeight: fixedHeight.map { CGFloat($0) }
+                )
+                .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "Video")
+            } else {
+                videoUnavailable(node.properties, dark: colorScheme == .dark)
             }
         case "web_view":
             if let rawURL = string(node.properties["url"]), let url = URL(string: rawURL), url.scheme == "https" {
@@ -466,9 +491,30 @@ public struct PushifyPaywallView: View {
         return Color(hex: hex)
     }
 
-    private func mediaURL(_ properties: [String: PushifyJSONValue]) -> URL? {
-        guard case .object(let source)? = properties["source"], case .object(let light)? = source["light"], case .string(let url)? = light["url"] else { return nil }
-        return URL(string: url)
+    private func mediaURL(_ properties: [String: PushifyJSONValue], key: String = "source", dark: Bool = false) -> URL? {
+        guard let sources = object(properties[key]),
+              let media = object((dark ? sources["dark"] : nil) ?? sources["light"]),
+              let rawURL = string(media["url"]) ?? string(media["original"]),
+              let url = URL(string: rawURL) else { return nil }
+        return url
+    }
+
+    @ViewBuilder private func videoUnavailable(_ properties: [String: PushifyJSONValue], dark: Bool) -> some View {
+        if let poster = mediaURL(properties, key: "fallback_source", dark: dark) {
+            AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { videoPlaceholder }
+                .clipped()
+        } else {
+            videoPlaceholder
+        }
+    }
+
+    private var videoPlaceholder: some View {
+        ZStack {
+            Color.black
+            Image(systemName: "video.slash.fill").font(.title3).foregroundStyle(.white.opacity(0.8))
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .accessibilityLabel("Video unavailable")
     }
 
     private func array(_ value: PushifyJSONValue?) -> [[String: PushifyJSONValue]] { if case .array(let values)? = value { return values.compactMap { if case .object(let item) = $0 { return item }; return nil } }; return [] }
@@ -528,7 +574,7 @@ public struct PushifyPaywallView: View {
     private func bool(_ value: PushifyJSONValue?) -> Bool { if case .bool(let v)? = value { return v }; return false }
 
     private static func string(_ value: PushifyJSONValue?) -> String? { if case .string(let v)? = value { return v }; return nil }
-    private static func bool(_ value: PushifyJSONValue?) -> Bool { if case .bool(let v)? = value { return v }; return false }
+    private static func bool(_ value: PushifyJSONValue?, default fallback: Bool = false) -> Bool { if case .bool(let v)? = value { return v }; return fallback }
     private static func packageNodes(_ node: PushifyPaywallNode?) -> [PushifyPaywallNode] {
         guard let node else { return [] }
         return (node.kind == "package" ? [node] : []) + node.children.flatMap(packageNodes)

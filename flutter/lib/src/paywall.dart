@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
+import 'dart:io';
 
 import 'purchases.dart';
 
@@ -118,6 +119,73 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       ),
     );
   }
+
+  Widget _video(Map<String, Object?> properties) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final sources = _map(properties['source']);
+    final selected = _map(sources[dark ? 'dark' : 'light']);
+    final source = selected.isNotEmpty ? selected : _map(sources['light']);
+    final url = source['url'] as String?;
+    final fallback = _map(properties['fallback_source']);
+    final selectedPoster = _map(fallback[dark ? 'dark' : 'light']);
+    final posterSource = selectedPoster.isNotEmpty ? selectedPoster : _map(fallback['light']);
+    final posterUrl = (posterSource['original'] ?? posterSource['url']) as String?;
+    final fitMode = properties['fit_mode'] == 'fit' ? 'fit' : 'fill';
+    final supported = url != null && url.startsWith('https://') &&
+        (Platform.isAndroid || Platform.isIOS);
+    if (!supported) return _videoPoster(posterUrl, fitMode);
+
+    final player = <String, Object?>{
+      'url': url,
+      'posterUrl': posterUrl,
+      'autoPlay': properties['auto_play'] as bool? ?? true,
+      'loop': properties['loop'] as bool? ?? true,
+      'muted': properties['mute_audio'] as bool? ?? true,
+      'showControls': properties['show_controls'] as bool? ?? false,
+      'fitMode': fitMode,
+      'accessibilityLabel': properties['accessibility_label'] as String? ?? 'Video',
+    };
+    final native = Platform.isAndroid
+        ? AndroidView(
+            key: ValueKey('pushify-video-$url'),
+            viewType: 'app.pushify/paywall-video',
+            creationParams: player,
+            creationParamsCodec: const StandardMessageCodec(),
+          )
+        : UiKitView(
+            key: ValueKey('pushify-video-$url'),
+            viewType: 'app.pushify/paywall-video',
+            layoutDirection: TextDirection.ltr,
+            creationParams: player,
+            creationParamsCodec: const StandardMessageCodec(),
+          );
+    final sourceWidth = (_number(source['width']) ?? 1).clamp(1, 100000).toDouble();
+    final sourceHeight = (_number(source['height']) ?? 1).clamp(1, 100000).toDouble();
+    final size = _map(properties['size']);
+    final heightSize = _map(size['height']);
+    final fixedHeight = heightSize['type'] == 'fixed' ? _number(heightSize['value']) : null;
+    final surface = ClipRect(child: native);
+    return fixedHeight == null
+        ? AspectRatio(aspectRatio: sourceWidth / sourceHeight, child: surface)
+        : SizedBox(height: fixedHeight, width: double.infinity, child: surface);
+  }
+
+  Widget _videoPoster(String? url, String fitMode) {
+    if (url != null && url.startsWith('https://')) {
+      return Image.network(
+        url,
+        fit: fitMode == 'fit' ? BoxFit.contain : BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _videoUnavailable(),
+        semanticLabel: 'Video preview',
+      );
+    }
+    return _videoUnavailable();
+  }
+
+  Widget _videoUnavailable() => const ColoredBox(
+        color: Colors.black,
+        child: Center(child: Icon(Icons.videocam_off_outlined, color: Colors.white70)),
+      );
 
   Widget _render(Map<String, Object?> node, Map<String, Object?> screen) {
     final kind = node['kind'] as String? ?? '';
@@ -261,6 +329,8 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
                     const SizedBox.shrink(),
                 semanticLabel: properties['accessibility_label'] as String?,
               );
+      case 'video':
+        return _video(properties);
       case 'web_view':
         final fallback = _map(properties['fallback']);
         return fallback.isEmpty ? const SizedBox.shrink() : _render(fallback, screen);

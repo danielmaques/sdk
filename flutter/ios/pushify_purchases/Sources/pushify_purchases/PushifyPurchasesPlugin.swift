@@ -14,6 +14,7 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
         let instance = PushifyPurchasesPlugin()
         let methods = FlutterMethodChannel(name: methodChannelName, binaryMessenger: registrar.messenger())
         registrar.addMethodCallDelegate(instance, channel: methods)
+        registrar.register(PushifyPaywallVideoFactory(), withId: "app.pushify/paywall-video")
         let events = FlutterEventChannel(name: eventChannelName, binaryMessenger: registrar.messenger())
         events.setStreamHandler(instance)
     }

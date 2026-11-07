@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -20,8 +21,10 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.MediaController
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.VideoView
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -118,6 +121,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
             "spacer" -> View(context).apply { layoutParams = lp(MATCH, dp(properties.optDouble("size", 8.0).toInt())) }
             "image" -> imageView(properties)
+            "video" -> videoView(properties)
             "icon" -> TextView(context).apply {
                 text = iconGlyph(properties.optString("icon_name"))
                 textSize = properties.optDouble("size", 24.0).toFloat().coerceIn(12f, 64f)
@@ -242,6 +246,98 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val url = source?.optString("url") ?: return View(context)
         if (!url.startsWith("https://")) return View(context)
         val image = ImageView(context).apply { contentDescription = properties.optString("accessibility_label"); adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER }
+        loadImage(url) { image.setImageBitmap(it) }
+        return image
+    }
+
+    private fun videoView(properties: JSONObject): View {
+        val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val sources = properties.optJSONObject("source") ?: JSONObject()
+        val source = (if (dark) sources.optJSONObject("dark") else null) ?: sources.optJSONObject("light")
+        val url = source?.optString("url").orEmpty()
+        if (!url.startsWith("https://")) return videoFailure(properties, dark)
+
+        val autoplay = properties.optBoolean("auto_play", true)
+        val loop = properties.optBoolean("loop", true)
+        val muted = properties.optBoolean("mute_audio", true)
+        val controls = properties.optBoolean("show_controls", false)
+        val posterSource = properties.optJSONObject("fallback_source")?.let { themedMedia(it, dark) }
+        val frame = FrameLayout(context).apply { setBackgroundColor(Color.BLACK); contentDescription = properties.optString("accessibility_label").ifBlank { "Video" } }
+        var poster: ImageView? = null
+        val placeholder = TextView(context).apply {
+            text = if (posterSource == null) "Loading video…" else ""
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.BLACK)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = if (posterSource == null) "Loading video" else null
+        }
+        val video = VideoView(context).apply {
+            visibility = View.INVISIBLE
+            importantForAccessibility = if (controls) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            if (controls) setMediaController(MediaController(context).also { it.setAnchorView(this) })
+            setOnPreparedListener { player ->
+                if (muted) player.setVolume(0f, 0f)
+                visibility = View.VISIBLE
+                placeholder.visibility = View.GONE
+                poster?.visibility = View.GONE
+                if (autoplay) start() else if (controls) seekTo(1)
+            }
+            setOnCompletionListener {
+                if (loop) { seekTo(0); start() }
+            }
+            setOnErrorListener { _, _, _ ->
+                visibility = View.GONE
+                placeholder.text = if (posterSource == null) "Video unavailable" else ""
+                placeholder.contentDescription = "Video unavailable"
+                placeholder.visibility = View.VISIBLE
+                poster?.visibility = if (posterSource == null) View.GONE else View.VISIBLE
+                true
+            }
+            setVideoURI(Uri.parse(url))
+        }
+        poster = posterSource?.let { sourceUrl ->
+            ImageView(context).apply {
+                scaleType = if (properties.optString("fit_mode") == "fit") ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+                contentDescription = properties.optString("accessibility_label").ifBlank { "Video preview" }
+                loadImage(sourceUrl) { bitmap -> setImageBitmap(bitmap) }
+            }
+        }
+        frame.addView(video, FrameLayout.LayoutParams(MATCH, dp(properties.optJSONObject("size")?.optJSONObject("height")?.optInt("value", 220) ?: 220)))
+        poster?.let { frame.addView(it, FrameLayout.LayoutParams(MATCH, MATCH)) }
+        frame.addView(placeholder, FrameLayout.LayoutParams(MATCH, MATCH))
+        placeholder.visibility = if (poster != null) View.GONE else View.VISIBLE
+        frame.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            private var released = false
+            override fun onViewAttachedToWindow(view: View) {
+                if (released) video.setVideoURI(Uri.parse(url))
+                released = false
+                if (autoplay && video.visibility == View.VISIBLE) video.start()
+            }
+            override fun onViewDetachedFromWindow(view: View) { video.stopPlayback(); released = true }
+        })
+        return frame
+    }
+
+    private fun videoFailure(properties: JSONObject, dark: Boolean): View {
+        val posterUrl = properties.optJSONObject("fallback_source")?.let { themedMedia(it, dark) }
+        if (posterUrl == null) return TextView(context).apply {
+            text = "Video unavailable"; gravity = Gravity.CENTER; contentDescription = text; setTextColor(Color.WHITE); setBackgroundColor(Color.BLACK)
+        }
+        return ImageView(context).apply {
+            scaleType = if (properties.optString("fit_mode") == "fit") ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+            contentDescription = properties.optString("accessibility_label").ifBlank { "Video preview" }
+            loadImage(posterUrl) { setImageBitmap(it) }
+        }
+    }
+
+    private fun themedMedia(sources: JSONObject, dark: Boolean): String? {
+        val theme = (if (dark) sources.optJSONObject("dark") else null) ?: sources.optJSONObject("light") ?: return null
+        return theme.optString("url").takeIf(String::isNotBlank) ?: theme.optString("original").takeIf(String::isNotBlank)
+    }
+
+    private fun loadImage(url: String, onLoaded: (android.graphics.Bitmap) -> Unit) {
+        if (!url.startsWith("https://")) return
         imageExecutor.execute {
             runCatching {
                 val connection = URL(url).openConnection() as HttpURLConnection
@@ -260,9 +356,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     val bytes = output.toByteArray()
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }
-            }.getOrNull()?.let { bitmap -> main.post { image.setImageBitmap(bitmap) } }
+            }.getOrNull()?.let { bitmap -> main.post { onLoaded(bitmap) } }
         }
-        return image
     }
 
     private fun purchaseSelected(packageId: String? = null, action: JSONObject = JSONObject(), screen: JSONObject? = null) {
