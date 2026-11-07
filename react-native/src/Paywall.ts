@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration } from 'react-native';
+import { ActivityIndicator, Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration } from 'react-native';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -129,8 +129,19 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     const rawURL = urlKey ? localizedValue(urlKey) : text(urlRef.url);
     let parsed: URL;
     try { parsed = new URL(rawURL ?? ''); } catch { setMessage('This link is unavailable.'); return; }
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') { setMessage('This link is unavailable.'); return; }
-    try { await Linking.openURL(parsed.toString()); }
+    const method = text(urlRef.method) ?? 'in_app_browser';
+    const browser = method === 'in_app_browser' || method === 'external_browser';
+    if (!['in_app_browser', 'external_browser', 'deep_link'].includes(method) ||
+      (browser && !['https:', 'http:'].includes(parsed.protocol)) ||
+      (method === 'deep_link' && (['javascript:', 'data:', 'file:', 'content:', 'intent:'].includes(parsed.protocol) ||
+        (['http:', 'https:'].includes(parsed.protocol) && !parsed.host)))) {
+      setMessage('This link is unavailable.'); return;
+    }
+    try {
+      const native = NativeModules.PushifyPurchases as { openPaywallLink?: (url: string, method: string) => Promise<boolean> } | undefined;
+      if (!native?.openPaywallLink) throw new Error('The native link handler is unavailable. Update the Pushify SDK.');
+      await native.openPaywallLink(parsed.toString(), method);
+    }
     catch { setMessage('This link could not be opened.'); }
   }
 

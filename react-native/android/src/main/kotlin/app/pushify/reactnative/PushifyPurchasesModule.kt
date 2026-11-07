@@ -1,6 +1,8 @@
 package app.pushify.reactnative
 
 import android.net.Uri
+import android.content.Intent
+import androidx.browser.customtabs.CustomTabsIntent
 import app.pushify.sdk.PushifyPurchases
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
@@ -22,6 +24,31 @@ class PushifyPurchasesModule(context: ReactApplicationContext) : ReactContextBas
     private var customerListener: PushifyPurchases.CustomerInfoListener? = null
     private var listenerCount = 0
     override fun getName(): String = "PushifyPurchases"
+
+    @ReactMethod
+    fun openPaywallLink(rawUrl: String, method: String, promise: Promise) {
+        val uri = runCatching { Uri.parse(rawUrl) }.getOrNull()
+        val scheme = uri?.scheme?.lowercase()
+        val browser = method == "in_app_browser" || method == "external_browser"
+        val safeScheme = scheme != null && scheme !in setOf("javascript", "data", "file", "content", "intent")
+        if (uri == null || !safeScheme || method !in setOf("in_app_browser", "external_browser", "deep_link") ||
+            (browser && scheme !in setOf("http", "https")) || ((browser || scheme in setOf("http", "https")) && uri.host.isNullOrBlank())) {
+            promise.reject("invalid_link", "This link is unavailable."); return
+        }
+        val activity = currentActivity
+        if (method == "in_app_browser" && activity == null) {
+            promise.reject("activity_unavailable", "An activity is required to open the in-app browser."); return
+        }
+        try {
+            if (method == "in_app_browser") CustomTabsIntent.Builder().build().launchUrl(activity!!, uri)
+            else {
+                val intent = Intent(Intent.ACTION_VIEW, uri)
+                if (activity == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                (activity ?: reactApplicationContext).startActivity(intent)
+            }
+            promise.resolve(true)
+        } catch (error: Throwable) { promise.reject("link_open_failed", "This link could not be opened.", error) }
+    }
 
     @ReactMethod
     fun configure(options: ReadableMap, promise: Promise) {

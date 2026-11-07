@@ -2,6 +2,7 @@ import Foundation
 import React
 import StoreKit
 import UIKit
+import SafariServices
 
 @objc(PushifyPurchases)
 final class PushifyPurchasesModule: RCTEventEmitter {
@@ -11,6 +12,32 @@ final class PushifyPurchasesModule: RCTEventEmitter {
 
     @objc override static func requiresMainQueueSetup() -> Bool { true }
     override func supportedEvents() -> [String]! { ["customerInfoUpdated"] }
+
+    @objc func openPaywallLink(_ rawUrl: String,
+                               method: String,
+                               resolver resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let url = URL(string: rawUrl), let scheme = url.scheme?.lowercased(),
+              ["in_app_browser", "external_browser", "deep_link"].contains(method),
+              (method == "deep_link"
+                ? !["javascript", "data", "file", "content", "intent"].contains(scheme) && (!["http", "https"].contains(scheme) || url.host != nil)
+                : ["http", "https"].contains(scheme) && url.host != nil) else {
+            reject("invalid_link", "This link is unavailable.", nil); return
+        }
+        DispatchQueue.main.async {
+            if method == "in_app_browser" {
+                guard let presenter = RCTPresentedViewController() else {
+                    reject("activity_unavailable", "A foreground view controller is required.", nil); return
+                }
+                presenter.present(SFSafariViewController(url: url), animated: true) { resolve(true) }
+            } else {
+                UIApplication.shared.open(url, options: [:]) { accepted in
+                    if accepted { resolve(true) }
+                    else { reject("link_open_failed", "This link could not be opened.", nil) }
+                }
+            }
+        }
+    }
 
     @objc func configure(_ options: NSDictionary,
                          resolver resolve: @escaping RCTPromiseResolveBlock,

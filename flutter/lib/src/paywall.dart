@@ -794,12 +794,22 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     final key = urlRef['url_lid'];
     final raw = key is String ? _localizedValue(key, screen) : urlRef['url'];
     final uri = raw is String ? Uri.tryParse(raw) : null;
-    if (uri == null || !uri.hasAuthority || !['https', 'http'].contains(uri.scheme)) {
+    final method = urlRef['method'] is String ? urlRef['method'] as String : 'in_app_browser';
+    final browser = method == 'in_app_browser' || method == 'external_browser';
+    final safeScheme = uri != null && uri.scheme.isNotEmpty &&
+        !{'javascript', 'data', 'file', 'content', 'intent'}.contains(uri.scheme.toLowerCase());
+    if (uri == null || !safeScheme ||
+        (browser && (!uri.hasAuthority || !{'https', 'http'}.contains(uri.scheme.toLowerCase()))) ||
+        (method == 'deep_link' && {'https', 'http'}.contains(uri.scheme.toLowerCase()) && !uri.hasAuthority) ||
+        !{'in_app_browser', 'external_browser', 'deep_link'}.contains(method)) {
       setState(() => _message = 'This link is unavailable.');
       return;
     }
     try {
-      final opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      final mode = method == 'in_app_browser'
+          ? LaunchMode.inAppBrowserView
+          : LaunchMode.externalApplication;
+      final opened = await launchUrl(uri, mode: mode);
       if (!opened && mounted) setState(() => _message = 'This link could not be opened.');
     } catch (_) {
       if (mounted) setState(() => _message = 'This link could not be opened.');

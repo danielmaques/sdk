@@ -3,6 +3,10 @@
 #import <UIKit/UIKit.h>
 
 @interface RCT_EXTERN_MODULE(PushifyPurchases, RCTEventEmitter)
+RCT_EXTERN_METHOD(openPaywallLink:(NSString *)url
+                  method:(NSString *)method
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(configure:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)

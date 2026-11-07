@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import UIKit
+import SafariServices
 
 /// A native, accessible renderer for the core Pushify paywall components.
 @MainActor
@@ -14,6 +15,7 @@ public struct PushifyPaywallView: View {
     @State private var screenID: String
     @State private var busy = false
     @State private var message: String?
+    @State private var inAppBrowserLink: PushifyBrowserLink?
     @State private var selectedTabs: [String: String] = [:]
     @State private var carouselPages: [String: Int] = [:]
     @State private var failedExperienceIDs: Set<String> = []
@@ -55,6 +57,7 @@ public struct PushifyPaywallView: View {
                 VStack(spacing: 8) { Image(systemName: "exclamationmark.triangle"); Text("Paywall unavailable") }
             }
         }
+        .sheet(item: $inAppBrowserLink) { link in PushifySafariView(url: link.url).ignoresSafeArea() }
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
     }
 
@@ -388,12 +391,23 @@ public struct PushifyPaywallView: View {
         let url = object(action["url"]) ?? [:]
         let key = string(url["url_lid"])
         let raw = key.flatMap { localizedValue($0, screen: screen) } ?? string(url["url"])
-        guard let raw, let value = URL(string: raw), let scheme = value.scheme?.lowercased(), ["http", "https"].contains(scheme), value.host != nil else {
+        let method = string(url["method"]) ?? "in_app_browser"
+        guard let raw, let value = URL(string: raw), let scheme = value.scheme?.lowercased(),
+              ["in_app_browser", "external_browser", "deep_link"].contains(method),
+              (method == "deep_link"
+                ? !["javascript", "data", "file", "content", "intent"].contains(scheme) && (!["http", "https"].contains(scheme) || value.host != nil)
+                : ["http", "https"].contains(scheme) && value.host != nil) else {
             message = "This link is unavailable."
             return
         }
-        openURL(value) { accepted in
+        switch method {
+        case "in_app_browser": inAppBrowserLink = PushifyBrowserLink(url: value)
+        case "external_browser": UIApplication.shared.open(value) { accepted in
             if !accepted { message = "This link could not be opened." }
+        }
+        default: openURL(value) { accepted in
+            if !accepted { message = "This link could not be opened." }
+        }
         }
     }
 
@@ -506,6 +520,17 @@ private struct PaywallExperienceWebView: UIViewRepresentable {
             decisionHandler(navigationAction.request.url?.scheme == "https" ? .allow : .cancel)
         }
     }
+}
+
+private struct PushifyBrowserLink: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+private struct PushifySafariView: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
 private struct PushifyActionButtonStyle: ButtonStyle {

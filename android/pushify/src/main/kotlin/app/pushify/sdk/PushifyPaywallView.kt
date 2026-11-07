@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.browser.customtabs.CustomTabsIntent
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -470,13 +471,23 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val key = ref.optString("url_lid")
         val raw = if (key.isNotBlank()) localizedValue(key, screen) else ref.optString("url")
         val uri = raw?.let { runCatching { Uri.parse(it) }.getOrNull() }
-        if (uri == null || uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) {
+        val method = ref.optString("method", "in_app_browser")
+        val scheme = uri?.scheme?.lowercase()
+        val browser = method == "in_app_browser" || method == "external_browser"
+        val safeDeepLink = scheme != null && scheme !in setOf("javascript", "data", "file", "content", "intent")
+        if (uri == null || !safeDeepLink || method !in setOf("in_app_browser", "external_browser", "deep_link") ||
+            (browser && scheme !in setOf("http", "https")) || ((browser || scheme in setOf("http", "https")) && uri.host.isNullOrBlank())) {
             message = "This link is unavailable."; render(); return
         }
         runCatching {
-            val intent = Intent(Intent.ACTION_VIEW, uri)
-            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
+            if (method == "in_app_browser") {
+                val activity = context as? Activity ?: error("An activity is required to open the in-app browser.")
+                CustomTabsIntent.Builder().build().launchUrl(activity, uri)
+            } else {
+                val intent = Intent(Intent.ACTION_VIEW, uri)
+                if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            }
         }.onFailure {
             message = "This link could not be opened."
             render()
