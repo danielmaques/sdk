@@ -10,6 +10,10 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.content.res.Configuration
+import android.text.Editable
+import android.text.InputFilter
+import android.text.InputType
+import android.text.TextWatcher
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -18,6 +22,7 @@ import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.browser.customtabs.CustomTabsIntent
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -58,6 +63,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private var dismissing = false
     private var busy = false
     private var message: String? = null
+    private var focusedInputVariable: String? = null
+    private var focusedInputSelection = 0
     private val surveyedTriggers = mutableSetOf<String>()
 
     init {
@@ -87,6 +94,10 @@ public class PushifyPaywallView @JvmOverloads constructor(
     }
 
     private fun render() {
+        (findFocus() as? EditText)?.let { field ->
+            focusedInputVariable = field.tag as? String
+            focusedInputSelection = field.selectionStart.coerceAtLeast(0)
+        }
         removeAllViews()
         val screen = (0 until screens.length()).mapNotNull(screens::optJSONObject).firstOrNull { it.optString("id") == activeScreenId }
             ?: screens.optJSONObject(0) ?: return
@@ -105,6 +116,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
         screen.optJSONObject("footer")?.let { root.addView(renderNode(it, screen), lp(MATCH, WRAP)) }
         message?.let { status -> root.addView(TextView(context).apply { text = status; gravity = Gravity.CENTER; contentDescription = status }, lp(MATCH, WRAP)) }
         addView(root, LayoutParams(MATCH, MATCH))
+        focusedInputVariable?.let { name -> post {
+            val field = root.findViewWithTag<EditText>(name) ?: return@post
+            field.requestFocus()
+            field.setSelection(focusedInputSelection.coerceIn(0, field.text.length))
+        } }
     }
 
     private fun dismissManually() {
@@ -220,6 +236,42 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 gravity = Gravity.CENTER
                 setTypeface(typeface, if (properties.optString("font_weight") in listOf("bold", "semibold")) Typeface.BOLD else Typeface.NORMAL)
                 setPadding(0, dp(6), 0, dp(6))
+            }
+            "input" -> {
+                val reference = properties.optString("state_variable")
+                val name = reference.removePrefix("state.")
+                val declaration = variableDeclarations.optJSONObject(name)
+                if (!reference.startsWith("state.") || declaration == null || declaration.optString("type") != "state" || declaration.optString("value_type") != "text") return View(context)
+                val labelKey = properties.optString("label_lid")
+                val placeholderKey = properties.optString("placeholder_lid")
+                val label = localizedValue(labelKey, screen)?.let(::interpolate).orEmpty().ifBlank { "Your response" }
+                val maxLength = properties.optInt("max_length", 100).coerceIn(1, 500)
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(context).apply { text = label; contentDescription = label; textSize = 13f; setPadding(0, 0, 0, dp(4)) }, lp(MATCH, WRAP))
+                    addView(EditText(context).apply {
+                        tag = name
+                        hint = localizedValue(placeholderKey, screen)?.let(::interpolate).orEmpty()
+                        setText(variables.opt(name)?.toString() ?: declaration.optString("initial_value"))
+                        filters = arrayOf(InputFilter.LengthFilter(maxLength))
+                        inputType = when (properties.optString("keyboard")) {
+                            "email" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                            "number" -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                            else -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                        }
+                        contentDescription = label
+                        addTextChangedListener(object : TextWatcher {
+                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                                variables.put(name, s?.toString().orEmpty())
+                                focusedInputVariable = name
+                                focusedInputSelection = selectionStart.coerceAtLeast(0)
+                                render()
+                            }
+                            override fun afterTextChanged(s: Editable?) = Unit
+                        })
+                    }, lp(MATCH, WRAP))
+                }
             }
             "package" -> packageView(node, screen, properties)
             "purchase_button", "cta" -> Button(context).apply {

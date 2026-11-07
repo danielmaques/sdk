@@ -187,7 +187,9 @@ extension _PaywallRendering on _PushifyPaywallState {
       final type = declaration['value_type'];
       if ((type == 'text' && expected is! String) ||
           (type == 'number' && expected is! num) ||
-          (type == 'boolean' && expected is! bool)) return true;
+          (type == 'boolean' && expected is! bool)) {
+        return true;
+      }
       final operator = rule['operator'];
       if (operator == 'equals') {
         results.add(current is num && expected is num ? current == expected : current == expected);
@@ -277,6 +279,33 @@ extension _PaywallRendering on _PushifyPaywallState {
             fontSize: _number(properties['font_size']) ?? 20,
             fontWeight: _fontWeight(properties['font_weight']),
           ),
+        );
+      case 'input':
+        final reference = properties['state_variable'] as String? ?? '';
+        final name = reference.startsWith('state.') ? reference.substring(6) : '';
+        final declaration = _map(_map(widget.document['custom_variables'])[name]);
+        if (name.isEmpty || declaration['type'] != 'state' || declaration['value_type'] != 'text') return const SizedBox.shrink();
+        final current = _variables[name] as String? ?? declaration['initial_value'] as String? ?? '';
+        final id = node['id'] as String? ?? reference;
+        final controller = _inputControllers.putIfAbsent(id, () => TextEditingController(text: current));
+        if (controller.text != current) controller.value = controller.value.copyWith(text: current, selection: TextSelection.collapsed(offset: current.length));
+        final labelKey = properties['label_lid'] as String?;
+        final placeholderKey = properties['placeholder_lid'] as String?;
+        final label = labelKey == null ? null : _localizedValue(labelKey, screen);
+        final placeholder = placeholderKey == null ? null : _localizedValue(placeholderKey, screen);
+        final keyboard = switch (properties['keyboard']) {
+          'email' => TextInputType.emailAddress,
+          'number' => const TextInputType.numberWithOptions(decimal: true, signed: true),
+          _ => TextInputType.text,
+        };
+        final maxLength = (_number(properties['max_length']) ?? 100).toInt().clamp(1, 500);
+        return TextField(
+          controller: controller,
+          keyboardType: keyboard,
+          maxLength: maxLength,
+          maxLengthEnforcement: MaxLengthEnforcement.enforced,
+          decoration: InputDecoration(labelText: label, hintText: placeholder, border: const OutlineInputBorder()),
+          onChanged: (value) => _update(() => _variables[name] = value),
         );
       case 'package':
         final packageId = properties['package_id'] as String?;

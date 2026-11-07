@@ -51,6 +51,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, int> _carouselPages = {};
   final Map<String, PageController> _carouselControllers = {};
   final Map<String, String> _selectedTabs = {};
+  final Map<String, TextEditingController> _inputControllers = {};
   final Map<String, Object?> _variables = {};
   Map<String, Object?>? _exitOffering;
   bool _dismissing = false;
@@ -87,6 +88,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   void dispose() {
     _clock?.cancel();
     for (final controller in _carouselControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _inputControllers.values) {
       controller.dispose();
     }
     super.dispose();

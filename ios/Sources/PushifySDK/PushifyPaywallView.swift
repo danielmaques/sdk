@@ -214,6 +214,29 @@ public struct PushifyPaywallView: View {
         case "text", "title":
             Text(localized(node, screen: screen)).font(.system(size: CGFloat(number(node.properties["font_size"]) ?? 20), weight: fontWeight(node.properties["font_weight"]), design: .default))
                 .multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+        case "input":
+            let reference = string(node.properties["state_variable"]) ?? ""
+            let name = reference.hasPrefix("state.") ? String(reference.dropFirst(6)) : ""
+            if let declaration = document.customVariables?[name], declaration.type == "state", declaration.valueType == "text" {
+                let labelKey = string(node.properties["label_lid"])
+                let placeholderKey = string(node.properties["placeholder_lid"])
+                let label = labelKey.flatMap { localizedValue($0, screen: screen) }.map(interpolate) ?? "Your response"
+                let placeholder = placeholderKey.flatMap { localizedValue($0, screen: screen) }.map(interpolate) ?? ""
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(label).font(.footnote).foregroundStyle(.secondary)
+                    TextField(placeholder, text: Binding(
+                        get: { string(variables[name]) ?? string(declaration.initialValue) ?? "" },
+                        set: { variables[name] = .string(String($0.prefix(max(1, min(500, Int(number(node.properties["max_length"]) ?? 100)))))) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(string(node.properties["keyboard"]) == "email" ? .emailAddress : string(node.properties["keyboard"]) == "number" ? .decimalPad : .default)
+                    .textInputAutocapitalization(string(node.properties["keyboard"]) == "email" ? .never : .sentences)
+                    .autocorrectionDisabled(string(node.properties["keyboard"]) == "email")
+                    .accessibilityLabel(label)
+                }
+            } else {
+                EmptyView()
+            }
         case "package":
             if let packageID = string(node.properties["package_id"]), let package = offering.packages.first(where: { $0.id == packageID }) {
                 Button { selectedPackageID = packageID } label: {
