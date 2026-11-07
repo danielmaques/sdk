@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -170,6 +171,37 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         : SizedBox(height: fixedHeight, width: double.infinity, child: surface);
   }
 
+  Widget _webView(Map<String, Object?> properties, Map<String, Object?> screen) {
+    final url = properties['url'] as String? ?? '';
+    final fallbackNode = _map(properties['fallback']);
+    final fallback = fallbackNode.isEmpty ? null : _render(fallbackNode, screen);
+    final protocolVersion = _number(properties['protocol_version'])?.toInt() ?? 1;
+    final size = _map(properties['size']);
+    final height = _map(size['height']);
+    final fixedHeight = height['type'] == 'fixed' ? _number(height['value']) : null;
+    final heightValue = (fixedHeight ?? 240).clamp(1, 100000).toDouble();
+    final uri = Uri.tryParse(url);
+    if (protocolVersion != 1 || uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+      return SizedBox(height: heightValue, child: fallback ?? _experienceUnavailable());
+    }
+    return _PaywallExperienceWebView(
+      key: ValueKey('pushify-web-experience-$url'),
+      url: uri,
+      height: heightValue,
+      fallback: fallback,
+    );
+  }
+
+  Widget _experienceUnavailable() => ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Semantics(
+            label: 'Interactive experience unavailable',
+            child: Icon(Icons.web_asset_off_outlined, color: Colors.white70),
+          ),
+        ),
+      );
+
   Widget _videoPoster(String? url, String fitMode) {
     if (url != null && url.startsWith('https://')) {
       return Image.network(
@@ -332,8 +364,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       case 'video':
         return _video(properties);
       case 'web_view':
-        final fallback = _map(properties['fallback']);
-        return fallback.isEmpty ? const SizedBox.shrink() : _render(fallback, screen);
+        return _webView(properties, screen);
       case 'icon':
         final name = (properties['icon_name'] as String? ?? 'star')
             .toLowerCase();
@@ -950,6 +981,98 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     }
     return null;
   }
+}
+
+class _PaywallExperienceWebView extends StatefulWidget {
+  const _PaywallExperienceWebView({
+    required this.url,
+    required this.height,
+    required this.fallback,
+    super.key,
+  });
+
+  final Uri url;
+  final double height;
+  final Widget? fallback;
+
+  @override
+  State<_PaywallExperienceWebView> createState() => _PaywallExperienceWebViewState();
+}
+
+class _PaywallExperienceWebViewState extends State<_PaywallExperienceWebView> {
+  late final WebViewController _controller;
+  bool _loading = true;
+  bool _failed = false;
+
+  bool _allowsNavigation(String raw) {
+    final target = Uri.tryParse(raw);
+    return target != null && target.scheme == 'https' && target.origin == widget.url.origin;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (_) {
+            if (mounted) setState(() { _loading = true; _failed = false; });
+          },
+          onPageFinished: (url) {
+            if (!mounted) return;
+            setState(() {
+              _loading = false;
+              _failed = !_allowsNavigation(url);
+            });
+          },
+          onWebResourceError: (error) {
+            if (!mounted || error.isForMainFrame == false) return;
+            setState(() { _loading = false; _failed = true; });
+          },
+          onHttpError: (error) {
+            final request = error.request;
+            final response = error.response;
+            if (!mounted || request == null || response == null || response.statusCode < 400) return;
+            if (!_allowsNavigation(request.uri.toString())) return;
+            setState(() { _loading = false; _failed = true; });
+          },
+          onNavigationRequest: (request) => _allowsNavigation(request.url)
+              ? NavigationDecision.navigate
+              : NavigationDecision.prevent,
+        ),
+      )
+      ..loadRequest(widget.url);
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: widget.height,
+        width: double.infinity,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              WebViewWidget(controller: _controller),
+              if (_loading || _failed)
+                Positioned.fill(
+                  child: widget.fallback ?? ColoredBox(
+                    color: Colors.black,
+                    child: Center(
+                      child: _failed
+                          ? Semantics(
+                              label: 'Interactive experience unavailable',
+                              child: Icon(Icons.web_asset_off_outlined, color: Colors.white70),
+                            )
+                          : const CircularProgressIndicator(color: Colors.white),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _ActionFeedback extends StatefulWidget {

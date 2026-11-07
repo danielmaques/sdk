@@ -186,10 +186,21 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
             "web_view" -> {
                 val url = properties.optString("url")
+                val origin = Uri.parse(url)
+                val protocolVersion = properties.optInt("protocol_version", 1)
                 val fallback = nestedNode(properties.optJSONObject("fallback"))?.let { renderNode(it, screen) }
-                if (url.startsWith("https://")) FrameLayout(context).apply {
-                    minimumHeight = dp(240)
+                if (protocolVersion == 1 && origin.scheme == "https" && !origin.host.isNullOrBlank()) FrameLayout(context).apply {
+                    val height = properties.optJSONObject("size")?.optJSONObject("height")?.optInt("value", 240) ?: 240
+                    minimumHeight = dp(height)
+                    setBackgroundColor(Color.BLACK)
                     fallback?.let { addView(it, FrameLayout.LayoutParams(MATCH, WRAP)); it.visibility = View.VISIBLE }
+                    val status = TextView(context).apply {
+                        text = "Loading interactive experience…"
+                        contentDescription = "Loading interactive experience"
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.WHITE)
+                        visibility = if (fallback == null) View.VISIBLE else View.GONE
+                    }
                     val experience = WebView(context).apply {
                         visibility = View.GONE
                         settings.javaScriptEnabled = true
@@ -197,17 +208,35 @@ public class PushifyPaywallView @JvmOverloads constructor(
                         settings.allowFileAccess = false
                         settings.allowContentAccess = false
                         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                        settings.javaScriptCanOpenWindowsAutomatically = false
+                        settings.setSupportMultipleWindows(false)
                         setBackgroundColor(Color.TRANSPARENT)
                         webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.scheme != "https"
-                            override fun onPageFinished(view: WebView, pageUrl: String) { fallback?.visibility = View.GONE; view.visibility = View.VISIBLE }
+                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = !sameHttpsOrigin(request.url, origin)
+                            override fun onPageFinished(view: WebView, pageUrl: String) { fallback?.visibility = View.GONE; status.visibility = View.GONE; view.visibility = View.VISIBLE }
                             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
-                                if (request.isForMainFrame) { view.visibility = View.GONE; fallback?.visibility = View.VISIBLE }
+                                if (request.isForMainFrame) {
+                                    view.visibility = View.GONE
+                                    fallback?.visibility = View.VISIBLE
+                                    status.text = "Interactive experience unavailable"
+                                    status.contentDescription = "Interactive experience unavailable"
+                                    status.visibility = if (fallback == null) View.VISIBLE else View.GONE
+                                }
+                            }
+                            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: android.webkit.WebResourceResponse) {
+                                if (request.isForMainFrame && response.statusCode >= 400) {
+                                    view.visibility = View.GONE
+                                    fallback?.visibility = View.VISIBLE
+                                    status.text = "Interactive experience unavailable"
+                                    status.contentDescription = "Interactive experience unavailable"
+                                    status.visibility = if (fallback == null) View.VISIBLE else View.GONE
+                                }
                             }
                         }
                         loadUrl(url)
                     }
                     addView(experience, FrameLayout.LayoutParams(MATCH, MATCH))
+                    addView(status, FrameLayout.LayoutParams(MATCH, MATCH))
                 } else fallback ?: View(context)
             }
             "tab_control" -> View(context)
@@ -678,4 +707,13 @@ public class PushifyPaywallView @JvmOverloads constructor(
         const val WRAP = LayoutParams.WRAP_CONTENT
         const val MAX_IMAGE_BYTES = 8 * 1024 * 1024
     }
+}
+
+private fun sameHttpsOrigin(candidate: Uri, origin: Uri): Boolean {
+    if (!candidate.scheme.equals("https", ignoreCase = true) ||
+        !origin.scheme.equals("https", ignoreCase = true) ||
+        !candidate.host.equals(origin.host, ignoreCase = true)) return false
+    val candidatePort = if (candidate.port == -1) 443 else candidate.port
+    val originPort = if (origin.port == -1) 443 else origin.port
+    return candidatePort == originPort
 }

@@ -155,12 +155,12 @@ public struct PushifyPaywallView: View {
                 videoUnavailable(node.properties, dark: colorScheme == .dark)
             }
         case "web_view":
-            if let rawURL = string(node.properties["url"]), let url = URL(string: rawURL), url.scheme == "https" {
+            if let rawURL = string(node.properties["url"]), let url = URL(string: rawURL), isHTTPSOrigin(url), (number(node.properties["protocol_version"]) ?? 1) == 1 {
                 let experienceID = "\(string(node.properties["id"]) ?? "experience"):\(rawURL)"
-                if failedExperienceIDs.contains(experienceID), let fallback = nestedNode(node.properties["fallback"]) {
-                    render(fallback, screen: screen)
-                } else {
-                    PaywallExperienceWebView(url: url, onFailure: { self.failedExperienceIDs.insert(experienceID) })
+                let fallback = nestedNode(node.properties["fallback"]).map { render($0, screen: screen) }
+                if failedExperienceIDs.contains(experienceID), let fallback { fallback }
+                else {
+                    PaywallExperienceWebView(url: url, fallback: fallback, onFailure: { self.failedExperienceIDs.insert(experienceID) })
                         .frame(height: CGFloat(number(object(object(node.properties["size"])?["height"])?["value"]) ?? 240))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
@@ -581,25 +581,71 @@ public struct PushifyPaywallView: View {
     }
 }
 
-@MainActor
-private struct PaywallExperienceWebView: UIViewRepresentable {
+private func isHTTPSOrigin(_ url: URL) -> Bool {
+    url.scheme?.lowercased() == "https" && !(url.host?.isEmpty ?? true)
+}
+
+private func sameHTTPSOrigin(_ target: URL?, as origin: URL) -> Bool {
+    guard let target, isHTTPSOrigin(target), isHTTPSOrigin(origin),
+          target.host?.lowercased() == origin.host?.lowercased() else { return false }
+    return (target.port ?? 443) == (origin.port ?? 443)
+}
+
+private struct PaywallExperienceWebView: View {
     let url: URL
+    let fallback: AnyView?
+    let onFailure: () -> Void
+    @State private var loading = true
+    @State private var failed = false
+
+    var body: some View {
+        ZStack {
+            PaywallExperienceWebViewRepresentable(
+                url: url,
+                onLoad: { loading = false; failed = false },
+                onFailure: { loading = false; failed = true; onFailure() }
+            )
+            if loading || failed {
+                fallback ?? AnyView(
+                    Group {
+                        if failed {
+                            Label("Interactive experience unavailable", systemImage: "web.slash")
+                                .font(.footnote).foregroundStyle(.white.opacity(0.8))
+                        } else {
+                            ProgressView().tint(.white).accessibilityLabel("Loading interactive experience")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                )
+            }
+        }
+    }
+}
+
+@MainActor
+private struct PaywallExperienceWebViewRepresentable: UIViewRepresentable {
+    let url: URL
+    let onLoad: () -> Void
     let onFailure: () -> Void
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.isScrollEnabled = false
+        view.allowsBackForwardNavigationGestures = false
         view.navigationDelegate = context.coordinator
         view.load(URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 20))
         return view
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onFailure: onFailure) }
+    func makeCoordinator() -> Coordinator { Coordinator(origin: url, onLoad: onLoad, onFailure: onFailure) }
 
     func updateUIView(_ view: WKWebView, context: Context) {
         guard view.url != url else { return }
@@ -607,12 +653,23 @@ private struct PaywallExperienceWebView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
+        let origin: URL
+        let onLoad: () -> Void
         let onFailure: () -> Void
-        init(onFailure: @escaping () -> Void) { self.onFailure = onFailure }
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { onFailure() }
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { onFailure() }
+        init(origin: URL, onLoad: @escaping () -> Void, onFailure: @escaping () -> Void) {
+            self.origin = origin
+            self.onLoad = onLoad
+            self.onFailure = onFailure
+        }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { onLoad() }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { if !isCancelled(error) { onFailure() } }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { if !isCancelled(error) { onFailure() } }
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            decisionHandler(navigationAction.request.url?.scheme == "https" ? .allow : .cancel)
+            decisionHandler(navigationAction.targetFrame != nil && sameHTTPSOrigin(navigationAction.request.url, as: origin) ? .allow : .cancel)
+        }
+        private func isCancelled(_ error: Error) -> Bool {
+            let value = error as NSError
+            return value.domain == NSURLErrorDomain && value.code == NSURLErrorCancelled
         }
     }
 }

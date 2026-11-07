@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
+import { WebView } from 'react-native-webview';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -347,7 +348,22 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       }
       case 'web_view': {
         const fallback = nestedNode(node.properties.fallback);
-        return fallback ? renderNode(fallback) : null;
+        const url = text(node.properties.url) ?? '';
+        const size = record(node.properties.size);
+        const heightSize = record(size.height);
+        const height = Math.max(1, Math.min(100000, heightSize.type === 'fixed' ? number(heightSize.value) ?? 240 : 240));
+        if (node.properties.protocol_version !== undefined && node.properties.protocol_version !== 1) {
+          return fallback ? renderNode(fallback) : renderExperienceState('error');
+        }
+        if (!Platform.OS.match(/^(ios|android)$/) || !webViewOrigin(url)) {
+          return fallback ? renderNode(fallback) : renderExperienceState('error');
+        }
+        return React.createElement(PaywallWebExperience, {
+          key: `${node.id ?? 'web-experience'}-${url}`,
+          url,
+          height,
+          fallback: fallback ? renderNode(fallback) : null,
+        });
       }
       case 'tab_control': return null;
       default:
@@ -364,6 +380,72 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     React.createElement(ScrollView, { contentContainerStyle: styles.content }, screen.content ? renderNode(screen.content) : null),
     screen.footer ? renderNode(screen.footer) : null,
     message ? React.createElement(Text, { accessibilityLiveRegion: 'polite', style: styles.message }, message) : null,
+  );
+}
+
+type PaywallWebExperienceProps = {
+  url: string;
+  height: number;
+  fallback: React.ReactNode;
+};
+
+function webViewOrigin(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'https:' && url.hostname ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderExperienceState(state: 'loading' | 'error'): React.ReactElement {
+  return React.createElement(View, {
+    style: styles.webExperienceStatus,
+    accessibilityRole: state === 'loading' ? 'progressbar' : 'image',
+    accessibilityLabel: state === 'loading' ? 'Loading interactive experience' : 'Interactive experience unavailable',
+  }, state === 'loading'
+    ? React.createElement(ActivityIndicator, { color: '#ffffff' })
+    : React.createElement(Text, { style: styles.webExperienceStatusText }, 'Interactive experience unavailable'));
+}
+
+function PaywallWebExperience({ url, height, fallback }: PaywallWebExperienceProps): React.ReactElement {
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const origin = webViewOrigin(url);
+  const mainFrameURL = useRef(url);
+  const allowNavigation = (target: string) => {
+    const targetOrigin = webViewOrigin(target);
+    return origin !== null && targetOrigin === origin;
+  };
+  return React.createElement(View, { style: [styles.webExperience, { height }] },
+    React.createElement(WebView, {
+      source: { uri: url },
+      style: styles.webExperienceFrame,
+      originWhitelist: ['*'],
+      javaScriptEnabled: true,
+      domStorageEnabled: true,
+      incognito: true,
+      sharedCookiesEnabled: false,
+      allowFileAccess: false,
+      mixedContentMode: 'never',
+      setSupportMultipleWindows: false,
+      javaScriptCanOpenWindowsAutomatically: false,
+      mediaPlaybackRequiresUserAction: true,
+      onShouldStartLoadWithRequest: (request) => {
+        const allowed = allowNavigation(request.url);
+        if (allowed && request.isTopFrame) mainFrameURL.current = request.url;
+        return allowed;
+      },
+      onLoadStart: (event) => { mainFrameURL.current = event.nativeEvent.url; setState('loading'); },
+      onLoad: () => setState('ready'),
+      onError: () => setState('error'),
+      onHttpError: (event) => {
+        if (event.nativeEvent.url === mainFrameURL.current && event.nativeEvent.statusCode >= 400) setState('error');
+      },
+      onRenderProcessGone: () => setState('error'),
+    }),
+    state !== 'ready'
+      ? React.createElement(View, { style: styles.webExperienceFallback }, fallback ?? renderExperienceState(state))
+      : null,
   );
 }
 
@@ -415,6 +497,7 @@ function weight(value: unknown): 'normal' | '500' | '600' | 'bold' { return valu
 
 const styles = StyleSheet.create({
   root: { flex: 1, padding: 16 }, closeRow: { minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }, close: { fontSize: 28, paddingHorizontal: 8 },
+  webExperience: { width: '100%', overflow: 'hidden', borderRadius: 12, backgroundColor: '#000000' }, webExperienceFrame: { ...StyleSheet.absoluteFillObject }, webExperienceFallback: { ...StyleSheet.absoluteFillObject, zIndex: 1 }, webExperienceStatus: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000' }, webExperienceStatusText: { color: '#ffffff', textAlign: 'center' },
   content: { flexGrow: 1, justifyContent: 'center', gap: 10 }, stack: { gap: 10, alignItems: 'stretch' }, row: { flexDirection: 'row', alignItems: 'center' }, rowChild: { flex: 1 },
   text: { textAlign: 'center', flexShrink: 1 }, package: { borderWidth: 1, borderColor: '#8b8b8b', borderRadius: 14, padding: 14, marginVertical: 5 }, packageActive: { borderWidth: 2, borderColor: '#315ee8' }, packageTitle: { fontSize: 16, fontWeight: '600' }, price: { marginLeft: 26, marginTop: 4 },
   cta: { backgroundColor: '#315ee8', borderRadius: 14, padding: 16, alignItems: 'center', minHeight: 52 }, disabled: { opacity: 0.55 }, ctaText: { color: '#ffffff', fontWeight: '700' }, quiet: { padding: 12, alignItems: 'center' }, image: { width: '100%', height: 180 }, message: { textAlign: 'center', padding: 8 },
