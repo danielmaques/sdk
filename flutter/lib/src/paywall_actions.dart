@@ -23,6 +23,7 @@ extension _PaywallActions on _PushifyPaywallState {
       final result = await widget.purchases.purchase(productId);
       if (result.isPurchased && result.customerInfo != null) {
         widget.onPurchased?.call(result.customerInfo!);
+        await _presentSurvey('post_purchase', screen);
         await _runPurchaseOutcome('after_purchase', 'close', action, screen);
       }
       if (result.isCancelled) {
@@ -37,6 +38,71 @@ extension _PaywallActions on _PushifyPaywallState {
       );
     } finally {
       if (mounted) _update(() => _busy = false);
+    }
+  }
+
+  Future<void> _presentSurvey(
+    String trigger,
+    Map<String, Object?>? screen,
+  ) async {
+    if (_surveyedTriggers.contains(trigger)) return;
+    final survey = _map(_map(widget.document['surveys'])[trigger]);
+    final options = _maps(survey['options']);
+    if (screen == null || survey.isEmpty || options.isEmpty || !mounted) return;
+    final questionKey = survey['question_lid'];
+    if (questionKey is! String) return;
+    final question = _localizedValue(questionKey, screen) ?? 'Tell us what you think';
+    final answers = <String, String>[];
+    for (final option in options) {
+      final id = option['id'];
+      final key = option['label_lid'];
+      if (id is String && key is String) {
+        answers[id] = _localizedValue(key, screen) ?? key;
+      }
+    }
+    if (answers.isEmpty) return;
+    final skipKey = survey['skip_label_lid'];
+    final skipLabel = skipKey is String
+        ? (_localizedValue(skipKey, screen) ?? 'Skip')
+        : 'Skip';
+    _surveyedTriggers.add(trigger);
+    final selected = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(question),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final answer in answers.entries)
+              ListTile(
+                title: Text(answer.value),
+                onTap: () => Navigator.of(dialogContext).pop(answer.key),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(skipLabel),
+          ),
+        ],
+      ),
+    );
+    if (selected != null) {
+      unawaited(
+        widget.purchases
+            .logEvent(
+              'paywall_survey_response',
+              properties: {
+                'paywall_id': widget.document['id'],
+                'survey_id': survey['id'],
+                'trigger': trigger,
+                'option_id': selected,
+              },
+            )
+            .catchError((_) => 0),
+      );
     }
   }
 

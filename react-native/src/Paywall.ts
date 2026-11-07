@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, Modal, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
@@ -146,8 +146,41 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [carouselPages, setCarouselPages] = useState<Record<string, number>>({});
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
   const [variables, setVariables] = useState<Record<string, string | number | boolean>>(() => Object.fromEntries(Object.entries(props.document.custom_variables ?? {}).map(([key, value]) => [key, value.initial_value])));
+  const [activeSurvey, setActiveSurvey] = useState<{ trigger: 'close' | 'post_purchase'; survey: NonNullable<PushifyPaywallV1['surveys']>['close'] } | null>(null);
+  const surveyedTriggers = useRef(new Set<string>());
+  const surveyResolver = useRef<(() => void) | null>(null);
   const screen = props.document.screens.find((candidate) => candidate.id === screenID) ?? firstScreen;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+
+  function finishSurvey(optionID?: string): void {
+    if (optionID && activeSurvey) {
+      void props.purchases.logEvent('paywall_survey_response', {
+        paywall_id: props.document.id,
+        survey_id: activeSurvey.survey?.id,
+        trigger: activeSurvey.trigger,
+        option_id: optionID,
+      }).catch(() => undefined);
+    }
+    setActiveSurvey(null);
+    surveyResolver.current?.();
+    surveyResolver.current = null;
+  }
+
+  async function presentSurvey(trigger: 'close' | 'post_purchase', sourceScreen = screen): Promise<void> {
+    if (!sourceScreen || surveyedTriggers.current.has(trigger)) return;
+    const survey = props.document.surveys?.[trigger];
+    if (!survey?.options.length) return;
+    surveyedTriggers.current.add(trigger);
+    await new Promise<void>((resolve) => {
+      surveyResolver.current = resolve;
+      setActiveSurvey({ trigger, survey });
+    });
+  }
+
+  async function closeWithSurvey(sourceScreen = screen): Promise<void> {
+    await presentSurvey('close', sourceScreen);
+    props.onClose?.(sourceScreen?.id);
+  }
 
   async function purchase(packageID?: string, action: Record<string, unknown> = {}, sourceScreen = screen) {
     const productID = packageID ?? selected;
@@ -157,6 +190,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     try {
       const result = await props.purchases.purchase(productID);
       if (result.status === 'purchased') props.onPurchased?.(result.customerInfo);
+      if (result.status === 'purchased') await presentSurvey('post_purchase', sourceScreen);
       if (result.status === 'purchased') await runPurchaseOutcome('after_purchase', 'close', action, sourceScreen);
       if (result.status === 'cancelled') await runPurchaseOutcome('on_abandon', 'none', action, sourceScreen);
       if (result.status === 'pending') setMessage('Purchase is pending approval.');
@@ -312,7 +346,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     if (kind === 'navigate_back') {
       const index = props.document.screens.findIndex((candidate) => candidate.id === screen?.id);
       if (index > 0) setScreenID(props.document.screens[index - 1]!.id);
-      else props.onClose?.(screen?.id);
+      else await closeWithSurvey(screen);
       return;
     }
     if (kind === 'workflow') {
@@ -340,7 +374,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     const next = text(node.properties.next_screen_id);
     if (next && props.document.screens.some((candidate) => candidate.id === next)) { setScreenID(next); return; }
     if (kind === 'purchase' || kind === 'purchase_with_outcome' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(text(action.package_id) ?? undefined, action, screen); return; }
-    if (kind === 'close' || kind === 'close_workflow') { props.onClose?.(screen?.id); return; }
+    if (kind === 'close' || kind === 'close_workflow') { await closeWithSurvey(screen); return; }
     setMessage('This button action is not supported by this SDK version.');
   }
 
@@ -488,10 +522,23 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const light = record(record(background.value).light);
   const backgroundColor = text(light.value) ?? '#ffffff';
   return React.createElement(View, { style: [styles.root, { backgroundColor }] },
-    props.onClose ? React.createElement(View, { style: styles.closeRow }, React.createElement(Pressable, { onPress: () => props.onClose?.(screen?.id), accessibilityRole: 'button', accessibilityLabel: 'Close paywall', hitSlop: 12 }, React.createElement(Text, { style: styles.close }, '×'))) : null,
+    props.onClose ? React.createElement(View, { style: styles.closeRow }, React.createElement(Pressable, { onPress: () => { void closeWithSurvey(screen); }, accessibilityRole: 'button', accessibilityLabel: 'Close paywall', hitSlop: 12 }, React.createElement(Text, { style: styles.close }, '×'))) : null,
     React.createElement(ScrollView, { contentContainerStyle: styles.content }, screen.content ? renderNode(screen.content) : null),
     screen.footer ? renderNode(screen.footer) : null,
     message ? React.createElement(Text, { accessibilityLiveRegion: 'polite', style: styles.message }, message) : null,
+    React.createElement(Modal, { visible: activeSurvey !== null, transparent: true, animationType: 'fade', onRequestClose: () => finishSurvey() },
+      activeSurvey ? React.createElement(View, { style: styles.surveyBackdrop },
+        React.createElement(View, { style: styles.surveyCard, accessibilityRole: 'summary' },
+          React.createElement(Text, { style: styles.surveyQuestion }, localizedValue(activeSurvey.survey?.question_lid ?? '') ?? 'Tell us what you think'),
+          ...(activeSurvey.survey?.options ?? []).map((option) => React.createElement(Pressable, {
+            key: option.id,
+            onPress: () => finishSurvey(option.id),
+            accessibilityRole: 'button',
+          }, React.createElement(Text, { style: styles.surveyOption }, localizedValue(option.label_lid) ?? option.label_lid))),
+          React.createElement(Pressable, { onPress: () => finishSurvey(), accessibilityRole: 'button' }, React.createElement(Text, { style: styles.surveySkip }, localizedValue(activeSurvey.survey?.skip_label_lid ?? '') ?? 'Skip')),
+        ),
+      ) : null,
+    ),
   );
 }
 
@@ -608,6 +655,7 @@ function number(value: unknown): number | null { return typeof value === 'number
 function weight(value: unknown): 'normal' | '500' | '600' | 'bold' { return value === 'bold' ? 'bold' : value === 'semibold' ? '600' : value === 'medium' ? '500' : 'normal'; }
 
 const styles = StyleSheet.create({
+  surveyBackdrop: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.55)' }, surveyCard: { borderRadius: 18, backgroundColor: '#ffffff', padding: 20, gap: 12 }, surveyQuestion: { fontSize: 18, fontWeight: '700', marginBottom: 4 }, surveyOption: { paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, overflow: 'hidden', backgroundColor: '#f2f3f5', color: '#171717' }, surveySkip: { textAlign: 'center', padding: 10, color: '#555555' },
   root: { flex: 1, padding: 16 }, closeRow: { minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }, close: { fontSize: 28, paddingHorizontal: 8 },
   webExperience: { width: '100%', overflow: 'hidden', borderRadius: 12, backgroundColor: '#000000' }, webExperienceFrame: { ...StyleSheet.absoluteFillObject }, webExperienceFallback: { ...StyleSheet.absoluteFillObject, zIndex: 1 }, webExperienceStatus: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000' }, webExperienceStatusText: { color: '#ffffff', textAlign: 'center' },
   content: { flexGrow: 1, justifyContent: 'center', gap: 10 }, stack: { gap: 10, alignItems: 'stretch' }, row: { flexDirection: 'row', alignItems: 'center' }, rowChild: { flex: 1 },

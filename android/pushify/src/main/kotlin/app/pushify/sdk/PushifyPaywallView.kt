@@ -1,6 +1,7 @@
 package app.pushify.sdk
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -57,6 +58,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private var dismissing = false
     private var busy = false
     private var message: String? = null
+    private val surveyedTriggers = mutableSetOf<String>()
 
     init {
         isFillViewport = true
@@ -106,9 +108,19 @@ public class PushifyPaywallView @JvmOverloads constructor(
     }
 
     private fun dismissManually() {
+        dismissManually(skipCloseSurvey = false)
+    }
+
+    private fun dismissManually(skipCloseSurvey: Boolean) {
         if (dismissing) return
         if (showingExitOffer) { onDismiss?.invoke(); return }
         val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == activeScreenId }
+        val screen = screens.optJSONObject(index)
+        val closeSurvey = document.optJSONObject("surveys")?.optJSONObject("close")
+        if (!skipCloseSurvey && index >= 0 && screen != null && closeSurvey != null && surveyedTriggers.add("close")) {
+            presentSurvey("close", closeSurvey, screen) { dismissManually(skipCloseSurvey = true) }
+            return
+        }
         val dismiss = document.optJSONObject("exit_offer")?.optJSONObject("dismiss")
         val destinationId = dismiss?.optString("offering_id").orEmpty()
         if (index >= 0 && index == screens.length() - 1 && destinationId.isNotBlank() && destinationId != offering.optString("id")) {
@@ -136,6 +148,33 @@ public class PushifyPaywallView @JvmOverloads constructor(
             return
         }
         onDismiss?.invoke()
+    }
+
+    private fun presentSurvey(trigger: String, survey: JSONObject, screen: JSONObject, onContinue: () -> Unit) {
+        val options = survey.optJSONArray("options") ?: JSONArray()
+        val labels = (0 until options.length()).map { index ->
+            val option = options.optJSONObject(index) ?: JSONObject()
+            localizedValue(option.optString("label_lid"), screen) ?: "Answer ${index + 1}"
+        }.toTypedArray()
+        val activity = context as? Activity
+        if (activity == null || activity.isFinishing || activity.isDestroyed) { onContinue(); return }
+        var completed = false
+        fun finish(optionId: String? = null) {
+            if (completed) return
+            completed = true
+            if (optionId != null) {
+                val event = JSONObject().put("paywall_id", document.optString("id")).put("survey_id", survey.optString("id"))
+                    .put("trigger", trigger).put("option_id", optionId)
+                purchases.logEvent("paywall_survey_response", event) {}
+            }
+            onContinue()
+        }
+        AlertDialog.Builder(activity)
+            .setTitle(localizedValue(survey.optString("question_lid"), screen) ?: "Paywall survey")
+            .setItems(labels) { _, index -> finish(options.optJSONObject(index)?.optString("id")) }
+            .setNegativeButton(localizedValue(survey.optString("skip_label_lid"), screen) ?: "Skip") { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
     }
 
     private fun renderNode(node: JSONObject, screen: JSONObject): View {
@@ -505,7 +544,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
             busy = false
             result.onSuccess { outcome ->
                 when (outcome) {
-                    is PushifyPurchases.PurchaseOutcome.Purchased -> runPurchaseOutcome("after_purchase", "close", action, screen)
+                    is PushifyPurchases.PurchaseOutcome.Purchased -> {
+                        val survey = document.optJSONObject("surveys")?.optJSONObject("post_purchase")
+                        if (survey != null && surveyedTriggers.add("post_purchase") && screen != null) presentSurvey("post_purchase", survey, screen) { runPurchaseOutcome("after_purchase", "close", action, screen) }
+                        else runPurchaseOutcome("after_purchase", "close", action, screen)
+                    }
                     PushifyPurchases.PurchaseOutcome.Cancelled -> runPurchaseOutcome("on_abandon", "none", action, screen)
                     PushifyPurchases.PurchaseOutcome.Pending -> { message = "Purchase is pending approval."; render() }
                 }

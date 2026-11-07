@@ -4,6 +4,13 @@ import WebKit
 import UIKit
 import SafariServices
 
+private struct PresentedPaywallSurvey: Identifiable {
+    let id: String
+    let trigger: String
+    let survey: PushifyPaywallSurvey
+    let localizations: [String: [String: PushifyJSONValue]]
+}
+
 /// A native, accessible renderer for the core Pushify paywall components.
 @MainActor
 public struct PushifyPaywallView: View {
@@ -26,6 +33,9 @@ public struct PushifyPaywallView: View {
     @State private var variables: [String: PushifyJSONValue]
     @State private var exitOffering: PushifyOfferings.Offering?
     @State private var dismissing = false
+    @State private var presentedSurvey: PresentedPaywallSurvey?
+    @State private var surveyedTriggers: Set<String> = []
+    @State private var surveyContinuation: CheckedContinuation<Void, Never>?
 
     public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil) {
         self.document = document
@@ -84,13 +94,31 @@ public struct PushifyPaywallView: View {
             }
         }
         .sheet(item: $inAppBrowserLink) { link in PushifySafariView(url: link.url).ignoresSafeArea() }
+        .sheet(item: $presentedSurvey) { presentation in
+            VStack(alignment: .leading, spacing: 14) {
+                Text(surveyText(presentation.survey.questionLid, localizations: presentation.localizations)).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                ForEach(presentation.survey.options, id: \.id) { option in
+                    Button(surveyText(option.labelLid, localizations: presentation.localizations)) { finishSurvey(optionID: option.id) }
+                        .buttonStyle(.bordered).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Button(surveyText(presentation.survey.skipLabelLid ?? "", localizations: presentation.localizations, fallback: "Skip")) { finishSurvey(optionID: nil) }
+                    .buttonStyle(.plain).frame(maxWidth: .infinity).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .interactiveDismissDisabled()
+        }
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
     }
 
     private func dismissManually() async {
         guard !dismissing else { return }
-        if isExitOffer { onDismiss?(); return }
         let index = document.screens.firstIndex(where: { $0.id == screenID })
+        if !isExitOffer, index != nil,
+           let screen = document.screens.first(where: { $0.id == screenID }) {
+            await presentSurvey("close", screen: screen)
+        }
+        if isExitOffer { onDismiss?(); return }
         guard let index, index == document.screens.count - 1,
               let exit = object(document.exitOffer),
               let dismiss = object(exit["dismiss"]),
@@ -107,6 +135,38 @@ public struct PushifyPaywallView: View {
         } catch {
             onDismiss?()
         }
+    }
+
+    private func presentSurvey(_ trigger: String, screen: PushifyPaywallScreen) async {
+        guard !surveyedTriggers.contains(trigger), let survey = document.surveys?[trigger] else { return }
+        surveyedTriggers.insert(trigger)
+        await withCheckedContinuation { continuation in
+            surveyContinuation = continuation
+            presentedSurvey = PresentedPaywallSurvey(id: "\(trigger)-\(survey.id)", trigger: trigger, survey: survey, localizations: screen.localizations)
+        }
+    }
+
+    private func finishSurvey(optionID: String?) {
+        guard let presentation = presentedSurvey else { return }
+        if let optionID {
+            Task {
+                _ = try? await purchases.logEvent("paywall_survey_response", properties: [
+                    "paywall_id": document.id, "survey_id": presentation.survey.id, "trigger": presentation.trigger, "option_id": optionID,
+                ])
+            }
+        }
+        presentedSurvey = nil
+        let continuation = surveyContinuation
+        surveyContinuation = nil
+        continuation?.resume()
+    }
+
+    private func surveyText(_ key: String, localizations: [String: [String: PushifyJSONValue]], fallback: String? = nil) -> String {
+        guard !key.isEmpty else { return fallback ?? "" }
+        for locale in [Locale.current.identifier.replacingOccurrences(of: "-", with: "_"), document.defaultLocale, "en_US"] {
+            if case .string(let value)? = localizations[locale]?[key] ?? document.locales[locale]?[key] { return value }
+        }
+        return fallback ?? key
     }
 
     private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> AnyView {
@@ -309,7 +369,9 @@ public struct PushifyPaywallView: View {
             defer { busy = false }
             do {
                 switch try await purchases.purchase(packageID: productID) {
-                case .purchased: await runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
+                case .purchased:
+                    if let screen { await presentSurvey("post_purchase", screen: screen) }
+                    await runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
                 case .pending: message = "Purchase is pending approval."
                 case .cancelled: await runPurchaseOutcome("on_abandon", fallback: "none", action: action, screen: screen)
                 }

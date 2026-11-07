@@ -54,6 +54,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, Object?> _variables = {};
   Map<String, Object?>? _exitOffering;
   bool _dismissing = false;
+  final Set<String> _surveyedTriggers = {};
 
   void _update(VoidCallback callback) => setState(callback);
 
@@ -155,6 +156,11 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   Future<void> _dismissManually() async {
     if (_dismissing) return;
     _dismissing = true;
+    final currentScreens = _screens.where((screen) => screen['id'] == _screenId);
+    await _presentSurvey(
+      'close',
+      currentScreens.isEmpty ? null : currentScreens.first,
+    );
     if (widget._isExitOffer) {
       widget.onClose?.call();
       return;
