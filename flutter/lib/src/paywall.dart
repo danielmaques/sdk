@@ -24,6 +24,7 @@ class PushifyPaywall extends StatefulWidget {
     this.onClose,
     this.onPurchased,
     this.onCustomAction,
+    this.onCustomPlacement,
     this._isExitOffer = false,
     super.key,
   });
@@ -35,6 +36,7 @@ class PushifyPaywall extends StatefulWidget {
   final VoidCallback? onClose;
   final ValueChanged<Map<String, Object?>>? onPurchased;
   final ValueChanged<String>? onCustomAction;
+  final void Function(String name, Map<String, Object?> parameters)? onCustomPlacement;
   final bool _isExitOffer;
 
   @override
@@ -113,6 +115,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         onClose: widget.onClose,
         onPurchased: widget.onPurchased,
         onCustomAction: widget.onCustomAction,
+        onCustomPlacement: widget.onCustomPlacement,
         isExitOffer: true,
       );
     }

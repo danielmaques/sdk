@@ -207,6 +207,8 @@ extension _PaywallActions on _PushifyPaywallState {
           }
           return;
         }
+      } else if (step['type'] == 'custom_placement') {
+        _dispatchCustomPlacement(step);
       }
     }
     final type = _map(action[key])['type'] as String? ?? fallback;
@@ -354,6 +356,10 @@ extension _PaywallActions on _PushifyPaywallState {
       callback(name);
       return;
     }
+    if (kind == 'custom_placement') {
+      _dispatchCustomPlacement(action);
+      return;
+    }
     if (kind == 'navigate_back') {
       final index = _screens.indexWhere((item) => item['id'] == _screenId);
       if (index > 0) {
@@ -428,6 +434,36 @@ extension _PaywallActions on _PushifyPaywallState {
       () =>
           _message = 'This button action is not supported by this SDK version.',
     );
+  }
+
+  void _dispatchCustomPlacement(Map<String, Object?> action) {
+    final name = (action['name'] as String? ?? '').trim();
+    if (name.isEmpty) {
+      _update(() => _message = 'This custom placement has no name.');
+      return;
+    }
+    final callback = widget.onCustomPlacement;
+    if (callback == null) {
+      _update(() => _message = 'This app placement is unavailable.');
+      return;
+    }
+    final raw = _map(action['parameters']);
+    final valid = raw.length <= 20 && raw.entries.every((entry) {
+      final key = entry.key;
+      final value = entry.value;
+      return RegExp(r'^[A-Za-z_][A-Za-z0-9_.-]{0,99}$').hasMatch(key) &&
+          (value == null || value is String && value.length <= 500 || value is num && value.isFinite || value is bool);
+    });
+    if (!valid) {
+      _update(() => _message = 'This custom placement has invalid parameters.');
+      return;
+    }
+    _update(() => _message = null);
+    try {
+      callback(name, Map<String, Object?>.unmodifiable(raw));
+    } catch (_) {
+      _update(() => _message = 'The app placement could not be handled.');
+    }
   }
 
   void _performActionHaptics(String? kind) {

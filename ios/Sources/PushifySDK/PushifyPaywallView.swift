@@ -21,6 +21,7 @@ public struct PushifyPaywallView: View {
     private let purchases: PushifyPurchases
     private let onDismiss: (() -> Void)?
     private let onCustomAction: ((String) -> Void)?
+    private let onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)?
     private let isExitOffer: Bool
     @State private var selectedPackageID: String
     @State private var screenID: String
@@ -38,12 +39,13 @@ public struct PushifyPaywallView: View {
     @State private var randomizationSeed = Int.random(in: Int.min...Int.max)
     @State private var surveyContinuation: CheckedContinuation<Void, Never>?
 
-    public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil) {
+    public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)? = nil) {
         self.document = document
         self.offering = offering
         self.purchases = purchases
         self.onDismiss = onDismiss
         self.onCustomAction = onCustomAction
+        self.onCustomPlacement = onCustomPlacement
         self.isExitOffer = false
         let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
         let defaultPackage = Self.packageNodes(entryScreen?.content)
@@ -53,12 +55,13 @@ public struct PushifyPaywallView: View {
         _variables = State(initialValue: document.customVariables?.mapValues(\.initialValue) ?? [:])
     }
 
-    private init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)?, onCustomAction: ((String) -> Void)?, isExitOffer: Bool) {
+    private init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)?, onCustomAction: ((String) -> Void)?, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)?, isExitOffer: Bool) {
         self.document = document
         self.offering = offering
         self.purchases = purchases
         self.onDismiss = onDismiss
         self.onCustomAction = onCustomAction
+        self.onCustomPlacement = onCustomPlacement
         self.isExitOffer = isExitOffer
         let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
         let defaultPackage = Self.packageNodes(entryScreen?.content)
@@ -71,7 +74,7 @@ public struct PushifyPaywallView: View {
     public var body: some View {
         Group {
             if let exitOffering, let exitDocument = exitOffering.paywall {
-                AnyView(PushifyPaywallView(document: exitDocument, offering: exitOffering, purchases: purchases, onDismiss: onDismiss, onCustomAction: onCustomAction, isExitOffer: true))
+                AnyView(PushifyPaywallView(document: exitDocument, offering: exitOffering, purchases: purchases, onDismiss: onDismiss, onCustomAction: onCustomAction, onCustomPlacement: onCustomPlacement, isExitOffer: true))
             } else if let screen = document.screens.first(where: { $0.id == screenID }) ?? document.screens.first {
                 VStack(spacing: 0) {
                     if onDismiss != nil {
@@ -505,6 +508,8 @@ public struct PushifyPaywallView: View {
                 guard valid else { message = "This user attribute is invalid."; return }
                 do { _ = try await purchases.setAttributes(configured.mapValues(foundationValue)) }
                 catch { message = "User attributes could not be updated. Please try again."; return }
+            case "custom_placement":
+                dispatchCustomPlacement(step)
             default: break
             }
         }
@@ -579,6 +584,7 @@ public struct PushifyPaywallView: View {
             guard let onCustomAction else { message = "This app action is unavailable."; return }
             message = nil
             onCustomAction(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        case "custom_placement": dispatchCustomPlacement(action)
         case "navigate_back":
             if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
             else { Task { await dismissManually() } }
@@ -600,6 +606,20 @@ public struct PushifyPaywallView: View {
             else { message = "This button action is not supported by this SDK version." }
         }
     }
+
+    private func dispatchCustomPlacement(_ action: [String: PushifyJSONValue]) {
+        guard let rawName = string(action["name"]), !rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { message = "This custom placement has no name."; return }
+        guard let onCustomPlacement else { message = "This app placement is unavailable."; return }
+        let parameters = object(action["parameters"]) ?? [:]
+        let valid = parameters.count <= 20 && parameters.allSatisfy { key, value in
+            guard key.range(of: "^[A-Za-z_][A-Za-z0-9_.-]{0,99}$", options: .regularExpression) != nil else { return false }
+            switch value { case .string(let text): return text.count <= 500; case .integer, .number, .bool, .null: return true; case .object, .array: return false }
+        }
+        guard valid else { message = "This custom placement has invalid parameters."; return }
+        message = nil
+        onCustomPlacement(rawName.trimmingCharacters(in: .whitespacesAndNewlines), parameters)
+    }
+
 
     private func matchesRoute(_ route: [String: PushifyJSONValue]) -> Bool {
         guard let reference = string(route["variable"]), reference.hasPrefix("state.") else { return false }

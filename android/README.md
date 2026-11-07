@@ -84,6 +84,8 @@ pushifyPurchases.offerings { result ->
     if (current != null && paywall != null) {
         val view = PushifyPaywallView(this, paywall, current, pushifyPurchases, onCustomAction = { name ->
             android.util.Log.d("PushifyPaywall", "Custom action: $name")
+        }, onCustomPlacement = { name, parameters ->
+            android.util.Log.d("PushifyPaywall", "Placement: $name, parameters: $parameters")
         })
         setContentView(view)
     }

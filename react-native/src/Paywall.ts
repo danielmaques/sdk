@@ -13,6 +13,7 @@ export type PushifyPaywallProps = {
   onClose?: () => void;
   onPurchased?: (customer: Awaited<ReturnType<PushifyPurchases['customerInfo']>>) => void;
   onCustomAction?: (name: string) => void | Promise<void>;
+  onCustomPlacement?: (name: string, parameters: Readonly<Record<string, string | number | boolean | null>>) => void | Promise<void>;
 };
 
 type PaywallRendererProps = Omit<PushifyPaywallProps, 'onClose'> & {
@@ -291,6 +292,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         if (!Object.keys(attributes).length) { setMessage('No user attributes are configured.'); return; }
         try { await props.purchases.setAttributes(attributes); }
         catch { setMessage('User attributes could not be updated. Please try again.'); return; }
+      } else if (step.type === 'custom_placement') {
+        dispatchCustomPlacement(step);
       }
     }
     const outcome = record(action[key]);
@@ -400,6 +403,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       return;
     }
     if (kind === 'navigate_to') { await openActionLink(action); return; }
+    if (kind === 'custom_placement') { dispatchCustomPlacement(action); return; }
     if (kind === 'custom_action') {
       const name = text(action.name)?.trim();
       if (!name) { setMessage('This custom action has no name.'); return; }
@@ -444,6 +448,23 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     if (kind === 'purchase' || kind === 'purchase_with_outcome' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(text(action.package_id) ?? undefined, action, screen); return; }
     if (kind === 'close' || kind === 'close_workflow') { await closeWithSurvey(screen); return; }
     setMessage('This button action is not supported by this SDK version.');
+  }
+
+  function dispatchCustomPlacement(action: Record<string, unknown>): void {
+    const name = text(action.name)?.trim();
+    if (!name) { setMessage('This custom placement has no name.'); return; }
+    const callback = props.onCustomPlacement;
+    if (!callback) { setMessage('This app placement is unavailable.'); return; }
+    const entries = Object.entries(record(action.parameters));
+    const valid = entries.length <= 20 && entries.every(([key, value]) => /^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/.test(key) && (value === null || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value) || typeof value === 'string' && value.length <= 500));
+    if (!valid) { setMessage('This custom placement has invalid parameters.'); return; }
+    setMessage(null);
+    try {
+      const result = callback(name, Object.freeze(Object.fromEntries(entries)) as Readonly<Record<string, string | number | boolean | null>>);
+      if (result && typeof (result as Promise<void>).then === 'function') void Promise.resolve(result).catch(() => setMessage('The app placement could not be handled.'));
+    } catch {
+      setMessage('The app placement could not be handled.');
+    }
   }
 
   function actionFeedback(node: PushifyPaywallNode): void {

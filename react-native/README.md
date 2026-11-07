@@ -59,6 +59,7 @@ if (current?.paywall) {
     offering={current}
     purchases={pushifyPurchases}
     onCustomAction={name => console.log('Custom paywall action:', name)}
+    onCustomPlacement={(name, parameters) => console.log('Paywall placement:', name, parameters)}
   />;
 }
 ```

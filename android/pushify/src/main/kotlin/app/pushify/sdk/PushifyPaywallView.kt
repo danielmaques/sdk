@@ -54,6 +54,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val purchases: PushifyPurchases,
     private val onDismiss: (() -> Unit)? = null,
     private val onCustomAction: ((String) -> Unit)? = null,
+    private val onCustomPlacement: ((String, JSONObject) -> Unit)? = null,
 ) : ScrollView(context) {
     private val main = Handler(Looper.getMainLooper())
     private val imageExecutor = Executors.newFixedThreadPool(2)
@@ -786,6 +787,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     openActionLink(step, screen)
                     runStep(at + 1)
                 }
+                "custom_placement" -> { dispatchCustomPlacement(step); runStep(at + 1) }
                 "set_user_attributes" -> {
                     val attributes = step.optJSONObject("attributes")
                     if (attributes == null || attributes.length() == 0) { message = "No user attributes are configured."; render(); return }
@@ -893,6 +895,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 else { message = null; callback(name) }
                 render()
             }
+            "custom_placement" -> dispatchCustomPlacement(action)
             "navigate_back" -> {
                 val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == activeScreenId }
                 if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() }
@@ -938,6 +941,25 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 else { message = "This button action is not supported by this SDK version."; render() }
             }
         }
+    }
+
+    private fun dispatchCustomPlacement(action: JSONObject) {
+        val name = action.optString("name").trim()
+        val parameters = action.optJSONObject("parameters") ?: JSONObject()
+        val valid = name.isNotEmpty() && name.length <= 100 && parameters.length() <= 20 && parameters.keys().asSequence().all { key ->
+            key.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,99}$")) && when (val value = parameters.opt(key)) {
+                null, JSONObject.NULL, is Boolean, is String -> value !is String || value.length <= 500
+                is Number -> value.toDouble().isFinite()
+                else -> false
+            }
+        }
+        if (!valid) message = "This custom placement has invalid parameters."
+        else if (onCustomPlacement == null) message = "This app placement is unavailable."
+        else {
+            message = null
+            onCustomPlacement.invoke(name, JSONObject(parameters.toString()))
+        }
+        render()
     }
 
     private fun performActionFeedback(view: View, action: JSONObject) {

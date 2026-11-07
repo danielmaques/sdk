@@ -58,6 +58,7 @@ if (current.isNotEmpty && paywall is Map<String, Object?>) {
     offering: current,
     purchases: purchases,
     onCustomAction: (name) => debugPrint('Custom paywall action: $name'),
+    onCustomPlacement: (name, parameters) => debugPrint('Paywall placement: $name, $parameters'),
   );
 }
 
