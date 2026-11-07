@@ -13,7 +13,13 @@ export type PushifyPaywallProps = {
   onClose?: () => void;
   onPurchased?: (customer: Awaited<ReturnType<PushifyPurchases['customerInfo']>>) => void;
   onCustomAction?: (name: string) => void | Promise<void>;
+  onCustomCallback?: (name: string, variables: Readonly<Record<string, string | number | boolean | string[] | null>>) => Promise<PushifyCustomCallbackResult> | PushifyCustomCallbackResult;
   onCustomPlacement?: (name: string, parameters: Readonly<Record<string, string | number | boolean | null>>) => void | Promise<void>;
+};
+
+export type PushifyCustomCallbackResult = {
+  status: 'success' | 'failure';
+  data?: Readonly<Record<string, string | number | boolean | null>>;
 };
 
 type PaywallRendererProps = Omit<PushifyPaywallProps, 'onClose'> & {
@@ -211,15 +217,22 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       ...(!Object.prototype.hasOwnProperty.call(custom, 'didAbandonTransaction') ? { didAbandonTransaction: false } : {}),
     };
   });
+  const [callbackData, setCallbackData] = useState<Record<string, Record<string, string | number | boolean | null>>>({});
   const [activeSurvey, setActiveSurvey] = useState<{ trigger: 'close' | 'post_purchase'; survey: NonNullable<PushifyPaywallV1['surveys']>['close'] } | null>(null);
   const surveyedTriggers = useRef(new Set<string>());
   const surveyResolver = useRef<(() => void) | null>(null);
   const tapActionRuns = useRef(new Map<string, TapActionRun>());
+  const mounted = useRef(true);
+  const presentationActive = useRef(true);
   const screen = props.document.screens.find((candidate) => candidate.id === screenID) ?? firstScreen;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
-  useEffect(() => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+    mounted.current = false;
     for (const run of tapActionRuns.current.values()) { if (run.timer) clearTimeout(run.timer); run.cancelled = true; run.resolveDelay?.(false); }
     tapActionRuns.current.clear();
+    };
   }, []);
 
   function finishSurvey(optionID?: string): void {
@@ -249,6 +262,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
 
   async function closeWithSurvey(sourceScreen = screen): Promise<void> {
     await presentSurvey('close', sourceScreen);
+    presentationActive.current = false;
     props.onClose?.(sourceScreen?.id);
   }
 
@@ -359,7 +373,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return interpolate(fallback || (typeof node.properties.text === 'string' ? node.properties.text : ''));
   }
 
-  function interpolate(value: string): string { return value.replace(/\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (token, key: string) => variables[key] === undefined ? token : Array.isArray(variables[key]) ? variables[key].join(', ') : String(variables[key])); }
+  function interpolate(value: string): string { return value.replace(/\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*))\s*\}\}/g, (token, stateKey?: string, callbackName?: string, dataKey?: string) => { if (stateKey) return variables[stateKey] === undefined ? token : Array.isArray(variables[stateKey]) ? variables[stateKey].join(', ') : String(variables[stateKey]); const result = callbackName && dataKey ? callbackData[callbackName]?.[dataKey] : undefined; return result === undefined || result === null ? token : String(result); }); }
 
   function localizedValue(key: string): string | null {
     const locales = [props.locale, Intl.DateTimeFormat().resolvedOptions().locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
@@ -536,6 +550,47 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           if (!props.onCustomAction) { setMessage('This app action is unavailable.'); return; }
           try { await props.onCustomAction(name); }
           catch { setMessage('This app action could not be completed. Please try again.'); return; }
+        } else if (step.type === 'custom_callback') {
+          const name = text(step.name)?.trim();
+          const callback = props.onCustomCallback;
+          if (!name) { setMessage('This callback has no name.'); return; }
+          if (!callback) { setMessage('This app callback is unavailable.'); return; }
+          const argumentsMap: Record<string, string | number | boolean | string[] | null> = {};
+          for (const [key, reference] of Object.entries(record(step.variables))) {
+            const variableName = text(reference)?.replace(/^state\./, '');
+            const value = variableName ? variables[variableName] : undefined;
+            if (typeof value === 'string' || typeof value === 'number' && Number.isFinite(value) || typeof value === 'boolean' || value === null || Array.isArray(value) && value.every((item) => typeof item === 'string')) argumentsMap[key] = value as string | number | boolean | string[] | null;
+          }
+          const parseResult = (value: PushifyCustomCallbackResult): PushifyCustomCallbackResult | null => {
+            if (!value || (value.status !== 'success' && value.status !== 'failure')) return null;
+            const data = value.data ?? {};
+            const entries = Object.entries(data);
+            if (entries.length > 20 || !entries.every(([key, item]) => /^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/.test(key) && (item === null || typeof item === 'boolean' || typeof item === 'string' && item.length <= 500 || typeof item === 'number' && Number.isFinite(item)))) return null;
+            return { status: value.status, data };
+          };
+          const runBranch = async (result: PushifyCustomCallbackResult): Promise<boolean> => {
+            if (!mounted.current || !presentationActive.current || run.cancelled) return false;
+            setCallbackData((current) => ({ ...current, [name]: { ...(result.data ?? {}) } }));
+            const branch = array(step[result.status === 'success' ? 'on_success' : 'on_failure']).map(record);
+            for (const branchStep of branch) {
+              if (!mounted.current || !presentationActive.current || run.cancelled) return false;
+              if (branchStep.type === 'update_variable') {
+                const variableName = text(branchStep.variable)?.replace(/^state\./, '');
+                const declaration = variableName ? props.document.custom_variables?.[variableName] : undefined;
+                if (!variableName || !declaration) { setMessage('This state variable is not declared.'); return false; }
+                setVariables((current) => { const before = current[variableName] ?? declaration.initial_value; const op = text(branchStep.operation) ?? 'set'; let next: string | number | boolean | string[]; if (declaration.value_type === 'number') { const amount = number(branchStep.value) ?? 0; next = op === 'increment' ? Number(before) + amount : op === 'decrement' ? Number(before) - amount : amount; } else if (declaration.value_type === 'boolean') next = op === 'toggle' ? !Boolean(before) : branchStep.value === true; else next = text(branchStep.value) ?? String(before); return { ...current, [variableName]: next }; });
+              } else if (branchStep.type === 'set_user_attributes') {
+                try { await props.purchases.setAttributes(record(branchStep.attributes) as Record<string, string | number | boolean | null>); } catch { setMessage('User attributes could not be updated. Please try again.'); return false; }
+              } else if (branchStep.type === 'navigate_to') await openActionLink(branchStep);
+              else if (branchStep.type === 'custom_action') { const branchName = text(branchStep.name)?.trim(); if (!branchName || !props.onCustomAction) { setMessage('This app action is unavailable.'); return false; } try { await props.onCustomAction(branchName); } catch { setMessage('This app action could not be completed. Please try again.'); return false; } }
+              else if (branchStep.type === 'custom_placement') dispatchCustomPlacement(branchStep);
+              else if (branchStep.type === 'delay') { const seconds = number(branchStep.seconds); if (seconds === null || seconds < 0 || seconds > 60) { setMessage('This callback delay is invalid.'); return false; } await new Promise<void>((resolve) => setTimeout(resolve, seconds * 1000)); }
+            }
+            return true;
+          };
+          const resolve = async (): Promise<boolean> => { try { const result = parseResult(await callback(name, argumentsMap)); if (!result) { if (mounted.current) setMessage('This app callback returned an invalid result.'); return runBranch({ status: 'failure', data: {} }); } return runBranch(result); } catch { if (mounted.current && !run.cancelled) setMessage('This app callback could not be completed. Please try again.'); return runBranch({ status: 'failure', data: {} }); } };
+          if (step.behavior === 'non_blocking') { void resolve(); }
+          else if (!(await resolve())) return;
         } else if (step.type === 'custom_placement') {
           dispatchCustomPlacement(step);
         }

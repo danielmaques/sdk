@@ -58,6 +58,9 @@ if let offering = offerings.offerings.first, let paywall = offering.paywall {
         print("Custom paywall action: \(name)")
     }, onCustomPlacement: { name, parameters in
         print("Paywall placement: \(name), parameters: \(parameters)")
+    }, onCustomCallback: { name, variables in
+        // Complete app-owned work, then return values for {{ callbacks.<name>.data.<key> }}.
+        PushifyCustomCallbackResult(status: "success", data: ["verified": .bool(true)])
     })
 }
 

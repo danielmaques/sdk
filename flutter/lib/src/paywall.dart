@@ -7,6 +7,13 @@ import 'dart:math';
 
 import 'purchases.dart';
 
+class PushifyCustomCallbackResult {
+  const PushifyCustomCallbackResult({required this.status, this.data = const {}});
+
+  final String status;
+  final Map<String, Object?> data;
+}
+
 part 'paywall_rendering.dart';
 part 'paywall_actions.dart';
 part 'paywall_localization.dart';
@@ -32,6 +39,7 @@ class PushifyPaywall extends StatefulWidget {
     this.onClose,
     this.onPurchased,
     this.onCustomAction,
+    this.onCustomCallback,
     this.onCustomPlacement,
     this._isExitOffer = false,
     super.key,
@@ -44,6 +52,10 @@ class PushifyPaywall extends StatefulWidget {
   final VoidCallback? onClose;
   final ValueChanged<Map<String, Object?>>? onPurchased;
   final ValueChanged<String>? onCustomAction;
+  final FutureOr<PushifyCustomCallbackResult> Function(
+    String name,
+    Map<String, Object?> variables,
+  )? onCustomCallback;
   final void Function(String name, Map<String, Object?> parameters)? onCustomPlacement;
   final bool _isExitOffer;
 
@@ -64,9 +76,11 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, String> _selectedTabs = {};
   final Map<String, TextEditingController> _inputControllers = {};
   final Map<String, Object?> _variables = {};
+  final Map<String, Map<String, Object?>> _callbackData = {};
   late final int _randomizationSeed = DateTime.now().microsecondsSinceEpoch;
   Map<String, Object?>? _exitOffering;
   bool _dismissing = false;
+  bool _presentationClosed = false;
   final Set<String> _surveyedTriggers = {};
   final Map<String, _TapActionRun> _tapActionRuns = {};
 
@@ -102,6 +116,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
 
   @override
   void dispose() {
+    _presentationClosed = true;
     _clock?.cancel();
     for (final run in _tapActionRuns.values) {
       run.cancelled = true;
@@ -133,6 +148,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         onClose: widget.onClose,
         onPurchased: widget.onPurchased,
         onCustomAction: widget.onCustomAction,
+        onCustomCallback: widget.onCustomCallback,
         onCustomPlacement: widget.onCustomPlacement,
         isExitOffer: true,
       );
@@ -183,6 +199,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   Future<void> _dismissManually() async {
     if (_dismissing) return;
     _dismissing = true;
+    _presentationClosed = true;
     final currentScreens = _screens.where((screen) => screen['id'] == _screenId);
     await _presentSurvey(
       'close',

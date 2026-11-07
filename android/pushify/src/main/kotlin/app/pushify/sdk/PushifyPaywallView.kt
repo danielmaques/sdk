@@ -46,6 +46,11 @@ import java.net.URL
 import java.util.concurrent.Executors
 import java.util.Random
 
+public data class PushifyCustomCallbackResult(
+    val status: String,
+    val data: Map<String, Any?> = emptyMap(),
+)
+
 /** Native Android renderer for the core Pushify paywall component set. */
 public class PushifyPaywallView @JvmOverloads constructor(
     context: Context,
@@ -55,6 +60,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val onDismiss: (() -> Unit)? = null,
     private val onCustomAction: ((String) -> Unit)? = null,
     private val onCustomPlacement: ((String, JSONObject) -> Unit)? = null,
+    private val onCustomCallback: ((String, JSONObject, (PushifyCustomCallbackResult) -> Unit) -> Unit)? = null,
 ) : ScrollView(context) {
     private data class TapActionRun(var waiting: Boolean = false, var interruptible: Boolean = false, var cancelled: Boolean = false, var runnable: Runnable? = null)
     private val main = Handler(Looper.getMainLooper())
@@ -66,6 +72,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private var strings = JSONObject()
     private var variableDeclarations = JSONObject()
     private val variables = JSONObject()
+    private val callbackData = JSONObject()
     private var screens = JSONArray()
     private var showingExitOffer = false
     private var dismissing = false
@@ -180,6 +187,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             } }
             return
         }
+        dismissing = true
         onDismiss?.invoke()
     }
 
@@ -779,10 +787,10 @@ public class PushifyPaywallView @JvmOverloads constructor(
         fun finish() {
             val type = action.optJSONObject(key)?.optString("type")?.takeIf(String::isNotBlank) ?: fallback
             if (type == "none") return
-            if (type == "close") { onDismiss?.invoke(); return }
+            if (type == "close") { dismissing = true; onDismiss?.invoke(); return }
             val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == screen?.optString("id") }
             when (type) {
-                "navigate_back" -> if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() } else onDismiss?.invoke()
+                "navigate_back" -> if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() } else { dismissing = true; onDismiss?.invoke() }
                 "workflow" -> if (index >= 0 && index + 1 < screens.length()) { activeScreenId = screens.optJSONObject(index + 1)?.optString("id").orEmpty(); render() } else { message = "This flow has no next screen."; render() }
                 else -> { message = "This purchase outcome is not supported by this SDK version."; render() }
             }
@@ -847,13 +855,17 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return interpolate(node.optJSONObject("properties")?.optString("text").orEmpty())
     }
 
-    private fun interpolate(value: String): String = Regex("\\{\\{\\s*state\\.([A-Za-z_][A-Za-z0-9_]*)\\s*}}")
+    private fun interpolate(value: String): String = Regex("\\{\\{\\s*(?:state\\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\\.([A-Za-z_][A-Za-z0-9_]*)\\.data\\.([A-Za-z_][A-Za-z0-9_.-]*))\\s*}}")
         .replace(value) { match ->
-            if (!variables.has(match.groupValues[1])) match.value
-            else when (val state = variables.opt(match.groupValues[1])) {
+            val stateName = match.groupValues[1]
+            if (stateName.isNotEmpty()) when (val state = variables.opt(stateName)) {
                 is JSONArray -> (0 until state.length()).joinToString(", ") { state.optString(it) }
-                null, JSONObject.NULL -> ""
+                null, JSONObject.NULL -> match.value
                 else -> state.toString()
+            } else when (val result = callbackData.optJSONObject(match.groupValues[2])?.opt(match.groupValues[3])) {
+                null, JSONObject.NULL -> match.value
+                is JSONArray -> (0 until result.length()).joinToString(", ") { result.optString(it) }
+                else -> result.toString()
             }
         }
 
@@ -959,11 +971,83 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     else if (callback == null) { message = "This app action is unavailable."; render(); tapActionRuns.remove(id) }
                     else { callback(name); runStep(index + 1) }
                 }
+                "custom_callback" -> {
+                    val name = step.optString("name").trim()
+                    if (name.isBlank()) { message = "This callback has no name."; render(); tapActionRuns.remove(id); return }
+                    val callback = onCustomCallback
+                    if (callback == null) {
+                        message = "This app callback is unavailable."; render(); tapActionRuns.remove(id); return
+                    }
+                    val arguments = JSONObject()
+                    val configured = step.optJSONObject("variables") ?: JSONObject()
+                    configured.keys().forEach { key ->
+                        val reference = configured.optString(key)
+                        if (reference.startsWith("state.") && variables.has(reference.removePrefix("state."))) arguments.put(key, variables.opt(reference.removePrefix("state.")))
+                    }
+                    val blocking = step.optString("behavior", "blocking") != "non_blocking"
+                    try { callback(name, arguments) { result -> main.post {
+                        if (run.cancelled || dismissing || !isAttachedToWindow) return@post
+                        val safeData = result.data.size <= 20 && result.data.all { (key, value) ->
+                            Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,99}$").matches(key) &&
+                                (value == null || value is Boolean || value is Number && value.toDouble().isFinite() || value is String && value.length <= 500)
+                        }
+                        val status = if (result.status == "success" && safeData) "success" else "failure"
+                        if (!safeData || result.status !in setOf("success", "failure")) { message = "This app callback returned an invalid result."; render() }
+                        callbackData.put(name, JSONObject(result.data.filterValues { value -> value == null || value is Boolean || value is Number && value.toDouble().isFinite() || value is String }.filterValues { value -> value !is String || value.length <= 500 }))
+                        val branch = step.optJSONArray(if (status == "success") "on_success" else "on_failure") ?: JSONArray()
+                        runCallbackBranch(branch, screen, { !run.cancelled && !dismissing && isAttachedToWindow }) {
+                            if (blocking && current()) runStep(index + 1) else render()
+                        }
+                    } } } catch (_: Throwable) {
+                        message = "This app callback could not be completed. Please try again."; render()
+                        val failure = step.optJSONArray("on_failure") ?: JSONArray()
+                        runCallbackBranch(failure, screen, { !run.cancelled && !dismissing && isAttachedToWindow }) {
+                            if (blocking && current()) runStep(index + 1)
+                        }
+                        if (!blocking) runStep(index + 1)
+                        else return
+                    }
+                    if (!blocking) runStep(index + 1)
+                }
                 "custom_placement" -> { dispatchCustomPlacement(step); runStep(index + 1) }
                 else -> { message = "This tap action is not supported by this SDK version."; render(); tapActionRuns.remove(id) }
             }
         }
         runStep(0)
+    }
+
+    private fun runCallbackBranch(steps: JSONArray, screen: JSONObject, active: () -> Boolean, done: () -> Unit) {
+        fun next(index: Int) {
+            if (!active()) return
+            if (index >= steps.length()) { done(); return }
+            val step = steps.optJSONObject(index) ?: run { next(index + 1); return }
+            when (step.optString("type")) {
+                "update_variable" -> {
+                    val name = step.optString("variable").removePrefix("state.")
+                    val definition = variableDeclarations.optJSONObject(name)
+                    if (definition == null) { message = "This state variable is not declared."; render(); return }
+                    val before = variables.opt(name) ?: definition.opt("initial_value")
+                    val raw = step.opt("value")
+                    val value: Any? = when (definition.optString("value_type")) {
+                        "number" -> { val amount = (raw as? Number)?.toDouble() ?: 0.0; val current = (before as? Number)?.toDouble() ?: 0.0; when (step.optString("operation")) { "increment" -> current + amount; "decrement" -> current - amount; else -> amount } }
+                        "boolean" -> if (step.optString("operation") == "toggle") !(before as? Boolean ?: false) else raw as? Boolean ?: false
+                        else -> raw as? String ?: before?.toString().orEmpty()
+                    }
+                    variables.put(name, value); render(); next(index + 1)
+                }
+                "set_user_attributes" -> {
+                    val attributes = step.optJSONObject("attributes")
+                    if (attributes == null || attributes.length() == 0) { message = "No user attributes are configured."; render(); return }
+                    purchases.setAttributes(attributes) { result -> main.post { if (!active()) return@post; if (result.isSuccess) next(index + 1) else { message = "User attributes could not be updated. Please try again."; render() } } }
+                }
+                "navigate_to" -> { openActionLink(step, screen); next(index + 1) }
+                "custom_action" -> { val name = step.optString("name").trim(); val callback = onCustomAction; if (name.isBlank() || callback == null) { message = "This app action is unavailable."; render() } else { callback(name); next(index + 1) } }
+                "custom_placement" -> { dispatchCustomPlacement(step); next(index + 1) }
+                "delay" -> { val seconds = step.optDouble("seconds", Double.NaN); if (!seconds.isFinite() || seconds !in 0.0..60.0) { message = "This callback delay is invalid."; render() } else main.postDelayed({ next(index + 1) }, (seconds * 1000).roundToInt().toLong()) }
+                else -> { message = "This callback action is not supported by this SDK version."; render() }
+            }
+        }
+        next(0)
     }
 
     private fun handleButton(properties: JSONObject, screen: JSONObject) {

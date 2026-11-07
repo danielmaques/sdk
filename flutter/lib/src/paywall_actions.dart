@@ -330,6 +330,64 @@ extension _PaywallActions on _PushifyPaywallState {
           final callback = widget.onCustomAction;
           if (callback == null) { _update(() => _message = 'This app action is unavailable.'); return; }
           callback(name);
+        } else if (step['type'] == 'custom_callback') {
+          final callback = widget.onCustomCallback;
+          final name = (step['name'] as String? ?? '').trim();
+          if (name.isEmpty) { _update(() => _message = 'This callback has no name.'); return; }
+          if (callback == null) { _update(() => _message = 'This app callback is unavailable.'); return; }
+          final arguments = <String, Object?>{};
+          _map(step['variables']).forEach((key, reference) {
+            final variableName = (reference as String? ?? '').replaceFirst(RegExp(r'^state\.'), '');
+            if (_variables.containsKey(variableName)) arguments[key] = _variables[variableName];
+          });
+          Future<bool> dispatchCallback() async {
+            try {
+              PushifyCustomCallbackResult result;
+              try { result = await Future<PushifyCustomCallbackResult>.sync(() => callback(name, Map.unmodifiable(arguments))); }
+              catch (_) { if (mounted && !run.cancelled) _update(() => _message = 'This app callback could not be completed. Please try again.'); result = const PushifyCustomCallbackResult(status: 'failure'); }
+              final entries = result.data.entries;
+              final valid = (result.status == 'success' || result.status == 'failure') && entries.length <= 20 && entries.every((entry) => RegExp(r'^[A-Za-z_][A-Za-z0-9_.-]{0,99}$').hasMatch(entry.key) && (entry.value == null || entry.value is bool || entry.value is String && entry.value.length <= 500 || entry.value is num && entry.value.isFinite));
+              if (!valid && mounted && !run.cancelled) _update(() => _message = 'This app callback returned an invalid result.');
+              if (!mounted || _presentationClosed || run.cancelled) return false;
+              final status = valid ? result.status : 'failure';
+              _callbackData[name] = valid ? Map<String, Object?>.from(result.data) : {};
+              _update(() {});
+              final branch = _maps(step[status == 'success' ? 'on_success' : 'on_failure']);
+              for (final branchStep in branch) {
+                if (!mounted || _presentationClosed || run.cancelled) return;
+                if (branchStep['type'] == 'update_variable') {
+                  final variableName = (branchStep['variable'] as String? ?? '').replaceFirst(RegExp(r'^state\.'), '');
+                  final definition = _map(_map(widget.document['custom_variables'])[variableName]);
+                  if (definition.isEmpty) { _update(() => _message = 'This state variable is not declared.'); return false; }
+                  final before = _variables[variableName] ?? definition['initial_value'];
+                  final operation = branchStep['operation'] as String? ?? 'set';
+                  final Object? next = definition['value_type'] == 'number' ? (operation == 'increment' ? (before as num? ?? 0) + (branchStep['value'] as num? ?? 0) : operation == 'decrement' ? (before as num? ?? 0) - (branchStep['value'] as num? ?? 0) : branchStep['value']) : definition['value_type'] == 'boolean' ? (operation == 'toggle' ? !(before as bool? ?? false) : branchStep['value'] == true) : branchStep['value'] ?? before;
+                  _update(() => _variables[variableName] = next);
+                } else if (branchStep['type'] == 'set_user_attributes') {
+                  try { await widget.purchases.setAttributes(Map<String, Object?>.from(_map(branchStep['attributes']))); }
+                  catch (_) { _update(() => _message = 'User attributes could not be updated. Please try again.'); return false; }
+                } else if (branchStep['type'] == 'navigate_to') {
+                  await _openActionLink(branchStep, screen);
+                } else if (branchStep['type'] == 'custom_action') {
+                  final actionName = (branchStep['name'] as String? ?? '').trim();
+                  if (actionName.isEmpty || widget.onCustomAction == null) { _update(() => _message = 'This app action is unavailable.'); return false; }
+                  widget.onCustomAction!(actionName);
+                } else if (branchStep['type'] == 'custom_placement') {
+                  _dispatchCustomPlacement(branchStep);
+                } else if (branchStep['type'] == 'delay') {
+                  final seconds = branchStep['seconds'];
+                  if (seconds is! num || !seconds.isFinite || seconds < 0 || seconds > 60) { _update(() => _message = 'This callback delay is invalid.'); return false; }
+                  await Future<void>.delayed(Duration(microseconds: (seconds * Duration.microsecondsPerSecond).round()));
+                }
+              }
+              return true;
+            } catch (_) {
+              if (mounted && !run.cancelled) _update(() => _message = 'This callback action could not be completed. Please try again.');
+              return false;
+            }
+          }
+          if (step['behavior'] == 'non_blocking') { unawaited(dispatchCallback()); }
+          else if (!await dispatchCallback()) return;
         } else if (step['type'] == 'custom_placement') {
           _dispatchCustomPlacement(step);
         }

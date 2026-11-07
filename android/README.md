@@ -86,6 +86,9 @@ pushifyPurchases.offerings { result ->
             android.util.Log.d("PushifyPaywall", "Custom action: $name")
         }, onCustomPlacement = { name, parameters ->
             android.util.Log.d("PushifyPaywall", "Placement: $name, parameters: $parameters")
+        }, onCustomCallback = { name, variables, complete ->
+            // Run app-owned work, then call complete with success or failure and optional scalar data.
+            complete(PushifyCustomCallbackResult("success", mapOf("verified" to true)))
         })
         setContentView(view)
     }

@@ -86,6 +86,16 @@ public indirect enum PushifyJSONValue: Codable, Sendable {
     }
 }
 
+public struct PushifyCustomCallbackResult: Sendable {
+    public let status: String
+    public let data: [String: PushifyJSONValue]
+
+    public init(status: String, data: [String: PushifyJSONValue] = [:]) {
+        self.status = status
+        self.data = data
+    }
+}
+
 public struct PushifyPaywallNode: Codable, Sendable {
     public let id: String?
     public let kind: String

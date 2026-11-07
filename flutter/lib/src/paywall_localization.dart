@@ -27,11 +27,17 @@ extension _PaywallLocalization on _PushifyPaywallState {
   }
 
   String _interpolate(String value) => value.replaceAllMapped(
-    RegExp(r'\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}'),
+    RegExp(r'\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*))\s*\}\}'),
     (match) {
-      if (!_variables.containsKey(match[1])) return match[0]!;
-      final value = _variables[match[1]];
-      return value is List ? value.join(', ') : '$value';
+      final stateName = match[1];
+      if (stateName != null) {
+        if (!_variables.containsKey(stateName)) return match[0]!;
+        final stateValue = _variables[stateName];
+        return stateValue is List ? stateValue.join(', ') : '$stateValue';
+      }
+      final callbackName = match[2], dataKey = match[3];
+      final result = callbackName == null || dataKey == null ? null : _callbackData[callbackName]?[dataKey];
+      return result == null ? match[0]! : '$result';
     },
   );
 

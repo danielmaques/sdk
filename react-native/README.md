@@ -60,6 +60,7 @@ if (current?.paywall) {
     purchases={pushifyPurchases}
     onCustomAction={name => console.log('Custom paywall action:', name)}
     onCustomPlacement={(name, parameters) => console.log('Paywall placement:', name, parameters)}
+    onCustomCallback={async (name, variables) => ({ status: 'success', data: { verified: true } })}
   />;
 }
 ```

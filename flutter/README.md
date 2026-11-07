@@ -59,6 +59,10 @@ if (current.isNotEmpty && paywall is Map<String, Object?>) {
     purchases: purchases,
     onCustomAction: (name) => debugPrint('Custom paywall action: $name'),
     onCustomPlacement: (name, parameters) => debugPrint('Paywall placement: $name, $parameters'),
+    onCustomCallback: (name, variables) async => const PushifyCustomCallbackResult(
+      status: 'success',
+      data: {'verified': true},
+    ),
   );
 }
 

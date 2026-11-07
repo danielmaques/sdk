@@ -16,6 +16,9 @@ private struct PresentedPaywallSurvey: Identifiable {
     var waiting = false
     var interruptible = false
     var task: Task<Void, Never>?
+    var callbackTasks: [Task<Void, Never>] = []
+    var pendingCallbackCount = 0
+    var terminalFinished = false
 }
 
 /// A native, accessible renderer for the core Pushify paywall components.
@@ -29,6 +32,7 @@ public struct PushifyPaywallView: View {
     private let onDismiss: (() -> Void)?
     private let onCustomAction: ((String) -> Void)?
     private let onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)?
+    private let onCustomCallback: ((String, [String: PushifyJSONValue]) async throws -> PushifyCustomCallbackResult)?
     private let isExitOffer: Bool
     @State private var selectedPackageID: String
     @State private var screenID: String
@@ -39,6 +43,7 @@ public struct PushifyPaywallView: View {
     @State private var carouselPages: [String: Int] = [:]
     @State private var failedExperienceIDs: Set<String> = []
     @State private var variables: [String: PushifyJSONValue]
+    @State private var callbackData: [String: [String: PushifyJSONValue]] = [:]
     @State private var exitOffering: PushifyOfferings.Offering?
     @State private var dismissing = false
     @State private var presentedSurvey: PresentedPaywallSurvey?
@@ -47,13 +52,14 @@ public struct PushifyPaywallView: View {
     @State private var surveyContinuation: CheckedContinuation<Void, Never>?
     @State private var tapActionRuns: [String: TapActionRun] = [:]
 
-    public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)? = nil) {
+    public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)? = nil, onCustomCallback: ((String, [String: PushifyJSONValue]) async throws -> PushifyCustomCallbackResult)? = nil) {
         self.document = document
         self.offering = offering
         self.purchases = purchases
         self.onDismiss = onDismiss
         self.onCustomAction = onCustomAction
         self.onCustomPlacement = onCustomPlacement
+        self.onCustomCallback = onCustomCallback
         self.isExitOffer = false
         let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
         let defaultPackage = Self.packageNodes(entryScreen?.content)
@@ -66,13 +72,14 @@ public struct PushifyPaywallView: View {
         _variables = State(initialValue: initialVariables)
     }
 
-    private init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)?, onCustomAction: ((String) -> Void)?, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)?, isExitOffer: Bool) {
+    private init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)?, onCustomAction: ((String) -> Void)?, onCustomPlacement: ((String, [String: PushifyJSONValue]) -> Void)?, onCustomCallback: ((String, [String: PushifyJSONValue]) async throws -> PushifyCustomCallbackResult)?, isExitOffer: Bool) {
         self.document = document
         self.offering = offering
         self.purchases = purchases
         self.onDismiss = onDismiss
         self.onCustomAction = onCustomAction
         self.onCustomPlacement = onCustomPlacement
+        self.onCustomCallback = onCustomCallback
         self.isExitOffer = isExitOffer
         let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
         let defaultPackage = Self.packageNodes(entryScreen?.content)
@@ -88,7 +95,7 @@ public struct PushifyPaywallView: View {
     public var body: some View {
         Group {
             if let exitOffering, let exitDocument = exitOffering.paywall {
-                AnyView(PushifyPaywallView(document: exitDocument, offering: exitOffering, purchases: purchases, onDismiss: onDismiss, onCustomAction: onCustomAction, onCustomPlacement: onCustomPlacement, isExitOffer: true))
+                AnyView(PushifyPaywallView(document: exitDocument, offering: exitOffering, purchases: purchases, onDismiss: onDismiss, onCustomAction: onCustomAction, onCustomPlacement: onCustomPlacement, onCustomCallback: onCustomCallback, isExitOffer: true))
             } else if let screen = document.screens.first(where: { $0.id == screenID }) ?? document.screens.first {
                 VStack(spacing: 0) {
                     if onDismiss != nil {
@@ -128,7 +135,7 @@ public struct PushifyPaywallView: View {
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
         .onDisappear {
-            for run in tapActionRuns.values { run.task?.cancel() }
+            for run in tapActionRuns.values { run.task?.cancel(); run.callbackTasks.forEach { $0.cancel() } }
             tapActionRuns.removeAll()
         }
     }
@@ -140,12 +147,12 @@ public struct PushifyPaywallView: View {
            let screen = document.screens.first(where: { $0.id == screenID }) {
             await presentSurvey("close", screen: screen)
         }
-        if isExitOffer { onDismiss?(); return }
+        if isExitOffer { dismissing = true; onDismiss?(); return }
         guard let index, index == document.screens.count - 1,
               let exit = object(document.exitOffer),
               let dismiss = object(exit["dismiss"]),
               let destinationID = string(dismiss["offering_id"]),
-              destinationID != offering.id else { onDismiss?(); return }
+              destinationID != offering.id else { dismissing = true; onDismiss?(); return }
         dismissing = true
         defer { dismissing = false }
         do {
@@ -542,12 +549,12 @@ public struct PushifyPaywallView: View {
         let route = object(action[key])
         let type = string(route?["type"]) ?? fallback
         guard type != "none" else { return }
-        guard let screen else { if type == "close" { onDismiss?() }; return }
+        guard let screen else { if type == "close" { dismissing = true; onDismiss?() }; return }
         switch type {
-        case "close": onDismiss?()
+        case "close": dismissing = true; onDismiss?()
         case "navigate_back":
             if let index = document.screens.firstIndex(where: { $0.id == screen.id }), index > 0 { screenID = document.screens[index - 1].id }
-            else { onDismiss?() }
+            else { dismissing = true; onDismiss?() }
         case "workflow":
             if let index = document.screens.firstIndex(where: { $0.id == screen.id }), index + 1 < document.screens.count { screenID = document.screens[index + 1].id }
             else { message = "This flow has no next screen." }
@@ -575,13 +582,19 @@ public struct PushifyPaywallView: View {
     }
 
     private func interpolate(_ text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#) else { return text }
+        guard let regex = try? NSRegularExpression(pattern: #"\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*))\s*\}\}"#) else { return text }
         let ns = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
         var result = text
         for match in matches.reversed() {
-            let name = ns.substring(with: match.range(at: 1))
-            guard let value = variables[name] else { continue }
+            let name = match.range(at: 1).location == NSNotFound ? nil : ns.substring(with: match.range(at: 1))
+            let value: PushifyJSONValue?
+            if let name { value = variables[name] }
+            else if match.range(at: 2).location != NSNotFound, match.range(at: 3).location != NSNotFound {
+                let callback = ns.substring(with: match.range(at: 2)), key = ns.substring(with: match.range(at: 3))
+                value = callbackData[callback]?[key]
+            } else { value = nil }
+            guard let value else { continue }
             let formatted: String
             if case .array(let values) = value { formatted = values.compactMap { string($0) }.joined(separator: ", ") }
             else { formatted = string(value) ?? number(value).map { String($0) } ?? (bool(value) ? "true" : "false") }
@@ -640,6 +653,64 @@ public struct PushifyPaywallView: View {
                     guard let name = string(step["name"]), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { message = "This custom action has no name."; tapActionRuns.removeValue(forKey: id); return }
                     guard let onCustomAction else { message = "This app action is unavailable."; tapActionRuns.removeValue(forKey: id); return }
                     onCustomAction(name.trimmingCharacters(in: .whitespacesAndNewlines))
+                case "custom_callback":
+                    guard let name = string(step["name"] )?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { message = "This callback has no name."; tapActionRuns.removeValue(forKey: id); return }
+                    let callbackArguments = object(step["variables"])?.reduce(into: [String: PushifyJSONValue]()) { result, entry in
+                        guard let reference = string(entry.value), reference.hasPrefix("state."), let value = variables[String(reference.dropFirst(6))] else { return }
+                        result[entry.key] = value
+                    } ?? [:]
+                    @MainActor func finishCallback(_ result: PushifyCustomCallbackResult) async {
+                        let valid = ["success", "failure"].contains(result.status) && result.data.count <= 20 &&
+                              result.data.allSatisfy { key, value in
+                                  let safeKey = key.range(of: #"^[A-Za-z_][A-Za-z0-9_.-]{0,99}$"#, options: .regularExpression) != nil
+                                  let safeValue: Bool
+                                  switch value { case .string(let value): safeValue = value.count <= 500; case .integer(_), .bool(_), .null: safeValue = true; case .number(let value): safeValue = value.isFinite; case .object(_), .array(_): safeValue = false }
+                                  return safeKey && safeValue
+                              }
+                        if !valid { message = "This app callback returned an invalid result." }
+                        guard !dismissing else { return }
+                        let status = valid ? result.status : "failure"
+                        let data = valid ? result.data : [:]
+                        callbackData[name] = data
+                        let branchSteps = array(step[status == "success" ? "on_success" : "on_failure"])
+                        for branch in branchSteps {
+                            guard let branchType = string(branch["type"]), !dismissing else { return }
+                            switch branchType {
+                            case "update_variable": updateVariable(branch)
+                            case "navigate_to": openActionLink(branch, screen: screen)
+                            case "set_user_attributes":
+                                let configured = object(branch["attributes"]) ?? [:]
+                                do { _ = try await purchases.setAttributes(configured.mapValues(foundationValue)) }
+                                catch { message = "User attributes could not be updated. Please try again."; return }
+                            case "custom_action": if let actionName = string(branch["name"]), !actionName.isEmpty { onCustomAction?(actionName) }
+                            case "custom_placement": dispatchCustomPlacement(branch)
+                            case "delay":
+                                guard let seconds = number(branch["seconds"]), seconds.isFinite, (0...60).contains(seconds) else { message = "This callback delay is invalid."; return }
+                                do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) } catch { return }
+                            default: message = "This callback action is not supported by this SDK version."; return
+                            }
+                        }
+                    }
+                    if let onCustomCallback {
+                        if string(step["behavior"]) == "non_blocking" {
+                            run.pendingCallbackCount += 1
+                            let task = Task {
+                                do { await finishCallback(try await onCustomCallback(name, callbackArguments)) }
+                                catch { message = "This app callback could not be completed. Please try again."; await finishCallback(PushifyCustomCallbackResult(status: "failure")) }
+                                run.pendingCallbackCount -= 1
+                                if run.terminalFinished && run.pendingCallbackCount == 0 && tapActionRuns[id] === run { tapActionRuns.removeValue(forKey: id) }
+                            }
+                            run.callbackTasks.append(task)
+                        } else {
+                            do { await finishCallback(try await onCustomCallback(name, callbackArguments)) }
+                            catch { message = "This app callback could not be completed. Please try again."; await finishCallback(PushifyCustomCallbackResult(status: "failure")) }
+                            if dismissing { tapActionRuns.removeValue(forKey: id); return }
+                        }
+                    } else {
+                        message = "This app callback is unavailable."
+                        await finishCallback(PushifyCustomCallbackResult(status: "failure"))
+                        tapActionRuns.removeValue(forKey: id); return
+                    }
                 case "custom_placement":
                     dispatchCustomPlacement(step)
                 default:
@@ -650,7 +721,8 @@ public struct PushifyPaywallView: View {
             }
             guard !Task.isCancelled, tapActionRuns[id] === run else { return }
             handleButton(node, screen: screen)
-            tapActionRuns.removeValue(forKey: id)
+            run.terminalFinished = true
+            if run.pendingCallbackCount == 0 { tapActionRuns.removeValue(forKey: id) }
         }
     }
 

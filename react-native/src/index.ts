@@ -13,5 +13,5 @@ export {
   type PushifyPurchaseResult,
   type PushifyPurchasesOptions,
 } from './purchases';
-export { PushifyPaywallView, type PushifyPaywallProps } from './Paywall';
+export { PushifyPaywallView, type PushifyPaywallProps, type PushifyCustomCallbackResult } from './Paywall';
 export { PushifyCustomerCenterView, type PushifyCustomerCenterProps } from './CustomerCenter';
