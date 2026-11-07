@@ -237,6 +237,32 @@ public struct PushifyPaywallView: View {
             } else {
                 EmptyView()
             }
+        case "slider":
+            let reference = string(node.properties["state_variable"]) ?? ""
+            let name = reference.hasPrefix("state.") ? String(reference.dropFirst(6)) : ""
+            if let declaration = document.customVariables?[name], declaration.type == "state", declaration.valueType == "number" {
+                let minimum = number(node.properties["minimum"]) ?? 0
+                let maximum = number(node.properties["maximum"]) ?? 100
+                let step = number(node.properties["step"]) ?? 1
+                let current = number(variables[name]) ?? number(declaration.initialValue) ?? minimum
+                let value = min(max(current, minimum), maximum)
+                let label = string(node.properties["label_lid"]).flatMap { localizedValue($0, screen: screen) }.map(interpolate) ?? "Choose a value"
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack { Text(label).font(.footnote); Spacer(); Text(value.formatted()).font(.footnote.monospacedDigit()) }
+                    Group {
+                        if step > 0 {
+                            Slider(value: Binding(get: { min(max(number(variables[name]) ?? value, minimum), maximum) }, set: { variables[name] = .number($0) }), in: minimum...maximum, step: step)
+                        } else {
+                            Slider(value: Binding(get: { min(max(number(variables[name]) ?? value, minimum), maximum) }, set: { variables[name] = .number($0) }), in: minimum...maximum)
+                        }
+                    }
+                    .rotationEffect(string(node.properties["orientation"]) == "vertical" ? .degrees(-90) : .zero)
+                    .frame(maxWidth: string(node.properties["orientation"]) == "vertical" ? 220 : .infinity, minHeight: string(node.properties["orientation"]) == "vertical" ? 180 : 28)
+                    .accessibilityLabel(label)
+                }
+            } else {
+                EmptyView()
+            }
         case "package":
             if let packageID = string(node.properties["package_id"]), let package = offering.packages.first(where: { $0.id == packageID }) {
                 Button { selectedPackageID = packageID } label: {

@@ -307,6 +307,41 @@ extension _PaywallRendering on _PushifyPaywallState {
           decoration: InputDecoration(labelText: label, hintText: placeholder, border: const OutlineInputBorder()),
           onChanged: (value) => _update(() => _variables[name] = value),
         );
+      case 'slider':
+        final reference = properties['state_variable'] as String? ?? '';
+        final name = reference.startsWith('state.') ? reference.substring(6) : '';
+        final declaration = _map(_map(widget.document['custom_variables'])[name]);
+        if (name.isEmpty || declaration['type'] != 'state' || declaration['value_type'] != 'number') return const SizedBox.shrink();
+        final minimum = _number(properties['minimum']) ?? 0;
+        final maximum = _number(properties['maximum']) ?? 100;
+        final step = _number(properties['step']) ?? 1;
+        final initial = _number(_variables[name]) ?? _number(declaration['initial_value']) ?? minimum;
+        final value = initial.clamp(minimum, maximum).toDouble();
+        final divisions = step > 0 ? ((maximum - minimum) / step).round().clamp(1, 100000) : null;
+        final labelKey = properties['label_lid'] as String?;
+        final label = labelKey == null ? 'Choose a value' : _localizedValue(labelKey, screen) ?? 'Choose a value';
+        final control = Slider(
+          value: value,
+          min: minimum,
+          max: maximum,
+          divisions: divisions,
+          label: value.toStringAsFixed(step > 0 && step < 1 ? 1 : 0),
+          onChanged: (next) => _update(() => _variables[name] = next),
+        );
+        return Semantics(
+          slider: true,
+          label: label,
+          value: value.toString(),
+          child: properties['orientation'] == 'vertical'
+              ? SizedBox(height: 180, child: RotatedBox(quarterTurns: 3, child: control))
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(children: [Expanded(child: Text(label)), Text(value.toString())]),
+                    control,
+                  ],
+                ),
+        );
       case 'package':
         final packageId = properties['package_id'] as String?;
         final matches = _packages.where((value) => value['id'] == packageId);

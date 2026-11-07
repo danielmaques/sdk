@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, Modal, NativeModules, Pressable, ScrollView, StyleSheet, Text, TextInput, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, Modal, NativeModules, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
@@ -33,6 +33,40 @@ type PushifyNativeVideoProps = {
 };
 
 const NativePushifyVideo = requireNativeComponent<PushifyNativeVideoProps>('PushifyVideoView');
+
+function PaywallSlider({ value, minimum, maximum, step, orientation, label, onChange }: { value: number; minimum: number; maximum: number; step: number; orientation: 'horizontal' | 'vertical'; label: string; onChange: (value: number) => void }) {
+  const vertical = orientation === 'vertical';
+  const [length, setLength] = useState(1);
+  const changeAt = (coordinate: number) => {
+    const ratio = Math.max(0, Math.min(1, coordinate / Math.max(1, length)));
+    const directed = vertical ? 1 - ratio : ratio;
+    const raw = minimum + directed * (maximum - minimum);
+    const next = step > 0 ? Math.min(maximum, minimum + Math.round((raw - minimum) / step) * step) : raw;
+    onChange(Number(next.toPrecision(8)));
+  };
+  const responder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (event) => changeAt(vertical ? length - event.nativeEvent.locationY : event.nativeEvent.locationX),
+    onPanResponderMove: (event) => changeAt(vertical ? length - event.nativeEvent.locationY : event.nativeEvent.locationX),
+  }), [length, maximum, minimum, step, vertical]);
+  const fraction = Math.max(0, Math.min(1, (value - minimum) / (maximum - minimum)));
+  const adjust = (delta: number) => onChange(Math.max(minimum, Math.min(maximum, value + delta * (step > 0 ? step : (maximum - minimum) / 100))));
+  return React.createElement(View, {
+    onLayout: (event: { nativeEvent: { layout: { width: number; height: number } } }) => setLength(vertical ? event.nativeEvent.layout.height : event.nativeEvent.layout.width),
+    ...responder.panHandlers,
+    accessible: true,
+    accessibilityRole: 'adjustable',
+    accessibilityLabel: label,
+    accessibilityValue: { min: minimum, max: maximum, now: value },
+    accessibilityActions: [{ name: 'increment' }, { name: 'decrement' }],
+    onAccessibilityAction: (event: { nativeEvent: { actionName: string } }) => adjust(event.nativeEvent.actionName === 'increment' ? 1 : -1),
+    style: { width: vertical ? 40 : '100%', height: vertical ? 180 : 38, alignItems: 'center', justifyContent: 'center' },
+  }, React.createElement(View, { style: { width: vertical ? 6 : '100%', height: vertical ? '100%' : 6, borderRadius: 999, backgroundColor: '#d4d4d8', overflow: 'visible', justifyContent: 'center' } },
+    React.createElement(View, { style: vertical ? { position: 'absolute', bottom: 0, width: 6, height: `${fraction * 100}%`, borderRadius: 999, backgroundColor: '#315ee8' } : { width: `${fraction * 100}%`, height: 6, borderRadius: 999, backgroundColor: '#315ee8' } }),
+    React.createElement(View, { style: vertical ? { position: 'absolute', bottom: `${fraction * 100}%`, left: -7, width: 20, height: 20, borderRadius: 10, backgroundColor: '#315ee8', marginBottom: -10 } : { position: 'absolute', left: `${fraction * 100}%`, top: -7, width: 20, height: 20, borderRadius: 10, backgroundColor: '#315ee8', marginLeft: -10 } }),
+  ));
+}
 
 type MotionValues = { enabled?: boolean; x?: number; y?: number; rotation?: number; scale?: number; opacity?: number; duration_ms?: number; delay_ms?: number; easing?: string };
 type AccessibilityValues = { label?: string; role?: string; hidden?: boolean };
@@ -459,6 +493,26 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
             accessibilityLabel: label,
             style: styles.input,
           }),
+        );
+      }
+      case 'slider': {
+        const reference = text(node.properties.state_variable) ?? '';
+        const name = reference.startsWith('state.') ? reference.slice(6) : '';
+        const declaration = name ? props.document.custom_variables?.[name] : undefined;
+        if (!declaration || declaration.type !== 'state' || declaration.value_type !== 'number') return null;
+        const minimum = number(node.properties.minimum) ?? 0;
+        const maximum = number(node.properties.maximum) ?? 100;
+        const step = number(node.properties.step) ?? 1;
+        const initial = number(variables[name]) ?? number(declaration.initial_value) ?? minimum;
+        const value = Math.max(minimum, Math.min(maximum, initial));
+        const labelId = text(node.properties.label_lid);
+        const label = labelId ? interpolate(localizedValue(labelId) ?? 'Choose a value') : 'Choose a value';
+        return React.createElement(View, { key: node.id ?? undefined, style: { width: '100%', alignItems: 'stretch', paddingVertical: 4 } },
+          React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 } },
+            React.createElement(Text, null, label),
+            React.createElement(Text, { accessibilityLabel: `${label} value` }, String(value)),
+          ),
+          React.createElement(PaywallSlider, { value, minimum, maximum, step, orientation: node.properties.orientation === 'vertical' ? 'vertical' : 'horizontal', label, onChange: (next) => setVariables((current) => ({ ...current, [name]: next })) }),
         );
       }
       case 'package': {

@@ -29,6 +29,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.MediaController
 import android.widget.ScrollView
+import android.widget.SeekBar
+import kotlin.math.roundToInt
 import android.widget.TextView
 import android.widget.VideoView
 import android.webkit.WebResourceRequest
@@ -271,6 +273,46 @@ public class PushifyPaywallView @JvmOverloads constructor(
                             override fun afterTextChanged(s: Editable?) = Unit
                         })
                     }, lp(MATCH, WRAP))
+                }
+            }
+            "slider" -> {
+                val reference = properties.optString("state_variable")
+                val name = reference.removePrefix("state.")
+                val declaration = variableDeclarations.optJSONObject(name)
+                if (!reference.startsWith("state.") || declaration == null || declaration.optString("type") != "state" || declaration.optString("value_type") != "number") return View(context)
+                val minimum = properties.optDouble("minimum", 0.0)
+                val maximum = properties.optDouble("maximum", 100.0)
+                val step = properties.optDouble("step", 1.0)
+                val initial = variables.opt(name)?.let { it as? Number }?.toDouble() ?: declaration.optDouble("initial_value", minimum)
+                val value = initial.coerceIn(minimum, maximum)
+                val label = localizedValue(properties.optString("label_lid"), screen)?.let(::interpolate).orEmpty().ifBlank { "Choose a value" }
+                val vertical = properties.optString("orientation") == "vertical"
+                val divisions = if (step > 0) ((maximum - minimum) / step).roundToInt().coerceIn(1, 100_000) else 1000
+                LinearLayout(context).apply {
+                    orientation = if (vertical) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                    if (!vertical) addView(LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        addView(TextView(context).apply { text = label; contentDescription = label }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                        addView(TextView(context).apply { text = value.toString(); contentDescription = value.toString() }, lp(WRAP, WRAP))
+                    }, lp(MATCH, WRAP))
+                    val seek = SeekBar(context).apply {
+                        contentDescription = label
+                        max = divisions
+                        progress = if (step > 0) ((value - minimum) / step).roundToInt().coerceIn(0, divisions) else (((value - minimum) / (maximum - minimum)) * divisions).roundToInt().coerceIn(0, divisions)
+                        if (vertical) rotation = -90f
+                        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                                if (fromUser) {
+                                    val next = if (step > 0) minimum + progress * step else minimum + (maximum - minimum) * progress / divisions
+                                    variables.put(name, next.coerceIn(minimum, maximum))
+                                }
+                            }
+                            override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                            override fun onStopTrackingTouch(bar: SeekBar?) { render() }
+                        })
+                    }
+                    if (vertical) addView(FrameLayout(context).apply { addView(seek, FrameLayout.LayoutParams(dp(180), dp(48), Gravity.CENTER)) }, lp(dp(48), dp(180)))
+                    else addView(seek, lp(MATCH, WRAP))
                 }
             }
             "package" -> packageView(node, screen, properties)
