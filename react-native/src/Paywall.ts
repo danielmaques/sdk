@@ -10,6 +10,7 @@ export type PushifyPaywallProps = {
   locale?: string;
   onClose?: () => void;
   onPurchased?: (customer: Awaited<ReturnType<PushifyPurchases['customerInfo']>>) => void;
+  onCustomAction?: (name: string) => void | Promise<void>;
 };
 
 /** Accessible renderer for the core Pushify paywall document components. */
@@ -179,6 +180,15 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       return;
     }
     if (kind === 'navigate_to') { await openActionLink(action); return; }
+    if (kind === 'custom_action') {
+      const name = text(action.name)?.trim();
+      if (!name) { setMessage('This custom action has no name.'); return; }
+      if (!props.onCustomAction) { setMessage('This app action is unavailable.'); return; }
+      setMessage(null);
+      try { await props.onCustomAction(name); }
+      catch { setMessage('This app action could not be completed. Please try again.'); }
+      return;
+    }
     if (kind === 'navigate_back') {
       const index = props.document.screens.findIndex((candidate) => candidate.id === screen?.id);
       if (index > 0) setScreenID(props.document.screens[index - 1]!.id);

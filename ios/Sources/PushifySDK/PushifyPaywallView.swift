@@ -11,6 +11,7 @@ public struct PushifyPaywallView: View {
     private let offering: PushifyOfferings.Offering
     private let purchases: PushifyPurchases
     private let onDismiss: (() -> Void)?
+    private let onCustomAction: ((String) -> Void)?
     @State private var selectedPackageID: String
     @State private var screenID: String
     @State private var busy = false
@@ -21,11 +22,12 @@ public struct PushifyPaywallView: View {
     @State private var failedExperienceIDs: Set<String> = []
     @State private var variables: [String: PushifyJSONValue]
 
-    public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil) {
+    public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil) {
         self.document = document
         self.offering = offering
         self.purchases = purchases
         self.onDismiss = onDismiss
+        self.onCustomAction = onCustomAction
         let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
         let defaultPackage = Self.packageNodes(entryScreen?.content)
             .first(where: { Self.bool($0.properties["is_selected_by_default"]) })
@@ -304,6 +306,11 @@ public struct PushifyPaywallView: View {
         case "restore_purchases", "restore": restore()
         case "set_user_attributes": setUserAttributes(action)
         case "navigate_to": openActionLink(action, screen: screen)
+        case "custom_action":
+            guard let name = string(action["name"]), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { message = "This custom action has no name."; return }
+            guard let onCustomAction else { message = "This app action is unavailable."; return }
+            message = nil
+            onCustomAction(name.trimmingCharacters(in: .whitespacesAndNewlines))
         case "navigate_back":
             if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
             else { onDismiss?() }

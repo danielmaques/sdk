@@ -54,7 +54,12 @@ const offeringSet = await pushifyPurchases.offerings();
 const current = offeringSet.offerings.find(item => item.id === offeringSet.current_offering_id);
 if (current?.paywall) {
   // Return this component from a route or place it in a modal.
-  <PushifyPaywallView document={current.paywall} offering={current} purchases={pushifyPurchases} />;
+  <PushifyPaywallView
+    document={current.paywall}
+    offering={current}
+    purchases={pushifyPurchases}
+    onCustomAction={name => console.log('Custom paywall action:', name)}
+  />;
 }
 ```
 

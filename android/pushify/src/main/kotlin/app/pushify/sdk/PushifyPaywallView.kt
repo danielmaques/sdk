@@ -39,6 +39,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val offering: JSONObject,
     private val purchases: PushifyPurchases,
     private val onDismiss: (() -> Unit)? = null,
+    private val onCustomAction: ((String) -> Unit)? = null,
 ) : ScrollView(context) {
     private val main = Handler(Looper.getMainLooper())
     private val imageExecutor = Executors.newFixedThreadPool(2)
@@ -411,6 +412,14 @@ public class PushifyPaywallView @JvmOverloads constructor(
             "restore_purchases", "restore" -> restore()
             "set_user_attributes" -> setUserAttributes(action)
             "navigate_to" -> openActionLink(action, screen)
+            "custom_action" -> {
+                val name = action.optString("name").trim()
+                val callback = onCustomAction
+                if (name.isEmpty()) message = "This custom action has no name."
+                else if (callback == null) message = "This app action is unavailable."
+                else { message = null; callback(name) }
+                render()
+            }
             "navigate_back" -> {
                 val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == activeScreenId }
                 if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() }

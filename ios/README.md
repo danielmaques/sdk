@@ -54,7 +54,9 @@ let offerings = try await purchases.offerings()
 
 if let offering = offerings.offerings.first, let paywall = offering.paywall {
     // Embed this in a SwiftUI sheet or navigation destination.
-    let paywallView = PushifyPaywallView(document: paywall, offering: offering, purchases: purchases)
+    let paywallView = PushifyPaywallView(document: paywall, offering: offering, purchases: purchases, onCustomAction: { name in
+        print("Custom paywall action: \(name)")
+    })
 }
 
 if let offering = offerings.offerings.first, let paywall = offering.paywall {

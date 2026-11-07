@@ -81,7 +81,12 @@ pushifyPurchases.offerings { result ->
         .map { payload.getJSONArray("offerings").getJSONObject(it) }
         .firstOrNull { it.optString("id") == currentId }
     val paywall = current?.optJSONObject("paywall")
-    if (current != null && paywall != null) setContentView(PushifyPaywallView(this, paywall, current, pushifyPurchases))
+    if (current != null && paywall != null) {
+        val view = PushifyPaywallView(this, paywall, current, pushifyPurchases, onCustomAction = { name ->
+            android.util.Log.d("PushifyPaywall", "Custom action: $name")
+        })
+        setContentView(view)
+    }
 }
 pushifyPurchases.restorePurchases { result -> /* refreshed customer snapshot */ }
 ```

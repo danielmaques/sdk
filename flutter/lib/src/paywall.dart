@@ -14,6 +14,7 @@ class PushifyPaywall extends StatefulWidget {
     this.locale,
     this.onClose,
     this.onPurchased,
+    this.onCustomAction,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class PushifyPaywall extends StatefulWidget {
   final String? locale;
   final VoidCallback? onClose;
   final ValueChanged<Map<String, Object?>>? onPurchased;
+  final ValueChanged<String>? onCustomAction;
 
   @override
   State<PushifyPaywall> createState() => _PushifyPaywallState();
@@ -739,6 +741,15 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     }
     if (kind == 'navigate_to') {
       await _openActionLink(action, screen);
+      return;
+    }
+    if (kind == 'custom_action') {
+      final name = (action['name'] as String? ?? '').trim();
+      if (name.isEmpty) { setState(() => _message = 'This custom action has no name.'); return; }
+      final callback = widget.onCustomAction;
+      if (callback == null) { setState(() => _message = 'This app action is unavailable.'); return; }
+      setState(() => _message = null);
+      callback(name);
       return;
     }
     if (kind == 'navigate_back') {

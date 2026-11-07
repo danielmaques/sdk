@@ -53,7 +53,12 @@ final current = items.firstWhere((item) => item['id'] == currentId, orElse: () =
 final paywall = current['paywall'];
 if (current.isNotEmpty && paywall is Map<String, Object?>) {
   // Return this widget from a route or show it in a modal.
-  PushifyPaywall(document: paywall, offering: current, purchases: purchases);
+  PushifyPaywall(
+    document: paywall,
+    offering: current,
+    purchases: purchases,
+    onCustomAction: (name) => debugPrint('Custom paywall action: $name'),
+  );
 }
 
 final updates = purchases.customerInfoUpdates.listen((customer) {
