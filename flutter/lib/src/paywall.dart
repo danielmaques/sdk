@@ -106,7 +106,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         onClose: widget.onClose,
         onPurchased: widget.onPurchased,
         onCustomAction: widget.onCustomAction,
-        _isExitOffer: true,
+        isExitOffer: true,
       );
     }
     final matches = _screens.where((item) => item['id'] == _screenId);
@@ -176,14 +176,16 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         if (matches.isNotEmpty) {
           final target = matches.first;
           unawaited(
-            widget.purchases.logEvent(
-              'PAYWALL_EXIT_OFFER',
-              properties: {
-                'type': 'dismiss',
-                'offering_id': offeringId,
-                'paywall_id': widget.document['id'],
-              },
-            ).catchError((_) => 0),
+            widget.purchases
+                .logEvent(
+                  'PAYWALL_EXIT_OFFER',
+                  properties: {
+                    'type': 'dismiss',
+                    'offering_id': offeringId,
+                    'paywall_id': widget.document['id'],
+                  },
+                )
+                .catchError((_) => 0),
           );
           if (mounted) setState(() => _exitOffering = target);
           return;
