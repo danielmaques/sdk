@@ -110,9 +110,19 @@ public struct PushifyPaywallView: View {
     }
 
     private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> AnyView {
+        let motion = object(node.properties["pushify_motion"])
         let accessibility = object(node.properties["pushify_accessibility"])
         let role = string(accessibility?["role"]) ?? "automatic"
         var view = AnyView(renderContent(node, screen: screen))
+        if Self.bool(motion?["enabled"]) {
+            view = AnyView(PushifyMotionView(
+                x: CGFloat(number(motion?["x"]) ?? 0), y: CGFloat(number(motion?["y"]) ?? 16),
+                rotation: number(motion?["rotation"]) ?? 0, scale: number(motion?["scale"]) ?? 1,
+                opacity: number(motion?["opacity"]) ?? 0,
+                duration: number(motion?["duration_ms"]) ?? 400, delay: number(motion?["delay_ms"]) ?? 0,
+                easing: string(motion?["easing"]) ?? "ease_out", content: view
+            ))
+        }
         if Self.bool(accessibility?["hidden"]) || role == "presentation" {
             view = AnyView(view.accessibilityHidden(true))
         } else if let label = string(accessibility?["label"]), !label.isEmpty {
@@ -752,6 +762,41 @@ private struct PushifyActionButtonStyle: ButtonStyle {
             .scaleEffect(animation == "shrink" && configuration.isPressed ? 0.96 : animation == "grow" && configuration.isPressed ? 1.04 : 1)
             .opacity(animation == "fade" && configuration.isPressed ? 0.55 : 1)
             .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
+    }
+}
+
+private struct PushifyMotionView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+    let x: CGFloat
+    let y: CGFloat
+    let rotation: Double
+    let scale: Double
+    let opacity: Double
+    let duration: Double
+    let delay: Double
+    let easing: String
+    let content: AnyView
+
+    private var transition: Animation {
+        let animation: Animation
+        switch easing {
+        case "linear": animation = .linear(duration: duration / 1000)
+        case "ease_in": animation = .easeIn(duration: duration / 1000)
+        case "ease_in_out": animation = .easeInOut(duration: duration / 1000)
+        default: animation = .easeOut(duration: duration / 1000)
+        }
+        return animation.delay(delay / 1000)
+    }
+
+    var body: some View {
+        content
+            .offset(x: !appeared && !reduceMotion ? x : 0, y: !appeared && !reduceMotion ? y : 0)
+            .rotationEffect(.degrees(!appeared && !reduceMotion ? rotation : 0))
+            .scaleEffect(!appeared && !reduceMotion ? scale : 1)
+            .opacity(!appeared && !reduceMotion ? opacity : 1)
+            .animation(reduceMotion ? nil : transition, value: appeared)
+            .onAppear { appeared = true }
     }
 }
 

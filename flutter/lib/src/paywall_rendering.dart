@@ -1,6 +1,46 @@
 part of 'paywall.dart';
 
 extension _PaywallRendering on _PushifyPaywallState {
+  Widget _motion(Widget child, Map<String, Object?> motion, Object? id) {
+    if (motion['enabled'] != true || MediaQuery.of(context).disableAnimations) {
+      return child;
+    }
+    final durationMs = (_number(motion['duration_ms']) ?? 400).toInt().clamp(0, 5000);
+    final delayMs = (_number(motion['delay_ms']) ?? 0).toInt().clamp(0, 10000);
+    final totalMs = durationMs + delayMs;
+    if (totalMs == 0 || durationMs == 0) return child;
+    final easing = switch (motion['easing']) {
+      'linear' => Curves.linear,
+      'ease_in' => Curves.easeIn,
+      'ease_in_out' => Curves.easeInOut,
+      _ => Curves.easeOut,
+    };
+    final start = totalMs == 0 ? 0.0 : delayMs / totalMs;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('pushify-motion-$id'),
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: Duration(milliseconds: totalMs),
+      curve: Interval(start, 1, curve: easing),
+      child: child,
+      builder: (context, progress, content) {
+        final remaining = 1 - progress;
+        final scale = _number(motion['scale']) ?? 1;
+        final opacity = _number(motion['opacity']) ?? 0;
+        final rotation = (_number(motion['rotation']) ?? 0) * 0.017453292519943295;
+        return Opacity(
+          opacity: (opacity + (1 - opacity) * progress).clamp(0, 1),
+          child: Transform.translate(
+            offset: Offset((_number(motion['x']) ?? 0) * remaining, (_number(motion['y']) ?? 16) * remaining),
+            child: Transform.rotate(
+              angle: rotation * remaining,
+              child: Transform.scale(scale: scale + (1 - scale) * progress, child: content),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _video(Map<String, Object?> properties) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final sources = _map(properties['source']);
@@ -130,8 +170,11 @@ extension _PaywallRendering on _PushifyPaywallState {
 
   Widget _render(Map<String, Object?> node, Map<String, Object?> screen) {
     final accessibility = _map(_map(node['properties'])['pushify_accessibility']);
+    final properties = _map(node['properties']);
+    final motion = _map(properties['pushify_motion']);
     final role = accessibility['role'] as String? ?? 'automatic';
     Widget child = _renderContent(node, screen);
+    child = _motion(child, motion, node['id']);
     if (accessibility['hidden'] == true || role == 'presentation') {
       child = ExcludeSemantics(child: child);
     } else if (accessibility.isNotEmpty) {

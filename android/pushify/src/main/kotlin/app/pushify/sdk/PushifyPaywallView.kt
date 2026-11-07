@@ -318,6 +318,36 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 }
             }
         }
+        val motion = properties.optJSONObject("pushify_motion")
+        if (motion?.optBoolean("enabled", false) == true) {
+            val density = resources.displayMetrics.density
+            val x = motion.optDouble("x", 0.0).toFloat() * density
+            val y = motion.optDouble("y", 16.0).toFloat() * density
+            val rotation = motion.optDouble("rotation", 0.0).toFloat()
+            val scale = motion.optDouble("scale", 1.0).toFloat()
+            val opacity = motion.optDouble("opacity", 0.0).toFloat()
+            val animationScale = android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+            val reducedMotion = animationScale <= 0f || (android.os.Build.VERSION.SDK_INT >= 26 && !android.animation.ValueAnimator.areAnimatorsEnabled())
+            if (reducedMotion) {
+                rendered.translationX = 0f; rendered.translationY = 0f; rendered.rotation = 0f
+                rendered.scaleX = 1f; rendered.scaleY = 1f; rendered.alpha = 1f
+            } else {
+                rendered.translationX = x; rendered.translationY = y; rendered.rotation = rotation
+                rendered.scaleX = scale; rendered.scaleY = scale; rendered.alpha = opacity
+                val duration = motion.optLong("duration_ms", 400L).coerceIn(0L, 5000L)
+                val delay = motion.optLong("delay_ms", 0L).coerceIn(0L, 10000L)
+                val interpolator = when (motion.optString("easing")) {
+                    "linear" -> android.view.animation.LinearInterpolator()
+                    "ease_in" -> android.view.animation.AccelerateInterpolator()
+                    "ease_in_out" -> android.view.animation.AccelerateDecelerateInterpolator()
+                    else -> android.view.animation.DecelerateInterpolator()
+                }
+                rendered.post {
+                    rendered.animate().translationX(0f).translationY(0f).rotation(0f).scaleX(1f).scaleY(1f).alpha(1f)
+                        .setStartDelay(delay).setDuration(duration).setInterpolator(interpolator).start()
+                }
+            }
+        }
         return rendered
     }
 

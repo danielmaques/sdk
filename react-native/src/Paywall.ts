@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
@@ -33,6 +33,52 @@ type PushifyNativeVideoProps = {
 };
 
 const NativePushifyVideo = requireNativeComponent<PushifyNativeVideoProps>('PushifyVideoView');
+
+type MotionValues = { enabled?: boolean; x?: number; y?: number; rotation?: number; scale?: number; opacity?: number; duration_ms?: number; delay_ms?: number; easing?: string };
+type AccessibilityValues = { label?: string; role?: string; hidden?: boolean };
+
+function MotionNode({ children, motion, accessibility }: { children: React.ReactNode; motion: MotionValues; accessibility: AccessibilityValues }): React.ReactElement {
+  const active = motion.enabled === true;
+  const progress = useRef(new Animated.Value(active ? 0 : 1)).current;
+  const [reducedMotion, setReducedMotion] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => { if (mounted) setReducedMotion(enabled); }).catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
+    return () => { mounted = false; subscription.remove(); };
+  }, []);
+  useEffect(() => {
+    if (!active) { progress.setValue(1); return; }
+    if (reducedMotion) { progress.setValue(1); return; }
+    progress.setValue(0);
+    const easing = motion.easing === 'linear' ? Easing.linear : motion.easing === 'ease_in' ? Easing.in(Easing.ease) : motion.easing === 'ease_in_out' ? Easing.inOut(Easing.ease) : Easing.out(Easing.ease);
+    const animation = Animated.sequence([
+      Animated.delay(Math.max(0, Math.min(10000, motion.delay_ms ?? 0))),
+      Animated.timing(progress, { toValue: 1, duration: Math.max(0, Math.min(5000, motion.duration_ms ?? 400)), easing, useNativeDriver: true }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [active, reducedMotion, progress, motion.x, motion.y, motion.rotation, motion.scale, motion.opacity, motion.duration_ms, motion.delay_ms, motion.easing]);
+  const hidden = accessibility.hidden === true || accessibility.role === 'presentation';
+  const role = accessibility.role === 'heading' ? 'header' : accessibility.role === 'presentation' ? 'none' : accessibility.role === 'dialog' ? 'summary' : accessibility.role;
+  const style = active && !reducedMotion ? {
+    opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [motion.opacity ?? 0, 1] }),
+    transform: [
+      { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [motion.x ?? 0, 0] }) },
+      { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [motion.y ?? 16, 0] }) },
+      { rotate: progress.interpolate({ inputRange: [0, 1], outputRange: [`${motion.rotation ?? 0}deg`, '0deg'] }) },
+      { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [motion.scale ?? 1, 1] }) },
+    ],
+  } : undefined;
+  return React.createElement(Animated.View, {
+    style,
+    accessible: hidden ? false : !!(accessibility.label || role),
+    accessibilityLabel: hidden ? undefined : accessibility.label,
+    accessibilityRole: hidden ? undefined : role as never,
+    accessibilityElementsHidden: hidden,
+    importantForAccessibility: hidden ? 'no-hide-descendants' : 'auto',
+  }, children);
+}
 
 /** Accessible renderer for the core Pushify paywall document components. */
 export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactElement {
@@ -308,19 +354,10 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   function renderNode(node: PushifyPaywallNode): React.ReactNode {
     const content = renderNodeContent(node);
     const accessibility = record(node.properties.pushify_accessibility);
-    const role = text(accessibility.role) ?? 'automatic';
-    const hidden = accessibility.hidden === true || role === 'presentation';
-    if (!React.isValidElement(content) || (!hidden && !text(accessibility.label) && role === 'automatic')) return content;
-    const nativeRole = role === 'heading' ? 'header' : role === 'presentation' ? 'none' : role;
-    return React.cloneElement(content as React.ReactElement<Record<string, unknown>>, {
-      accessible: !hidden,
-      accessibilityElementsHidden: hidden,
-      importantForAccessibility: hidden ? 'no-hide-descendants' : 'auto',
-      ...(hidden ? {} : {
-        ...(text(accessibility.label) ? { accessibilityLabel: text(accessibility.label) } : {}),
-        ...(role !== 'automatic' ? { accessibilityRole: nativeRole } : {}),
-      }),
-    });
+    const motion = record(node.properties.pushify_motion) as MotionValues;
+    if (!React.isValidElement(content)) return content;
+    if (!Object.keys(accessibility).length && motion.enabled !== true) return content;
+    return React.createElement(MotionNode, { key: `motion-${node.id ?? node.kind}`, motion, accessibility: accessibility as AccessibilityValues, children: content });
   }
 
   function renderNodeContent(node: PushifyPaywallNode): React.ReactNode {
