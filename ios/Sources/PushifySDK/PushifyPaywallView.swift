@@ -308,6 +308,11 @@ public struct PushifyPaywallView: View {
             if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
             else { onDismiss?() }
         case "workflow":
+            if case .array(let routes)? = action["routes"], let route = routes.compactMap({ object($0) }).first(where: { matchesRoute($0) }),
+               let target = string(route["screen_id"]), document.screens.contains(where: { $0.id == target }) {
+                screenID = target
+                return
+            }
             if let index = document.screens.firstIndex(where: { $0.id == screen.id }), index + 1 < document.screens.count {
                 screenID = document.screens[index + 1].id
             } else {
@@ -318,6 +323,42 @@ public struct PushifyPaywallView: View {
         default:
             if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }
             else { message = "This button action is not supported by this SDK version." }
+        }
+    }
+
+    private func matchesRoute(_ route: [String: PushifyJSONValue]) -> Bool {
+        guard let reference = string(route["variable"]), reference.hasPrefix("state.") else { return false }
+        let key = String(reference.dropFirst(6))
+        guard let current = variables[key], let expected = route["value"] else { return false }
+        switch string(route["operator"]) {
+        case "equals": return sameValue(current, expected)
+        case "not_equals": return !sameValue(current, expected)
+        case "greater_than":
+            guard let left = number(current), let right = number(expected) else { return false }
+            return left > right
+        case "less_than":
+            guard let left = number(current), let right = number(expected) else { return false }
+            return left < right
+        default: return false
+        }
+    }
+
+    private func number(_ value: PushifyJSONValue) -> Double? {
+        switch value {
+        case .number(let number): return number
+        case .integer(let number): return Double(number)
+        default: return nil
+        }
+    }
+
+    private func sameValue(_ left: PushifyJSONValue, _ right: PushifyJSONValue) -> Bool {
+        switch (left, right) {
+        case (.string(let a), .string(let b)): return a == b
+        case (.integer(let a), .integer(let b)): return a == b
+        case (.number(let a), .number(let b)): return a == b
+        case (.integer(let a), .number(let b)), (.number(let b), .integer(let a)): return Double(a) == b
+        case (.bool(let a), .bool(let b)): return a == b
+        default: return false
         }
     }
 

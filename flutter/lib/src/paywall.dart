@@ -751,6 +751,26 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       return;
     }
     if (kind == 'workflow') {
+      final routes = _maps(action['routes']);
+      Map<String, Object?>? matched;
+      for (final route in routes) {
+        final name = (route['variable'] as String? ?? '').replaceFirst(RegExp(r'^state\.'), '');
+        final current = _variables[name];
+        final expected = route['value'];
+        final isMatch = switch (route['operator']) {
+          'equals' => current == expected,
+          'not_equals' => current != expected,
+          'greater_than' => current is num && expected is num && current > expected,
+          'less_than' => current is num && expected is num && current < expected,
+          _ => false,
+        };
+        if (isMatch) { matched = route; break; }
+      }
+      final target = matched?['screen_id'];
+      if (target is String && _screens.any((item) => item['id'] == target)) {
+        setState(() => _screenId = target);
+        return;
+      }
       final index = _screens.indexWhere((item) => item['id'] == screen['id']);
       if (index >= 0 && index + 1 < _screens.length) {
         setState(() => _screenId = _screens[index + 1]['id'] as String);

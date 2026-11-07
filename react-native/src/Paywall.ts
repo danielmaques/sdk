@@ -186,6 +186,21 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       return;
     }
     if (kind === 'workflow') {
+      const routes = Array.isArray(action.routes) ? action.routes as Record<string, unknown>[] : [];
+      const destination = routes.find((route) => {
+        const name = text(route.variable)?.replace(/^state\./, '');
+        const current = name ? variables[name] : undefined;
+        const value = route.value;
+        switch (route.operator) {
+          case 'equals': return current === value;
+          case 'not_equals': return current !== value;
+          case 'greater_than': return typeof current === 'number' && typeof value === 'number' && current > value;
+          case 'less_than': return typeof current === 'number' && typeof value === 'number' && current < value;
+          default: return false;
+        }
+      });
+      const target = text(destination?.screen_id);
+      if (target && props.document.screens.some((candidate) => candidate.id === target)) { setScreenID(target); return; }
       const index = props.document.screens.findIndex((candidate) => candidate.id === screen?.id);
       const nextScreen = index >= 0 ? props.document.screens[index + 1] : undefined;
       if (nextScreen) setScreenID(nextScreen.id);

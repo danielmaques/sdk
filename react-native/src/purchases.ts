@@ -38,7 +38,7 @@ export type PushifyOfferings = {
 
 export type PushifyPaywallNode = { id: string | null; kind: string; properties: Record<string, unknown>; children: PushifyPaywallNode[] };
 export type PushifyPaywallV1 = {
-  schema: 'pushify.paywall/v1'; id: string; revision: number; default_locale: string;
+  schema: 'pushify.paywall/v1' | 'pushify.paywall/v2'; id: string; revision: number; default_locale: string;
   locales: Record<string, Record<string, unknown>>;
   initial_screen_id?: string;
   screens: Array<{ id: string; name: string; background: unknown; content: PushifyPaywallNode | null; footer: PushifyPaywallNode | null; localizations: Record<string, Record<string, unknown>> }>;

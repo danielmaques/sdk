@@ -417,6 +417,27 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 else onDismiss?.invoke()
             }
             "workflow" -> {
+                val routes = action.optJSONArray("routes")
+                var target = ""
+                for (routeIndex in 0 until (routes?.length() ?: 0)) {
+                    val route = routes?.optJSONObject(routeIndex) ?: continue
+                    val key = route.optString("variable").removePrefix("state.")
+                    val current = variables.opt(key)
+                    val expected = route.opt("value")
+                    val matched = when (route.optString("operator")) {
+                        "equals" -> current == expected
+                        "not_equals" -> current != expected
+                        "greater_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left > it } } == true
+                        "less_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left < it } } == true
+                        else -> false
+                    }
+                    if (matched) { target = route.optString("screen_id"); break }
+                }
+                if (target.isNotBlank() && (0 until screens.length()).any { screens.optJSONObject(it)?.optString("id") == target }) {
+                    activeScreenId = target
+                    render()
+                    return
+                }
                 val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == screen.optString("id") }
                 if (index >= 0 && index + 1 < screens.length()) {
                     activeScreenId = screens.optJSONObject(index + 1)?.optString("id").orEmpty()
