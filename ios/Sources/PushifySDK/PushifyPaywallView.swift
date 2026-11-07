@@ -170,6 +170,7 @@ public struct PushifyPaywallView: View {
     }
 
     private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> AnyView {
+        if !visibilityMatches(object(node.properties["pushify_visibility"])) { return AnyView(EmptyView()) }
         let motion = object(node.properties["pushify_motion"])
         let accessibility = object(node.properties["pushify_accessibility"])
         let role = string(accessibility?["role"]) ?? "automatic"
@@ -509,6 +510,29 @@ public struct PushifyPaywallView: View {
             return left < right
         default: return false
         }
+    }
+
+    private func visibilityMatches(_ condition: [String: PushifyJSONValue]?) -> Bool {
+        guard let condition else { return true }
+        guard let mode = string(condition["mode"]), ["all", "any"].contains(mode), case .array(let rules)? = condition["rules"], (1...8).contains(rules.count) else { return true }
+        var results: [Bool] = []
+        for value in rules {
+            guard case .object(let rule) = value, let reference = string(rule["variable"]), reference.hasPrefix("state."),
+                  let expected = rule["value"] else { return true }
+            let name = String(reference.dropFirst(6))
+            guard let declaration = document.customVariables?[name], declaration.type == "state" else { return true }
+            let current = variables[name] ?? declaration.initialValue
+            switch string(rule["operator"]) {
+            case "equals": results.append(sameValue(current, expected))
+            case "not_equals": results.append(!sameValue(current, expected))
+            case "greater_than": guard let left = number(current), let right = number(expected) else { return true }; results.append(left > right)
+            case "less_than": guard let left = number(current), let right = number(expected) else { return true }; results.append(left < right)
+            case "greater_than_or_equal": guard let left = number(current), let right = number(expected) else { return true }; results.append(left >= right)
+            case "less_than_or_equal": guard let left = number(current), let right = number(expected) else { return true }; results.append(left <= right)
+            default: return true
+            }
+        }
+        return mode == "all" ? results.allSatisfy { $0 } : results.contains(true)
     }
 
     private func number(_ value: PushifyJSONValue) -> Double? {

@@ -168,7 +168,50 @@ extension _PaywallRendering on _PushifyPaywallState {
     ),
   );
 
+  bool _visibilityMatches(Object? raw) {
+    if (raw == null) return true;
+    final condition = _map(raw);
+    final mode = condition['mode'];
+    final rules = condition['rules'];
+    if ((mode != 'all' && mode != 'any') || rules is! List || rules.isEmpty || rules.length > 8) return true;
+    final declarations = _map(widget.document['custom_variables']);
+    final results = <bool>[];
+    for (final rawRule in rules) {
+      final rule = _map(rawRule);
+      final reference = rule['variable'];
+      if (reference is! String || !reference.startsWith('state.')) return true;
+      final declaration = _map(declarations[reference.substring(6)]);
+      if (declaration.isEmpty) return true;
+      final current = _variables[reference.substring(6)] ?? declaration['initial_value'];
+      final expected = rule['value'];
+      final type = declaration['value_type'];
+      if ((type == 'text' && expected is! String) ||
+          (type == 'number' && expected is! num) ||
+          (type == 'boolean' && expected is! bool)) return true;
+      final operator = rule['operator'];
+      if (operator == 'equals') {
+        results.add(current is num && expected is num ? current == expected : current == expected);
+      } else if (operator == 'not_equals') {
+        results.add(current is num && expected is num ? current != expected : current != expected);
+      } else if (current is num && expected is num && operator == 'greater_than') {
+        results.add(current > expected);
+      } else if (current is num && expected is num && operator == 'less_than') {
+        results.add(current < expected);
+      } else if (current is num && expected is num && operator == 'greater_than_or_equal') {
+        results.add(current >= expected);
+      } else if (current is num && expected is num && operator == 'less_than_or_equal') {
+        results.add(current <= expected);
+      } else {
+        return true;
+      }
+    }
+    return mode == 'all' ? results.every((value) => value) : results.any((value) => value);
+  }
+
   Widget _render(Map<String, Object?> node, Map<String, Object?> screen) {
+    if (!_visibilityMatches(_map(node['properties'])['pushify_visibility'])) {
+      return const SizedBox.shrink();
+    }
     final accessibility = _map(_map(node['properties'])['pushify_accessibility']);
     final properties = _map(node['properties']);
     final motion = _map(properties['pushify_motion']);

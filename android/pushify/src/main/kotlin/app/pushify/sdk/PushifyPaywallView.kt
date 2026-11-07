@@ -177,9 +177,36 @@ public class PushifyPaywallView @JvmOverloads constructor(
             .show()
     }
 
+    private fun visibilityMatches(condition: JSONObject?): Boolean {
+        if (condition == null) return true
+        val mode = condition.optString("mode")
+        val rules = condition.optJSONArray("rules") ?: return true
+        if (mode !in setOf("all", "any") || rules.length() !in 1..8) return true
+        val results = (0 until rules.length()).map { index ->
+            val rule = rules.optJSONObject(index) ?: return true
+            val reference = rule.optString("variable")
+            if (!reference.startsWith("state.")) return true
+            val name = reference.removePrefix("state.")
+            val declaration = variableDeclarations.optJSONObject(name) ?: return true
+            val current = variables.opt(name) ?: declaration.opt("initial_value")
+            val expected = rule.opt("value") ?: return true
+            when (rule.optString("operator")) {
+                "equals" -> if (current is Number && expected is Number) current.toDouble() == expected.toDouble() else current == expected
+                "not_equals" -> if (current is Number && expected is Number) current.toDouble() != expected.toDouble() else current != expected
+                "greater_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left > it } } ?: return true
+                "less_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left < it } } ?: return true
+                "greater_than_or_equal" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left >= it } } ?: return true
+                "less_than_or_equal" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left <= it } } ?: return true
+                else -> return true
+            }
+        }
+        return if (mode == "all") results.all { it } else results.any { it }
+    }
+
     private fun renderNode(node: JSONObject, screen: JSONObject): View {
         val kind = node.optString("kind")
         val properties = node.optJSONObject("properties") ?: JSONObject()
+        if (!visibilityMatches(properties.optJSONObject("pushify_visibility"))) return View(context).apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         val children = node.optJSONArray("children") ?: JSONArray()
         val rendered = when (kind) {
             "stack", "hstack" -> LinearLayout(context).apply {

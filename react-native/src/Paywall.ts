@@ -394,7 +394,36 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     if (duration) Vibration.vibrate(duration);
   }
 
+  function visibilityMatches(raw: unknown): boolean {
+    if (raw == null) return true;
+    const condition = record(raw);
+    const rules = array(condition.rules).map(record);
+    if ((condition.mode !== 'all' && condition.mode !== 'any') || rules.length < 1 || rules.length > 8) return true;
+    const results: boolean[] = [];
+    for (const rule of rules) {
+      const reference = text(rule.variable);
+      if (!reference?.startsWith('state.')) return true;
+      const key = reference.slice(6);
+      const declaration = props.document.custom_variables?.[key];
+      if (!declaration || declaration.type !== 'state') return true;
+      const current = variables[key] ?? declaration.initial_value;
+      const expected = rule.value;
+      if ((declaration.value_type === 'text' && typeof expected !== 'string') || (declaration.value_type === 'number' && typeof expected !== 'number') || (declaration.value_type === 'boolean' && typeof expected !== 'boolean')) return true;
+      switch (rule.operator) {
+        case 'equals': results.push(current === expected); break;
+        case 'not_equals': results.push(current !== expected); break;
+        case 'greater_than': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current > expected); break;
+        case 'less_than': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current < expected); break;
+        case 'greater_than_or_equal': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current >= expected); break;
+        case 'less_than_or_equal': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current <= expected); break;
+        default: return true;
+      }
+    }
+    return condition.mode === 'all' ? results.every(Boolean) : results.some(Boolean);
+  }
+
   function renderNode(node: PushifyPaywallNode): React.ReactNode {
+    if (!visibilityMatches(node.properties.pushify_visibility)) return null;
     const content = renderNodeContent(node);
     const accessibility = record(node.properties.pushify_accessibility);
     const motion = record(node.properties.pushify_motion) as MotionValues;
