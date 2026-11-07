@@ -110,7 +110,24 @@ public struct PushifyPaywallView: View {
     }
 
     private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> AnyView {
-        AnyView(renderContent(node, screen: screen))
+        let accessibility = object(node.properties["pushify_accessibility"])
+        let role = string(accessibility?["role"]) ?? "automatic"
+        var view = AnyView(renderContent(node, screen: screen))
+        if Self.bool(accessibility?["hidden"]) || role == "presentation" {
+            view = AnyView(view.accessibilityHidden(true))
+        } else if let label = string(accessibility?["label"]), !label.isEmpty {
+            view = AnyView(view.accessibilityElement(children: .ignore).accessibilityLabel(label))
+        }
+        switch role {
+        case "button": view = AnyView(view.accessibilityAddTraits(.isButton))
+        case "link": view = AnyView(view.accessibilityAddTraits(.isLink))
+        case "image": view = AnyView(view.accessibilityAddTraits(.isImage))
+        case "heading": view = AnyView(view.accessibilityAddTraits(.isHeader))
+        case "alert": view = AnyView(view.accessibilityAddTraits(.updatesFrequently))
+        case "dialog": view = AnyView(view.accessibilityElement(children: .contain))
+        default: break
+        }
+        return view
     }
 
     @ViewBuilder private func renderContent(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> some View {

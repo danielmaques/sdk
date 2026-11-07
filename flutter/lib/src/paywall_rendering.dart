@@ -129,6 +129,28 @@ extension _PaywallRendering on _PushifyPaywallState {
   );
 
   Widget _render(Map<String, Object?> node, Map<String, Object?> screen) {
+    final accessibility = _map(_map(node['properties'])['pushify_accessibility']);
+    final role = accessibility['role'] as String? ?? 'automatic';
+    Widget child = _renderContent(node, screen);
+    if (accessibility['hidden'] == true || role == 'presentation') {
+      child = ExcludeSemantics(child: child);
+    } else if (accessibility.isNotEmpty) {
+      child = Semantics(
+        label: accessibility['label'] as String?,
+        button: role == 'button',
+        link: role == 'link',
+        image: role == 'image',
+        header: role == 'heading',
+        liveRegion: role == 'alert',
+        container: role == 'dialog',
+        explicitChildNodes: role == 'dialog',
+        child: child,
+      );
+    }
+    return child;
+  }
+
+  Widget _renderContent(Map<String, Object?> node, Map<String, Object?> screen) {
     final kind = node['kind'] as String? ?? '';
     final properties = _map(node['properties']);
     final children = _maps(node['children']);

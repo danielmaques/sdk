@@ -142,7 +142,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val kind = node.optString("kind")
         val properties = node.optJSONObject("properties") ?: JSONObject()
         val children = node.optJSONArray("children") ?: JSONArray()
-        return when (kind) {
+        val rendered = when (kind) {
             "stack", "hstack" -> LinearLayout(context).apply {
                 orientation = if (kind == "hstack") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
                 gravity = if (kind == "hstack") Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
@@ -292,6 +292,33 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 for (i in 0 until children.length()) children.optJSONObject(i)?.let { addView(renderNode(it, screen), lp(MATCH, WRAP)) }
             } else TextView(context).apply { text = properties.optString("text") }
         }
+        val accessibility = properties.optJSONObject("pushify_accessibility")
+        val role = accessibility?.optString("role").orEmpty()
+        if (accessibility?.optBoolean("hidden", false) == true || role == "presentation") {
+            rendered.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        } else {
+            accessibility?.optString("label")?.takeIf { it.isNotBlank() }?.let { rendered.contentDescription = it }
+            val className = when (role) {
+                "button" -> "android.widget.Button"
+                "link" -> "android.widget.TextView"
+                "image" -> "android.widget.ImageView"
+                "heading" -> "android.widget.TextView"
+                "alert" -> "android.widget.TextView"
+                "dialog" -> "android.app.Dialog"
+                else -> null
+            }
+            if (className != null || role == "heading" || role == "alert") {
+                rendered.accessibilityDelegate = object : android.view.View.AccessibilityDelegate() {
+                    override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                        super.onInitializeAccessibilityNodeInfo(host, info)
+                        if (className != null) info.className = className
+                        if (role == "heading" && android.os.Build.VERSION.SDK_INT >= 28) info.isHeading = true
+                        if (role == "alert" && android.os.Build.VERSION.SDK_INT >= 19) info.liveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+                    }
+                }
+            }
+        }
+        return rendered
     }
 
     private fun packageView(node: JSONObject, screen: JSONObject, props: JSONObject): View {

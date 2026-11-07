@@ -306,6 +306,24 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   }
 
   function renderNode(node: PushifyPaywallNode): React.ReactNode {
+    const content = renderNodeContent(node);
+    const accessibility = record(node.properties.pushify_accessibility);
+    const role = text(accessibility.role) ?? 'automatic';
+    const hidden = accessibility.hidden === true || role === 'presentation';
+    if (!React.isValidElement(content) || (!hidden && !text(accessibility.label) && role === 'automatic')) return content;
+    const nativeRole = role === 'heading' ? 'header' : role === 'presentation' ? 'none' : role;
+    return React.cloneElement(content as React.ReactElement<Record<string, unknown>>, {
+      accessible: !hidden,
+      accessibilityElementsHidden: hidden,
+      importantForAccessibility: hidden ? 'no-hide-descendants' : 'auto',
+      ...(hidden ? {} : {
+        ...(text(accessibility.label) ? { accessibilityLabel: text(accessibility.label) } : {}),
+        ...(role !== 'automatic' ? { accessibilityRole: nativeRole } : {}),
+      }),
+    });
+  }
+
+  function renderNodeContent(node: PushifyPaywallNode): React.ReactNode {
     const children = node.children.map((child) => renderNode(child));
     switch (node.kind) {
       case 'stack': return React.createElement(View, { key: node.id ?? undefined, style: styles.stack }, ...children);
