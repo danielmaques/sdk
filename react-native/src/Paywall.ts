@@ -36,15 +36,41 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     try {
       const result = await props.purchases.purchase(productID);
       if (result.status === 'purchased') props.onPurchased?.(result.customerInfo);
-      if (result.status === 'purchased') runPurchaseOutcome('after_purchase', 'close', action, sourceScreen);
-      if (result.status === 'cancelled') runPurchaseOutcome('on_abandon', 'none', action, sourceScreen);
+      if (result.status === 'purchased') await runPurchaseOutcome('after_purchase', 'close', action, sourceScreen);
+      if (result.status === 'cancelled') await runPurchaseOutcome('on_abandon', 'none', action, sourceScreen);
       if (result.status === 'pending') setMessage('Purchase is pending approval.');
     } catch {
       setMessage('Purchase could not be completed. Please try again.');
     } finally { setBusy(false); }
   }
 
-  function runPurchaseOutcome(key: string, fallback: string, action: Record<string, unknown>, sourceScreen?: PushifyPaywallV1['screens'][number]): void {
+  async function runPurchaseOutcome(key: string, fallback: string, action: Record<string, unknown>, sourceScreen?: PushifyPaywallV1['screens'][number]): Promise<void> {
+    for (const step of array(record(action.pushify_actions)[key]).map(record)) {
+      if (step.type === 'update_variable') {
+        const name = text(step.variable)?.replace(/^state\./, '');
+        const declaration = name ? props.document.custom_variables?.[name] : undefined;
+        if (!name || !declaration) { setMessage('This state variable is not declared.'); return; }
+        setVariables((current) => {
+          const before = current[name] ?? declaration.initial_value;
+          const operation = text(step.operation) ?? 'set';
+          let next: string | number | boolean;
+          if (declaration.value_type === 'number') { const amount = number(step.value) ?? 0; next = operation === 'increment' ? Number(before) + amount : operation === 'decrement' ? Number(before) - amount : amount; }
+          else if (declaration.value_type === 'boolean') next = operation === 'toggle' ? !Boolean(before) : step.value === true;
+          else next = text(step.value) ?? String(before);
+          return { ...current, [name]: next };
+        });
+      } else if (step.type === 'set_user_attributes') {
+        const configured = record(step.attributes);
+        const attributes: Record<string, string | number | boolean | null> = {};
+        for (const [name, value] of Object.entries(configured)) {
+          if (!name.trim() || name.length > 100 || (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')) { setMessage('This user attribute is invalid.'); return; }
+          attributes[name] = value as string | number | boolean | null;
+        }
+        if (!Object.keys(attributes).length) { setMessage('No user attributes are configured.'); return; }
+        try { await props.purchases.setAttributes(attributes); }
+        catch { setMessage('User attributes could not be updated. Please try again.'); return; }
+      }
+    }
     const outcome = record(action[key]);
     const kind = text(outcome.type) ?? fallback;
     if (kind === 'none') return;

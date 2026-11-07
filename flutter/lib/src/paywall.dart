@@ -574,9 +574,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       final result = await widget.purchases.purchase(productId);
       if (result.isPurchased && result.customerInfo != null) {
         widget.onPurchased?.call(result.customerInfo!);
-        _runPurchaseOutcome('after_purchase', 'close', action, screen);
+        await _runPurchaseOutcome('after_purchase', 'close', action, screen);
       }
-      if (result.isCancelled) _runPurchaseOutcome('on_abandon', 'none', action, screen);
+      if (result.isCancelled) await _runPurchaseOutcome('on_abandon', 'none', action, screen);
       if (result.isPending) {
         setState(() => _message = 'Purchase is pending approval.');
       }
@@ -589,7 +589,27 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     }
   }
 
-  void _runPurchaseOutcome(String key, String fallback, Map<String, Object?> action, Map<String, Object?>? screen) {
+  Future<void> _runPurchaseOutcome(String key, String fallback, Map<String, Object?> action, Map<String, Object?>? screen) async {
+    for (final step in _maps(_map(action['pushify_actions'])[key])) {
+      if (step['type'] == 'update_variable') {
+        final name = (step['variable'] as String? ?? '').replaceFirst(RegExp(r'^state\.'), '');
+        final definition = _map(_map(widget.document['custom_variables'])[name]);
+        if (definition.isEmpty) { if (mounted) setState(() => _message = 'This state variable is not declared.'); return; }
+        final before = _variables[name] ?? definition['initial_value'];
+        final operation = step['operation'] as String? ?? 'set';
+        final Object? value;
+        if (definition['value_type'] == 'number') { final amount = step['value'] as num? ?? 0; final current = before as num? ?? 0; value = operation == 'increment' ? current + amount : operation == 'decrement' ? current - amount : amount; }
+        else if (definition['value_type'] == 'boolean') { value = operation == 'toggle' ? !(before as bool? ?? false) : step['value'] == true; }
+        else { value = step['value'] as String? ?? before?.toString() ?? ''; }
+        if (mounted) setState(() => _variables[name] = value);
+      } else if (step['type'] == 'set_user_attributes') {
+        final attributes = Map<String, Object?>.from(_map(step['attributes']));
+        final valid = attributes.isNotEmpty && attributes.entries.every((entry) => entry.key.trim().isNotEmpty && entry.key.length <= 100 && (entry.value == null || entry.value is String || entry.value is num || entry.value is bool));
+        if (!valid) { if (mounted) setState(() => _message = 'This user attribute is invalid.'); return; }
+        try { await widget.purchases.setAttributes(attributes); }
+        catch (_) { if (mounted) setState(() => _message = 'User attributes could not be updated. Please try again.'); return; }
+      }
+    }
     final type = _map(action[key])['type'] as String? ?? fallback;
     if (type == 'none') return;
     if (type == 'close') { widget.onClose?.call(); return; }

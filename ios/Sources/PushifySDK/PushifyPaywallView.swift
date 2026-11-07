@@ -208,15 +208,32 @@ public struct PushifyPaywallView: View {
             defer { busy = false }
             do {
                 switch try await purchases.purchase(packageID: productID) {
-                case .purchased: runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
+                case .purchased: await runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
                 case .pending: message = "Purchase is pending approval."
-                case .cancelled: runPurchaseOutcome("on_abandon", fallback: "none", action: action, screen: screen)
+                case .cancelled: await runPurchaseOutcome("on_abandon", fallback: "none", action: action, screen: screen)
                 }
             } catch { message = "Purchase could not be completed. Please try again." }
         }
     }
 
-    private func runPurchaseOutcome(_ key: String, fallback: String, action: [String: PushifyJSONValue], screen: PushifyPaywallScreen?) {
+    private func runPurchaseOutcome(_ key: String, fallback: String, action: [String: PushifyJSONValue], screen: PushifyPaywallScreen?) async {
+        let steps = array(object(action["pushify_actions"])?[key])
+        for step in steps {
+            switch string(step["type"]) {
+            case "update_variable": updateVariable(step)
+            case "set_user_attributes":
+                let configured = object(step["attributes"]) ?? [:]
+                guard !configured.isEmpty else { message = "No user attributes are configured."; return }
+                let valid = configured.allSatisfy { key, value in
+                    guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, key.count <= 100 else { return false }
+                    switch value { case .string, .integer, .number, .bool, .null: return true; case .object, .array: return false }
+                }
+                guard valid else { message = "This user attribute is invalid."; return }
+                do { _ = try await purchases.setAttributes(configured.mapValues(foundationValue)) }
+                catch { message = "User attributes could not be updated. Please try again."; return }
+            default: break
+            }
+        }
         let route = object(action[key])
         let type = string(route?["type"]) ?? fallback
         guard type != "none" else { return }

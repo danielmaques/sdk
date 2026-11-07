@@ -280,15 +280,50 @@ public class PushifyPaywallView @JvmOverloads constructor(
     }
 
     private fun runPurchaseOutcome(key: String, fallback: String, action: JSONObject, screen: JSONObject?) {
-        val type = action.optJSONObject(key)?.optString("type")?.takeIf(String::isNotBlank) ?: fallback
-        if (type == "none") return
-        if (type == "close") { onDismiss?.invoke(); return }
-        val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == screen?.optString("id") }
-        when (type) {
-            "navigate_back" -> if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() } else onDismiss?.invoke()
-            "workflow" -> if (index >= 0 && index + 1 < screens.length()) { activeScreenId = screens.optJSONObject(index + 1)?.optString("id").orEmpty(); render() } else { message = "This flow has no next screen."; render() }
-            else -> { message = "This purchase outcome is not supported by this SDK version."; render() }
+        val steps = action.optJSONObject("pushify_actions")?.optJSONArray(key) ?: JSONArray()
+        fun finish() {
+            val type = action.optJSONObject(key)?.optString("type")?.takeIf(String::isNotBlank) ?: fallback
+            if (type == "none") return
+            if (type == "close") { onDismiss?.invoke(); return }
+            val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == screen?.optString("id") }
+            when (type) {
+                "navigate_back" -> if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() } else onDismiss?.invoke()
+                "workflow" -> if (index >= 0 && index + 1 < screens.length()) { activeScreenId = screens.optJSONObject(index + 1)?.optString("id").orEmpty(); render() } else { message = "This flow has no next screen."; render() }
+                else -> { message = "This purchase outcome is not supported by this SDK version."; render() }
+            }
         }
+        fun runStep(at: Int) {
+            if (at >= steps.length()) { finish(); return }
+            val step = steps.optJSONObject(at) ?: run { runStep(at + 1); return }
+            when (step.optString("type")) {
+                "update_variable" -> {
+                    val name = step.optString("variable").removePrefix("state.")
+                    val definition = variableDeclarations.optJSONObject(name)
+                    if (definition == null) { message = "This state variable is not declared."; render(); return }
+                    val before = variables.opt(name) ?: definition.opt("initial_value")
+                    val value = step.opt("value")
+                    val next: Any? = when (definition.optString("value_type")) {
+                        "number" -> { val amount = (value as? Number)?.toDouble() ?: 0.0; val current = (before as? Number)?.toDouble() ?: 0.0; when (step.optString("operation")) { "increment" -> current + amount; "decrement" -> current - amount; else -> amount } }
+                        "boolean" -> if (step.optString("operation") == "toggle") !(before as? Boolean ?: false) else value as? Boolean ?: false
+                        else -> value as? String ?: before?.toString().orEmpty()
+                    }
+                    variables.put(name, next); render(); runStep(at + 1)
+                }
+                "set_user_attributes" -> {
+                    val attributes = step.optJSONObject("attributes")
+                    if (attributes == null || attributes.length() == 0) { message = "No user attributes are configured."; render(); return }
+                    val valid = attributes.keys().asSequence().all { key -> val value = attributes.opt(key); key.isNotBlank() && key.length <= 100 && (value == JSONObject.NULL || value is String || value is Number || value is Boolean) }
+                    if (!valid) { message = "This user attribute is invalid."; render(); return }
+                    busy = true
+                    purchases.setAttributes(attributes) { result -> main.post {
+                        busy = false
+                        if (result.isSuccess) runStep(at + 1) else { message = "User attributes could not be updated. Please try again."; render() }
+                    } }
+                }
+                else -> runStep(at + 1)
+            }
+        }
+        runStep(0)
     }
 
     private fun restore() {
