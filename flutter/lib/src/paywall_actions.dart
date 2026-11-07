@@ -376,6 +376,8 @@ extension _PaywallActions on _PushifyPaywallState {
         final isMatch = switch (route['operator']) {
           'equals' => current == expected,
           'not_equals' => current != expected,
+          'contains' => current is List ? current.contains(expected) : current == expected,
+          'not_contains' => current is List ? !current.contains(expected) : current != expected,
           'greater_than' =>
             current is num && expected is num && current > expected,
           'less_than' =>

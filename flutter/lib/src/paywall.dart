@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'purchases.dart';
 
@@ -53,6 +54,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, String> _selectedTabs = {};
   final Map<String, TextEditingController> _inputControllers = {};
   final Map<String, Object?> _variables = {};
+  late final int _randomizationSeed = DateTime.now().microsecondsSinceEpoch;
   Map<String, Object?>? _exitOffering;
   bool _dismissing = false;
   final Set<String> _surveyedTriggers = {};

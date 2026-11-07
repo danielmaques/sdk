@@ -28,9 +28,11 @@ extension _PaywallLocalization on _PushifyPaywallState {
 
   String _interpolate(String value) => value.replaceAllMapped(
     RegExp(r'\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}'),
-    (match) => _variables.containsKey(match[1])
-        ? '${_variables[match[1]]}'
-        : match[0]!,
+    (match) {
+      if (!_variables.containsKey(match[1])) return match[0]!;
+      final value = _variables[match[1]];
+      return value is List ? value.join(', ') : '$value';
+    },
   );
 
   String? _localizedValue(String key, Map<String, Object?> screen) {

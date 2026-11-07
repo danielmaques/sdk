@@ -22,6 +22,7 @@ import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.browser.customtabs.CustomTabsIntent
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -30,6 +31,7 @@ import android.widget.LinearLayout
 import android.widget.MediaController
 import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.RadioButton
 import kotlin.math.roundToInt
 import android.widget.TextView
 import android.widget.VideoView
@@ -42,6 +44,7 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import java.util.Random
 
 /** Native Android renderer for the core Pushify paywall component set. */
 public class PushifyPaywallView @JvmOverloads constructor(
@@ -68,6 +71,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private var focusedInputVariable: String? = null
     private var focusedInputSelection = 0
     private val surveyedTriggers = mutableSetOf<String>()
+    private val randomizationSeed = System.nanoTime()
 
     init {
         isFillViewport = true
@@ -214,6 +218,16 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 "greater_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left > it } } ?: return true
                 "less_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left < it } } ?: return true
                 "greater_than_or_equal" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left >= it } } ?: return true
+                "contains" -> when (current) {
+                    is JSONArray -> (0 until current.length()).any { current.optString(it) == expected.toString() }
+                    is String -> current == expected.toString()
+                    else -> false
+                }
+                "not_contains" -> when (current) {
+                    is JSONArray -> (0 until current.length()).none { current.optString(it) == expected.toString() }
+                    is String -> current != expected.toString()
+                    else -> true
+                }
                 "less_than_or_equal" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left <= it } } ?: return true
                 else -> return true
             }
@@ -313,6 +327,51 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     }
                     if (vertical) addView(FrameLayout(context).apply { addView(seek, FrameLayout.LayoutParams(dp(180), dp(48), Gravity.CENTER)) }, lp(dp(48), dp(180)))
                     else addView(seek, lp(MATCH, WRAP))
+                }
+            }
+            "multiple_choice" -> {
+                val valueReference = properties.optString("state_variable")
+                val labelReference = properties.optString("label_state_variable")
+                val valueName = valueReference.removePrefix("state.")
+                val labelName = labelReference.removePrefix("state.")
+                val valueDeclaration = variableDeclarations.optJSONObject(valueName)
+                val labelDeclaration = variableDeclarations.optJSONObject(labelName)
+                val mode = properties.optString("mode", "single")
+                if (!valueReference.startsWith("state.") || !labelReference.startsWith("state.") || valueDeclaration?.optString("value_type") != "selection" || labelDeclaration?.optString("value_type") != "text" || mode !in setOf("single", "multiple")) return View(context)
+                val raw = variables.opt(valueName) ?: valueDeclaration.opt("initial_value")
+                val selected = if (mode == "multiple") {
+                    (raw as? JSONArray)?.let { array -> (0 until array.length()).map(array::optString).toSet() } ?: emptySet()
+                } else setOfNotNull(raw as? String).filter(String::isNotEmpty).toSet()
+                val options = properties.optJSONArray("options") ?: JSONArray()
+                val ordered = (0 until options.length()).mapNotNull(options::optJSONObject).toMutableList()
+                if (properties.optBoolean("randomize_order")) ordered.shuffle(Random(randomizationSeed xor node.optString("id").hashCode().toLong()))
+                LinearLayout(context).apply {
+                    orientation = if (properties.optString("layout") == "horizontal") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                    ordered.forEach { option ->
+                        val optionValue = option.optString("value")
+                        val label = localizedValue(option.optString("label_lid"), screen)?.let(::interpolate).orEmpty().ifBlank { optionValue }
+                        val checked = optionValue in selected
+                        val choice: TextView = if (mode == "multiple") CheckBox(context) else RadioButton(context)
+                        choice.text = label
+                        choice.contentDescription = label
+                        choice.isSelected = checked
+                        if (choice is CheckBox) choice.isChecked = checked
+                        if (choice is RadioButton) choice.isChecked = checked
+                        choice.setOnClickListener {
+                            val next = if (mode == "multiple") {
+                                if (checked) selected - optionValue else selected + optionValue
+                            } else setOf(optionValue)
+                            val nextValue: Any = if (mode == "multiple") JSONArray(next.toList()) else next.firstOrNull().orEmpty()
+                            val labels = next.map { selectedValue ->
+                                val selectedOption = ordered.firstOrNull { it.optString("value") == selectedValue }
+                                selectedOption?.let { localizedValue(it.optString("label_lid"), screen)?.let(::interpolate)?.ifBlank { selectedValue } } ?: selectedValue
+                            }
+                            variables.put(valueName, nextValue)
+                            variables.put(labelName, labels.joinToString(", "))
+                            render()
+                        }
+                        addView(choice, lp(if (orientation == LinearLayout.HORIZONTAL) 0 else MATCH, WRAP, if (orientation == LinearLayout.HORIZONTAL) 1f else 0f))
+                    }
                 }
             }
             "package" -> packageView(node, screen, properties)
@@ -765,7 +824,14 @@ public class PushifyPaywallView @JvmOverloads constructor(
     }
 
     private fun interpolate(value: String): String = Regex("\\{\\{\\s*state\\.([A-Za-z_][A-Za-z0-9_]*)\\s*}}")
-        .replace(value) { match -> if (variables.has(match.groupValues[1])) variables.opt(match.groupValues[1])?.toString() ?: "null" else match.value }
+        .replace(value) { match ->
+            if (!variables.has(match.groupValues[1])) match.value
+            else when (val state = variables.opt(match.groupValues[1])) {
+                is JSONArray -> (0 until state.length()).joinToString(", ") { state.optString(it) }
+                null, JSONObject.NULL -> ""
+                else -> state.toString()
+            }
+        }
 
     private fun localizedValue(key: String, screen: JSONObject): String? {
         val perScreen = screen.optJSONObject("localizations") ?: JSONObject()
@@ -843,6 +909,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     val matched = when (route.optString("operator")) {
                         "equals" -> current == expected
                         "not_equals" -> current != expected
+                        "contains" -> when (current) { is JSONArray -> (0 until current.length()).any { current.optString(it) == expected?.toString() }; is String -> current == expected?.toString(); else -> false }
+                        "not_contains" -> when (current) { is JSONArray -> (0 until current.length()).none { current.optString(it) == expected?.toString() }; is String -> current != expected?.toString(); else -> true }
                         "greater_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left > it } } == true
                         "less_than" -> (current as? Number)?.toDouble()?.let { left -> (expected as? Number)?.toDouble()?.let { left < it } } == true
                         else -> false

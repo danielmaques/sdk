@@ -35,6 +35,7 @@ public struct PushifyPaywallView: View {
     @State private var dismissing = false
     @State private var presentedSurvey: PresentedPaywallSurvey?
     @State private var surveyedTriggers: Set<String> = []
+    @State private var randomizationSeed = Int.random(in: Int.min...Int.max)
     @State private var surveyContinuation: CheckedContinuation<Void, Never>?
 
     public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil) {
@@ -260,6 +261,59 @@ public struct PushifyPaywallView: View {
                     .frame(maxWidth: string(node.properties["orientation"]) == "vertical" ? 220 : .infinity, minHeight: string(node.properties["orientation"]) == "vertical" ? 180 : 28)
                     .accessibilityLabel(label)
                 }
+            } else {
+                EmptyView()
+            }
+        case "multiple_choice":
+            let valueReference = string(node.properties["state_variable"]) ?? ""
+            let labelReference = string(node.properties["label_state_variable"]) ?? ""
+            let valueName = valueReference.hasPrefix("state.") ? String(valueReference.dropFirst(6)) : ""
+            let labelName = labelReference.hasPrefix("state.") ? String(labelReference.dropFirst(6)) : ""
+            if let valueDeclaration = document.customVariables?[valueName], valueDeclaration.valueType == "selection",
+               let labelDeclaration = document.customVariables?[labelName], labelDeclaration.valueType == "text" {
+                let multiple = string(node.properties["mode"]) == "multiple"
+                let selected = selectedChoiceValues(variables[valueName] ?? valueDeclaration.initialValue, multiple: multiple)
+                let rawOptions = node.properties["options"]
+                let choiceOptions: [[String: PushifyJSONValue]] = rawOptions.flatMap { value -> [[String: PushifyJSONValue]]? in
+                    if case .array(let values) = value { values.compactMap { object($0) } }
+                    else { nil }
+                } ?? []
+                let choices = Self.bool(node.properties["randomize_order"]) ? choiceOptions.sorted(by: { choiceScore($0, seed: randomizationSeed) < choiceScore($1, seed: randomizationSeed) }) : choiceOptions
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(choices.enumerated()), id: \.offset) { _, option in
+                        let value = string(option["value"]) ?? ""
+                        let labelKey = string(option["label_lid"]) ?? ""
+                        let label = interpolate(localizedValue(labelKey, screen: screen) ?? value)
+                        let isSelected = selected.contains(value)
+                        Button {
+                            let next = multiple ? (isSelected ? selected.filter { $0 != value } : selected + [value]) : [value]
+                            let labels = next.map { selectedValue in
+                                let match = choiceOptions.first { string($0["value"]) == selectedValue }
+                                let key = string(match?["label_lid"]) ?? ""
+                                return interpolate(localizedValue(key, screen: screen) ?? selectedValue)
+                            }.joined(separator: ", ")
+                            variables[valueName] = multiple ? .array(next.map(PushifyJSONValue.string)) : .string(next.first ?? "")
+                            variables[labelName] = .string(labels)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: multiple ? (isSelected ? "checkmark.square.fill" : "square") : (isSelected ? "largecircle.fill.circle" : "circle"))
+                                Text(label).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 10)
+                            .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: isSelected ? 2 : 1))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(label)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(multiple ? "Choose one or more options" : "Choose one option")
             } else {
                 EmptyView()
             }
@@ -497,7 +551,10 @@ public struct PushifyPaywallView: View {
         for match in matches.reversed() {
             let name = ns.substring(with: match.range(at: 1))
             guard let value = variables[name] else { continue }
-            result = (result as NSString).replacingCharacters(in: match.range, with: string(value) ?? number(value).map { String($0) } ?? (bool(value) ? "true" : "false"))
+            let formatted: String
+            if case .array(let values) = value { formatted = values.compactMap { string($0) }.joined(separator: ", ") }
+            else { formatted = string(value) ?? number(value).map { String($0) } ?? (bool(value) ? "true" : "false") }
+            result = (result as NSString).replacingCharacters(in: match.range, with: formatted)
         }
         return result
     }
@@ -551,6 +608,8 @@ public struct PushifyPaywallView: View {
         switch string(route["operator"]) {
         case "equals": return sameValue(current, expected)
         case "not_equals": return !sameValue(current, expected)
+        case "contains": return selectedChoiceValues(current, multiple: true).contains(string(expected) ?? "")
+        case "not_contains": return !selectedChoiceValues(current, multiple: true).contains(string(expected) ?? "")
         case "greater_than":
             guard let left = number(current), let right = number(expected) else { return false }
             return left > right
@@ -574,6 +633,8 @@ public struct PushifyPaywallView: View {
             switch string(rule["operator"]) {
             case "equals": results.append(sameValue(current, expected))
             case "not_equals": results.append(!sameValue(current, expected))
+            case "contains": results.append(selectedChoiceValues(current, multiple: true).contains(string(expected) ?? ""))
+            case "not_contains": results.append(!selectedChoiceValues(current, multiple: true).contains(string(expected) ?? ""))
             case "greater_than": guard let left = number(current), let right = number(expected) else { return true }; results.append(left > right)
             case "less_than": guard let left = number(current), let right = number(expected) else { return true }; results.append(left < right)
             case "greater_than_or_equal": guard let left = number(current), let right = number(expected) else { return true }; results.append(left >= right)
@@ -590,6 +651,19 @@ public struct PushifyPaywallView: View {
         case .integer(let number): return Double(number)
         default: return nil
         }
+    }
+
+    private func selectedChoiceValues(_ value: PushifyJSONValue, multiple: Bool) -> [String] {
+        if multiple, case .array(let items) = value { return items.compactMap { string($0) } }
+        guard let item = string(value), !item.isEmpty else { return [] }
+        return [item]
+    }
+
+    private func choiceScore(_ option: [String: PushifyJSONValue], seed: Int) -> Int {
+        var hasher = Hasher()
+        hasher.combine(seed)
+        hasher.combine(string(option["id"]) ?? string(option["value"]) ?? "")
+        return hasher.finalize()
     }
 
     private func sameValue(_ left: PushifyJSONValue, _ right: PushifyJSONValue) -> Bool {

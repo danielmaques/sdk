@@ -187,11 +187,16 @@ extension _PaywallRendering on _PushifyPaywallState {
       final type = declaration['value_type'];
       if ((type == 'text' && expected is! String) ||
           (type == 'number' && expected is! num) ||
-          (type == 'boolean' && expected is! bool)) {
+          (type == 'boolean' && expected is! bool) ||
+          (type == 'selection' && expected is! String)) {
         return true;
       }
       final operator = rule['operator'];
-      if (operator == 'equals') {
+      if (operator == 'contains' && type == 'selection' && expected is String) {
+        results.add(current is List ? current.contains(expected) : current == expected);
+      } else if (operator == 'not_contains' && type == 'selection' && expected is String) {
+        results.add(current is List ? !current.contains(expected) : current != expected);
+      } else if (operator == 'equals') {
         results.add(current is num && expected is num ? current == expected : current == expected);
       } else if (operator == 'not_equals') {
         results.add(current is num && expected is num ? current != expected : current != expected);
@@ -341,6 +346,68 @@ extension _PaywallRendering on _PushifyPaywallState {
                     control,
                   ],
                 ),
+        );
+      case 'multiple_choice':
+        final valueReference = properties['state_variable'] as String? ?? '';
+        final labelReference = properties['label_state_variable'] as String? ?? '';
+        final valueName = valueReference.startsWith('state.') ? valueReference.substring(6) : '';
+        final labelName = labelReference.startsWith('state.') ? labelReference.substring(6) : '';
+        final valueDeclaration = _map(_map(widget.document['custom_variables'])[valueName]);
+        final labelDeclaration = _map(_map(widget.document['custom_variables'])[labelName]);
+        final multiple = properties['mode'] == 'multiple';
+        final rawSelected = _variables[valueName] ?? valueDeclaration['initial_value'];
+        final selected = multiple
+            ? rawSelected is List ? rawSelected.whereType<String>().toList() : <String>[]
+            : rawSelected is String && rawSelected.isNotEmpty ? <String>[rawSelected] : <String>[];
+        final choices = _maps(properties['options']);
+        if (properties['randomize_order'] == true) {
+          choices.shuffle(Random(_randomizationSeed ^ (node['id'] as String? ?? '').hashCode));
+        }
+        String choiceLabel(Map<String, Object?> choice) {
+          final key = choice['label_lid'] as String? ?? '';
+          return _interpolate(_localizedValue(key, screen) ?? choice['value'] as String? ?? '');
+        }
+        void selectChoice(String value) {
+          final next = multiple
+              ? selected.contains(value) ? selected.where((item) => item != value).toList() : [...selected, value]
+              : <String>[value];
+          final byValue = {for (final choice in _maps(properties['options'])) (choice['value'] as String? ?? ''): choice};
+          final selectedLabels = next.map((item) => byValue[item] == null ? item : choiceLabel(byValue[item]!)).join(', ');
+          _update(() {
+            if (valueName.isNotEmpty && valueDeclaration['value_type'] == 'selection') _variables[valueName] = multiple ? next : next.isEmpty ? '' : next.first;
+            if (labelName.isNotEmpty && labelDeclaration['value_type'] == 'text') _variables[labelName] = selectedLabels;
+          });
+        }
+        final control = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: choices.map((choice) {
+            final value = choice['value'] as String? ?? '';
+            final label = choiceLabel(choice);
+            final checked = selected.contains(value);
+            final icon = multiple
+                ? checked ? Icons.check_box : Icons.check_box_outline_blank
+                : checked ? Icons.radio_button_checked : Icons.radio_button_unchecked;
+            return Semantics(
+              button: true,
+              checked: checked,
+              inMutuallyExclusiveGroup: !multiple,
+              label: label,
+              child: InkWell(
+                onTap: () => selectChoice(value),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  child: Row(children: [Icon(icon, size: 20), const SizedBox(width: 10), Expanded(child: Text(label))]),
+                ),
+              ),
+            );
+          }).toList(),
+        );
+        return Semantics(
+          container: true,
+          explicitChildNodes: true,
+          label: multiple ? 'Choose one or more options' : 'Choose one option',
+          child: control,
         );
       case 'package':
         final packageId = properties['package_id'] as String?;

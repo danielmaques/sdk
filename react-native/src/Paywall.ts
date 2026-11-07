@@ -68,6 +68,27 @@ function PaywallSlider({ value, minimum, maximum, step, orientation, label, onCh
   ));
 }
 
+function PaywallChoice({ options, mode, randomize, id, selected, label, onSelect }: { options: Array<{ id: string; value: string; label: string }>; mode: 'single' | 'multiple'; randomize: boolean; id: string; selected: string[]; label: string; onSelect: (value: string) => void }) {
+  const [seed] = useState(() => Math.random());
+  const ordered = useMemo(() => {
+    if (!randomize) return options;
+    const score = (value: string) => { let result = Math.floor(seed * 0x7fffffff); for (const char of `${id}:${value}`) result = Math.imul(result ^ char.charCodeAt(0), 16777619); return result >>> 0; };
+    return [...options].sort((a, b) => score(a.value) - score(b.value));
+  }, [options, randomize, id, seed]);
+  const multiple = mode === 'multiple';
+  return React.createElement(View, { accessibilityRole: 'radiogroup', accessibilityLabel: label, style: { width: '100%' } }, ...ordered.map((option) => {
+    const checked = selected.includes(option.value);
+    return React.createElement(Pressable, {
+      key: option.id,
+      onPress: () => onSelect(option.value),
+      accessibilityRole: multiple ? 'checkbox' : 'radio',
+      accessibilityState: { checked, selected: checked },
+      accessibilityLabel: option.label,
+      style: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingVertical: 8, paddingHorizontal: 12, marginVertical: 4, borderWidth: checked ? 2 : 1, borderColor: checked ? '#315ee8' : '#a1a1aa', borderRadius: 10, backgroundColor: checked ? '#eff4ff' : 'transparent' },
+    }, React.createElement(Text, { style: { width: 22, marginRight: 10, color: checked ? '#315ee8' : '#52525b' } }, checked ? multiple ? '☑' : '⦿' : multiple ? '□' : '◯'), React.createElement(Text, { style: { flex: 1 } }, option.label));
+  }));
+}
+
 type MotionValues = { enabled?: boolean; x?: number; y?: number; rotation?: number; scale?: number; opacity?: number; duration_ms?: number; delay_ms?: number; easing?: string };
 type AccessibilityValues = { label?: string; role?: string; hidden?: boolean };
 
@@ -179,7 +200,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [now, setNow] = useState(Date.now());
   const [carouselPages, setCarouselPages] = useState<Record<string, number>>({});
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
-  const [variables, setVariables] = useState<Record<string, string | number | boolean>>(() => Object.fromEntries(Object.entries(props.document.custom_variables ?? {}).map(([key, value]) => [key, value.initial_value])));
+  const [variables, setVariables] = useState<Record<string, string | number | boolean | string[]>>(() => Object.fromEntries(Object.entries(props.document.custom_variables ?? {}).map(([key, value]) => [key, value.initial_value])));
   const [activeSurvey, setActiveSurvey] = useState<{ trigger: 'close' | 'post_purchase'; survey: NonNullable<PushifyPaywallV1['surveys']>['close'] } | null>(null);
   const surveyedTriggers = useRef(new Set<string>());
   const surveyResolver = useRef<(() => void) | null>(null);
@@ -251,9 +272,10 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         setVariables((current) => {
           const before = current[name] ?? declaration.initial_value;
           const operation = text(step.operation) ?? 'set';
-          let next: string | number | boolean;
+          let next: string | number | boolean | string[];
           if (declaration.value_type === 'number') { const amount = number(step.value) ?? 0; next = operation === 'increment' ? Number(before) + amount : operation === 'decrement' ? Number(before) - amount : amount; }
           else if (declaration.value_type === 'boolean') next = operation === 'toggle' ? !Boolean(before) : step.value === true;
+          else if (declaration.value_type === 'selection') next = before as string | string[];
           else next = text(step.value) ?? String(before);
           return { ...current, [name]: next };
         });
@@ -308,7 +330,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return interpolate(fallback || (typeof node.properties.text === 'string' ? node.properties.text : ''));
   }
 
-  function interpolate(value: string): string { return value.replace(/\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (token, key: string) => variables[key] === undefined ? token : String(variables[key])); }
+  function interpolate(value: string): string { return value.replace(/\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (token, key: string) => variables[key] === undefined ? token : Array.isArray(variables[key]) ? variables[key].join(', ') : String(variables[key])); }
 
   function localizedValue(key: string): string | null {
     const locales = [props.locale, Intl.DateTimeFormat().resolvedOptions().locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
@@ -350,9 +372,10 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       const name = text(action.variable)?.replace(/^state\./, '');
       const declaration = name ? props.document.custom_variables?.[name] : undefined;
       if (!name || !declaration) { setMessage('This state variable is not declared.'); return; }
-      setVariables((current) => { const before = current[name] ?? declaration.initial_value; const operation = text(action.operation) ?? 'set'; let next: string | number | boolean;
+      setVariables((current) => { const before = current[name] ?? declaration.initial_value; const operation = text(action.operation) ?? 'set'; let next: string | number | boolean | string[];
         if (declaration.value_type === 'number') { const value = number(action.value) ?? 0; next = operation === 'increment' ? Number(before) + value : operation === 'decrement' ? Number(before) - value : value; }
         else if (declaration.value_type === 'boolean') next = operation === 'toggle' ? !Boolean(before) : action.value === true;
+        else if (declaration.value_type === 'selection') next = before as string | string[];
         else next = text(action.value) ?? String(before);
         return { ...current, [name]: next };
       });
@@ -401,6 +424,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         switch (route.operator) {
           case 'equals': return current === value;
           case 'not_equals': return current !== value;
+          case 'contains': return Array.isArray(current) ? current.includes(value as string) : current === value;
+          case 'not_contains': return Array.isArray(current) ? !current.includes(value as string) : current !== value;
           case 'greater_than': return typeof current === 'number' && typeof value === 'number' && current > value;
           case 'less_than': return typeof current === 'number' && typeof value === 'number' && current < value;
           default: return false;
@@ -442,10 +467,12 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       if (!declaration || declaration.type !== 'state') return true;
       const current = variables[key] ?? declaration.initial_value;
       const expected = rule.value;
-      if ((declaration.value_type === 'text' && typeof expected !== 'string') || (declaration.value_type === 'number' && typeof expected !== 'number') || (declaration.value_type === 'boolean' && typeof expected !== 'boolean')) return true;
+      if ((declaration.value_type === 'text' && typeof expected !== 'string') || (declaration.value_type === 'number' && typeof expected !== 'number') || (declaration.value_type === 'boolean' && typeof expected !== 'boolean') || (declaration.value_type === 'selection' && typeof expected !== 'string')) return true;
       switch (rule.operator) {
         case 'equals': results.push(current === expected); break;
         case 'not_equals': results.push(current !== expected); break;
+        case 'contains': if (declaration.value_type !== 'selection' || typeof expected !== 'string') return true; else results.push(Array.isArray(current) ? current.includes(expected) : current === expected); break;
+        case 'not_contains': if (declaration.value_type !== 'selection' || typeof expected !== 'string') return true; else results.push(Array.isArray(current) ? !current.includes(expected) : current !== expected); break;
         case 'greater_than': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current > expected); break;
         case 'less_than': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current < expected); break;
         case 'greater_than_or_equal': if (typeof current !== 'number' || typeof expected !== 'number') return true; else results.push(current >= expected); break;
@@ -514,6 +541,30 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           ),
           React.createElement(PaywallSlider, { value, minimum, maximum, step, orientation: node.properties.orientation === 'vertical' ? 'vertical' : 'horizontal', label, onChange: (next) => setVariables((current) => ({ ...current, [name]: next })) }),
         );
+      }
+      case 'multiple_choice': {
+        const valueReference = text(node.properties.state_variable) ?? '';
+        const labelReference = text(node.properties.label_state_variable) ?? '';
+        const valueName = valueReference.startsWith('state.') ? valueReference.slice(6) : '';
+        const labelName = labelReference.startsWith('state.') ? labelReference.slice(6) : '';
+        const valueDeclaration = valueName ? props.document.custom_variables?.[valueName] : undefined;
+        const labelDeclaration = labelName ? props.document.custom_variables?.[labelName] : undefined;
+        if (valueDeclaration?.value_type !== 'selection' || labelDeclaration?.value_type !== 'text') return null;
+        const multiple = node.properties.mode === 'multiple';
+        const raw = variables[valueName] ?? valueDeclaration.initial_value;
+        const chosen = multiple ? Array.isArray(raw) ? raw.filter((value): value is string => typeof value === 'string') : [] : typeof raw === 'string' && raw ? [raw] : [];
+        const options = array(node.properties.options).map(record).map((option) => ({
+          id: text(option.id) ?? text(option.value) ?? '',
+          value: text(option.value) ?? '',
+          label: interpolate(localizedValue(text(option.label_lid) ?? '') ?? text(option.value) ?? ''),
+        }));
+        const label = 'Choose an option';
+        const select = (value: string) => {
+          const next = multiple ? chosen.includes(value) ? chosen.filter((item) => item !== value) : [...chosen, value] : [value];
+          const labels = new Map(options.map((option) => [option.value, option.label]));
+          setVariables((current) => ({ ...current, [valueName]: multiple ? next : next[0] ?? '', [labelName]: next.map((item) => labels.get(item) ?? item).join(', ') }));
+        };
+        return React.createElement(PaywallChoice, { key: node.id ?? undefined, options, mode: multiple ? 'multiple' : 'single', randomize: node.properties.randomize_order === true, id: text(node.id) ?? 'choice', selected: chosen, label, onSelect: select });
       }
       case 'package': {
         const id = typeof node.properties.package_id === 'string' ? node.properties.package_id : '';
