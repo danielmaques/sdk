@@ -42,6 +42,7 @@ export type PushifyPaywallV1 = {
   locales: Record<string, Record<string, unknown>>;
   screens: Array<{ id: string; name: string; background: unknown; content: PushifyPaywallNode | null; footer: PushifyPaywallNode | null; localizations: Record<string, Record<string, unknown>> }>;
   automatically_scale_font_size: boolean; exit_offer: unknown; state: unknown;
+  custom_variables?: Record<string, { type: 'state'; value_type: 'text' | 'number' | 'boolean'; initial_value: string | number | boolean }>;
 };
 
 export type PushifyPurchaseResult =

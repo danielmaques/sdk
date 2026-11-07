@@ -38,11 +38,13 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, int> _carouselPages = {};
   final Map<String, PageController> _carouselControllers = {};
   final Map<String, String> _selectedTabs = {};
+  final Map<String, Object?> _variables = {};
 
   @override
   void initState() {
     super.initState();
     _screens = _maps(widget.document['screens']);
+    for (final entry in _map(widget.document['custom_variables']).entries) { _variables[entry.key] = _map(entry.value)['initial_value']; }
     final firstScreen = _screens.isEmpty ? null : _screens.first;
     _screenId = firstScreen?['id'] as String? ?? '';
     final firstContent = _map(firstScreen?['content']);
@@ -633,13 +635,15 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         if (locale == null) continue;
         final value =
             _map(localizations[locale])[key] ?? _map(locales[locale])[key];
-        if (value is String) return value;
+        if (value is String) return _interpolate(value);
       }
     }
     return fallback.isNotEmpty
-        ? fallback
-        : _map(node['properties'])['text'] as String? ?? '';
+        ? _interpolate(fallback)
+        : _interpolate(_map(node['properties'])['text'] as String? ?? '');
   }
+
+  String _interpolate(String value) => value.replaceAllMapped(RegExp(r'\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}'), (match) => _variables.containsKey(match[1]) ? '${_variables[match[1]]}' : match[0]!);
 
   String? _localizedValue(String key, Map<String, Object?> screen) {
     final perScreen = _map(screen['localizations']);
@@ -648,7 +652,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       if (locale == null) continue;
       for (final candidate in {locale, locale.replaceAll('-', '_'), locale.replaceAll('_', '-')}) {
         final value = _map(perScreen[candidate])[key] ?? _map(locales[candidate])[key];
-        if (value is String) return value;
+        if (value is String) return _interpolate(value);
       }
     }
     return null;
@@ -661,6 +665,19 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     final properties = _map(node['properties']);
     final action = _map(properties['action']);
     final kind = action['type'] ?? properties['action'];
+    if (kind == 'update_variable') {
+      final name = (action['variable'] as String? ?? '').replaceFirst(RegExp(r'^state\.'), '');
+      final definition = _map(_map(widget.document['custom_variables'])[name]);
+      if (definition.isEmpty) { setState(() => _message = 'This state variable is not declared.'); return; }
+      final before = _variables[name] ?? definition['initial_value'];
+      final operation = action['operation'] as String? ?? 'set';
+      final Object? value;
+      if (definition['value_type'] == 'number') { final amount = action['value'] as num? ?? 0; final current = before as num? ?? 0; value = operation == 'increment' ? current + amount : operation == 'decrement' ? current - amount : amount; }
+      else if (definition['value_type'] == 'boolean') { value = operation == 'toggle' ? !(before as bool? ?? false) : action['value'] == true; }
+      else { value = action['value'] as String? ?? before?.toString() ?? ''; }
+      setState(() { _variables[name] = value; });
+      return;
+    }
     if (kind == 'restore_purchases' || kind == 'restore') {
       await _restore();
       return;

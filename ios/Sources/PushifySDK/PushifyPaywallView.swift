@@ -16,6 +16,7 @@ public struct PushifyPaywallView: View {
     @State private var selectedTabs: [String: String] = [:]
     @State private var carouselPages: [String: Int] = [:]
     @State private var failedExperienceIDs: Set<String> = []
+    @State private var variables: [String: PushifyJSONValue]
 
     public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil) {
         self.document = document
@@ -26,6 +27,7 @@ public struct PushifyPaywallView: View {
             .first(where: { Self.bool($0.properties["is_selected_by_default"]) })
         _selectedPackageID = State(initialValue: Self.string(defaultPackage?.properties["package_id"]) ?? offering.packages.first?.id ?? "")
         _screenID = State(initialValue: document.screens.first?.id ?? "")
+        _variables = State(initialValue: document.customVariables?.mapValues(\.initialValue) ?? [:])
     }
 
     public var body: some View {
@@ -242,10 +244,23 @@ public struct PushifyPaywallView: View {
     private func localized(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen, fallback: String? = nil) -> String {
         if let key = string(node.properties["text_lid"]) {
             for locale in [Locale.current.identifier.replacingOccurrences(of: "-", with: "_"), Locale.current.identifier, document.defaultLocale, "en_US"] {
-                if case .string(let value)? = screen.localizations[locale]?[key] ?? document.locales[locale]?[key] { return value }
+                if case .string(let value)? = screen.localizations[locale]?[key] ?? document.locales[locale]?[key] { return interpolate(value) }
             }
         }
-        return fallback ?? string(node.properties["text"]) ?? ""
+        return interpolate(fallback ?? string(node.properties["text"]) ?? "")
+    }
+
+    private func interpolate(_ text: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#) else { return text }
+        let ns = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        var result = text
+        for match in matches.reversed() {
+            let name = ns.substring(with: match.range(at: 1))
+            guard let value = variables[name] else { continue }
+            result = (result as NSString).replacingCharacters(in: match.range, with: string(value) ?? number(value).map { String($0) } ?? (bool(value) ? "true" : "false"))
+        }
+        return result
     }
 
     private func localizedValue(_ key: String, screen: PushifyPaywallScreen) -> String? {
@@ -259,6 +274,7 @@ public struct PushifyPaywallView: View {
         let action = object(node.properties["action"]) ?? [:]
         let kind = string(action["type"]) ?? string(node.properties["action"]) ?? ""
         switch kind {
+        case "update_variable": updateVariable(action)
         case "restore_purchases", "restore": restore()
         case "set_user_attributes": setUserAttributes(action)
         case "navigate_to": openActionLink(action, screen: screen)
@@ -276,6 +292,20 @@ public struct PushifyPaywallView: View {
         default:
             if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }
             else { message = "This button action is not supported by this SDK version." }
+        }
+    }
+
+    private func updateVariable(_ action: [String: PushifyJSONValue]) {
+        guard let reference = string(action["variable"]), reference.hasPrefix("state."), let key = document.customVariables?[String(reference.dropFirst(6))], key.type == "state" else { message = "This state variable is not declared."; return }
+        let name = String(reference.dropFirst(6)); let before = variables[name] ?? key.initialValue
+        let operation = string(action["operation"]) ?? "set"; let amount = number(action["value"]) ?? 0
+        switch key.valueType {
+        case "number":
+            let current = number(before) ?? 0
+            variables[name] = .number(operation == "increment" ? current + amount : operation == "decrement" ? current - amount : amount)
+        case "boolean":
+            variables[name] = .bool(operation == "toggle" ? !bool(before) : bool(action["value"]))
+        default: variables[name] = action["value"] ?? before
         }
     }
 

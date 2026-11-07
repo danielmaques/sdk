@@ -111,6 +111,13 @@ public struct PushifyPaywallDocument: Codable, Sendable {
     public let automaticallyScaleFontSize: Bool
     public let exitOffer: PushifyJSONValue?
     public let state: PushifyJSONValue?
+    public let customVariables: [String: PushifyPaywallCustomVariable]?
+}
+
+public struct PushifyPaywallCustomVariable: Codable, Sendable {
+    public let type: String
+    public let valueType: String
+    public let initialValue: PushifyJSONValue
 }
 
 private struct PushifyCustomerCenterResponse: Decodable {

@@ -24,6 +24,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
   const [now, setNow] = useState(Date.now());
   const [carouselPages, setCarouselPages] = useState<Record<string, number>>({});
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
+  const [variables, setVariables] = useState<Record<string, string | number | boolean>>(() => Object.fromEntries(Object.entries(props.document.custom_variables ?? {}).map(([key, value]) => [key, value.initial_value])));
   const screen = props.document.screens.find((candidate) => candidate.id === screenID) ?? firstScreen;
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
@@ -75,11 +76,13 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     if (typeof key === 'string') {
       for (const locale of locales) {
         const value = node.properties.text_lid && (screen?.localizations[locale]?.[key] ?? props.document.locales[locale]?.[key]);
-        if (typeof value === 'string') return value;
+        if (typeof value === 'string') return interpolate(value);
       }
     }
-    return fallback || (typeof node.properties.text === 'string' ? node.properties.text : '');
+    return interpolate(fallback || (typeof node.properties.text === 'string' ? node.properties.text : ''));
   }
+
+  function interpolate(value: string): string { return value.replace(/\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (token, key: string) => variables[key] === undefined ? token : String(variables[key])); }
 
   function localizedValue(key: string): string | null {
     const locales = [props.locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
@@ -106,6 +109,18 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
   async function handleButton(node: PushifyPaywallNode): Promise<void> {
     const action = record(node.properties.action);
     const kind = text(action.type) ?? text(node.properties.action);
+    if (kind === 'update_variable') {
+      const name = text(action.variable)?.replace(/^state\./, '');
+      const declaration = name ? props.document.custom_variables?.[name] : undefined;
+      if (!name || !declaration) { setMessage('This state variable is not declared.'); return; }
+      setVariables((current) => { const before = current[name] ?? declaration.initial_value; const operation = text(action.operation) ?? 'set'; let next: string | number | boolean;
+        if (declaration.value_type === 'number') { const value = number(action.value) ?? 0; next = operation === 'increment' ? Number(before) + value : operation === 'decrement' ? Number(before) - value : value; }
+        else if (declaration.value_type === 'boolean') next = operation === 'toggle' ? !Boolean(before) : action.value === true;
+        else next = text(action.value) ?? String(before);
+        return { ...current, [name]: next };
+      });
+      return;
+    }
     if (kind === 'restore_purchases' || kind === 'restore') { await restore(); return; }
     if (kind === 'set_user_attributes') {
       const configured = record(action.attributes);

@@ -45,6 +45,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
         ?: packages.optJSONObject(0)?.optString("id").orEmpty()
     private var activeScreenId: String = document.optJSONArray("screens")?.optJSONObject(0)?.optString("id").orEmpty()
     private val strings = document.optJSONObject("locales") ?: JSONObject()
+    private val variableDeclarations = document.optJSONObject("custom_variables") ?: JSONObject()
+    private val variables = JSONObject().apply {
+        val keys = variableDeclarations.keys()
+        while (keys.hasNext()) { val key = keys.next(); put(key, variableDeclarations.optJSONObject(key)?.opt("initial_value")) }
+    }
     private val screens = document.optJSONArray("screens") ?: JSONArray()
     private var busy = false
     private var message: String? = null
@@ -299,11 +304,14 @@ public class PushifyPaywallView @JvmOverloads constructor(
             val deviceLocale = java.util.Locale.getDefault().toLanguageTag()
             for (tag in listOf(deviceLocale.replace('-', '_'), deviceLocale, locale, "en_US")) {
                 val value = perScreen.optJSONObject(tag)?.optString(key) ?: strings.optJSONObject(tag)?.optString(key)
-                if (!value.isNullOrBlank() && value != "null") return value
+                if (!value.isNullOrBlank() && value != "null") return interpolate(value)
             }
         }
-        return node.optJSONObject("properties")?.optString("text").orEmpty()
+        return interpolate(node.optJSONObject("properties")?.optString("text").orEmpty())
     }
+
+    private fun interpolate(value: String): String = Regex("\\{\\{\\s*state\\.([A-Za-z_][A-Za-z0-9_]*)\\s*}}")
+        .replace(value) { match -> if (variables.has(match.groupValues[1])) variables.opt(match.groupValues[1])?.toString() ?: "null" else match.value }
 
     private fun localizedValue(key: String, screen: JSONObject): String? {
         val perScreen = screen.optJSONObject("localizations") ?: JSONObject()
@@ -341,6 +349,19 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val action = properties.optJSONObject("action") ?: JSONObject()
         val kind = action.optString("type").ifBlank { properties.optString("action") }
         when (kind) {
+            "update_variable" -> {
+                val variable = action.optString("variable").removePrefix("state.")
+                val definition = variableDeclarations.optJSONObject(variable)
+                if (definition == null) { message = "This state variable is not declared."; return }
+                val before = variables.opt(variable) ?: definition.opt("initial_value")
+                val value = action.opt("value")
+                val next: Any? = when (definition.optString("value_type")) {
+                    "number" -> { val amount = (value as? Number)?.toDouble() ?: 0.0; val current = (before as? Number)?.toDouble() ?: 0.0; when (action.optString("operation")) { "increment" -> current + amount; "decrement" -> current - amount; else -> amount } }
+                    "boolean" -> if (action.optString("operation") == "toggle") !(before as? Boolean ?: false) else value as? Boolean ?: false
+                    else -> value as? String ?: before?.toString().orEmpty()
+                }
+                variables.put(variable, next); render()
+            }
             "restore_purchases", "restore" -> restore()
             "set_user_attributes" -> setUserAttributes(action)
             "navigate_to" -> openActionLink(action, screen)
