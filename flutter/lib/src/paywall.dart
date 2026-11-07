@@ -106,7 +106,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         onClose: widget.onClose,
         onPurchased: widget.onPurchased,
         onCustomAction: widget.onCustomAction,
-        isExitOffer: true,
+        _isExitOffer: true,
       );
     }
     final matches = _screens.where((item) => item['id'] == _screenId);
