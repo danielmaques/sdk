@@ -342,6 +342,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val kind = action.optString("type").ifBlank { properties.optString("action") }
         when (kind) {
             "restore_purchases", "restore" -> restore()
+            "set_user_attributes" -> setUserAttributes(action)
             "navigate_to" -> openActionLink(action, screen)
             "navigate_back" -> {
                 val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == activeScreenId }
@@ -363,6 +364,25 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 val next = properties.optString("next_screen_id")
                 if ((0 until screens.length()).any { screens.optJSONObject(it)?.optString("id") == next }) { activeScreenId = next; render() }
                 else { message = "This button action is not supported by this SDK version."; render() }
+            }
+        }
+    }
+
+    private fun setUserAttributes(action: JSONObject) {
+        val attributes = action.optJSONObject("attributes")
+        if (attributes == null || attributes.length() == 0) { message = "No user attributes are configured."; render(); return }
+        val valid = attributes.keys().asSequence().all { key ->
+            val value = attributes.opt(key)
+            key.isNotBlank() && key.length <= 100 && (value == JSONObject.NULL || value is String || value is Number || value is Boolean)
+        }
+        if (!valid) { message = "This user attribute is invalid."; render(); return }
+        if (busy) return
+        busy = true; message = null
+        purchases.setAttributes(attributes) { result ->
+            main.post {
+                busy = false
+                message = if (result.isSuccess) "User attributes updated." else "User attributes could not be updated. Please try again."
+                render()
             }
         }
     }

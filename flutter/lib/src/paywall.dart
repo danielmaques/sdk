@@ -665,6 +665,31 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       await _restore();
       return;
     }
+    if (kind == 'set_user_attributes') {
+      final attributes = Map<String, Object?>.from(_map(action['attributes']));
+      if (attributes.isEmpty) {
+        setState(() => _message = 'No user attributes are configured.');
+        return;
+      }
+      final valid = attributes.entries.every((entry) =>
+          entry.key.trim().isNotEmpty && entry.key.length <= 100 &&
+          (entry.value == null || entry.value is String || entry.value is num || entry.value is bool));
+      if (!valid) {
+        setState(() => _message = 'This user attribute is invalid.');
+        return;
+      }
+      if (_busy) return;
+      setState(() { _busy = true; _message = null; });
+      try {
+        await widget.purchases.setAttributes(attributes);
+        setState(() => _message = 'User attributes updated.');
+      } catch (_) {
+        setState(() => _message = 'User attributes could not be updated. Please try again.');
+      } finally {
+        setState(() => _busy = false);
+      }
+      return;
+    }
     if (kind == 'navigate_to') {
       await _openActionLink(action, screen);
       return;

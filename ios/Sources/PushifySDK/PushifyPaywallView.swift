@@ -260,6 +260,7 @@ public struct PushifyPaywallView: View {
         let kind = string(action["type"]) ?? string(node.properties["action"]) ?? ""
         switch kind {
         case "restore_purchases", "restore": restore()
+        case "set_user_attributes": setUserAttributes(action)
         case "navigate_to": openActionLink(action, screen: screen)
         case "navigate_back":
             if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
@@ -275,6 +276,40 @@ public struct PushifyPaywallView: View {
         default:
             if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }
             else { message = "This button action is not supported by this SDK version." }
+        }
+    }
+
+    private func setUserAttributes(_ action: [String: PushifyJSONValue]) {
+        let configured = object(action["attributes"]) ?? [:]
+        guard !configured.isEmpty else { message = "No user attributes are configured."; return }
+        let valid = configured.allSatisfy { key, value in
+            guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, key.count <= 100 else { return false }
+            switch value { case .string, .integer, .number, .bool, .null: return true; case .object, .array: return false }
+        }
+        guard valid else { message = "This user attribute is invalid."; return }
+        guard !busy else { return }
+        busy = true; message = nil
+        Task {
+            defer { busy = false }
+            do {
+                let attributes = configured.mapValues(foundationValue)
+                _ = try await purchases.setAttributes(attributes)
+                message = "User attributes updated."
+            } catch {
+                message = "User attributes could not be updated. Please try again."
+            }
+        }
+    }
+
+    private func foundationValue(_ value: PushifyJSONValue) -> Any {
+        switch value {
+        case .string(let value): value
+        case .integer(let value): value
+        case .number(let value): value
+        case .bool(let value): value
+        case .null: NSNull()
+        case .object(let value): value.mapValues(foundationValue)
+        case .array(let value): value.map(foundationValue)
         }
     }
 

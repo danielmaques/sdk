@@ -107,6 +107,23 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     const action = record(node.properties.action);
     const kind = text(action.type) ?? text(node.properties.action);
     if (kind === 'restore_purchases' || kind === 'restore') { await restore(); return; }
+    if (kind === 'set_user_attributes') {
+      const configured = record(action.attributes);
+      const attributes: Record<string, string | number | boolean | null> = {};
+      for (const [key, value] of Object.entries(configured)) {
+        if (!key.trim() || key.length > 100 || (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')) {
+          setMessage('This user attribute is invalid.'); return;
+        }
+        attributes[key] = value;
+      }
+      if (!Object.keys(attributes).length) { setMessage('No user attributes are configured.'); return; }
+      if (busy) return;
+      setBusy(true); setMessage(null);
+      try { await props.purchases.setAttributes(attributes); setMessage('User attributes updated.'); }
+      catch { setMessage('User attributes could not be updated. Please try again.'); }
+      finally { setBusy(false); }
+      return;
+    }
     if (kind === 'navigate_to') { await openActionLink(action); return; }
     if (kind === 'navigate_back') {
       const index = props.document.screens.findIndex((candidate) => candidate.id === screen?.id);
