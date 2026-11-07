@@ -602,6 +602,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         else if (definition['value_type'] == 'boolean') { value = operation == 'toggle' ? !(before as bool? ?? false) : step['value'] == true; }
         else { value = step['value'] as String? ?? before?.toString() ?? ''; }
         if (mounted) setState(() => _variables[name] = value);
+      } else if (step['type'] == 'navigate_to') {
+        if (screen == null) { if (mounted) setState(() => _message = 'This link is unavailable.'); return; }
+        await _openActionLink(step, screen);
       } else if (step['type'] == 'set_user_attributes') {
         final attributes = Map<String, Object?>.from(_map(step['attributes']));
         final valid = attributes.isNotEmpty && attributes.entries.every((entry) => entry.key.trim().isNotEmpty && entry.key.length <= 100 && (entry.value == null || entry.value is String || entry.value is num || entry.value is bool));

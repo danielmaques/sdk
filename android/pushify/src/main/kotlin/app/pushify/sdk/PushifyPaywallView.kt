@@ -309,6 +309,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     }
                     variables.put(name, next); render(); runStep(at + 1)
                 }
+                "navigate_to" -> {
+                    if (screen == null) { message = "This link is unavailable."; render(); return }
+                    openActionLink(step, screen)
+                    runStep(at + 1)
+                }
                 "set_user_attributes" -> {
                     val attributes = step.optJSONObject("attributes")
                     if (attributes == null || attributes.length() == 0) { message = "No user attributes are configured."; render(); return }

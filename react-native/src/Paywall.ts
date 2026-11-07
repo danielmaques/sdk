@@ -59,6 +59,8 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
           else next = text(step.value) ?? String(before);
           return { ...current, [name]: next };
         });
+      } else if (step.type === 'navigate_to') {
+        await openActionLink(step);
       } else if (step.type === 'set_user_attributes') {
         const configured = record(step.attributes);
         const attributes: Record<string, string | number | boolean | null> = {};

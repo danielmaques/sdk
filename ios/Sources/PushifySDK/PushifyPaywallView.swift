@@ -221,6 +221,9 @@ public struct PushifyPaywallView: View {
         for step in steps {
             switch string(step["type"]) {
             case "update_variable": updateVariable(step)
+            case "navigate_to":
+                if let screen { openActionLink(step, screen: screen) }
+                else { message = "This link is unavailable." }
             case "set_user_attributes":
                 let configured = object(step["attributes"]) ?? [:]
                 guard !configured.isEmpty else { message = "No user attributes are configured."; return }
