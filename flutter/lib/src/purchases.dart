@@ -129,9 +129,13 @@ class PushifyPurchases {
   );
 
   /// Starts the native Apple or Google purchase flow for an offering package ID.
-  Future<PushifyPurchaseResult> purchase(String packageId) async {
+  Future<PushifyPurchaseResult> purchase(
+    String packageId, {
+    Map<String, Object?>? trialReminder,
+  }) async {
     final value = await _invoke<Map<Object?, Object?>>('purchase', {
       'packageId': packageId,
+      if (trialReminder != null) 'trialReminder': trialReminder,
     });
     if (value == null) {
       throw const PushifyException(

@@ -38,6 +38,8 @@ export type PushifyOfferings = {
 
 export type PushifyPaywallNode = { id: string | null; kind: string; properties: Record<string, unknown>; children: PushifyPaywallNode[] };
 export type PushifyPaywallSurvey = { id: string; question_lid: string; options: Array<{ id: string; label_lid: string }>; skip_label_lid?: string };
+export type PushifyPaywallTrialReminder = { title_lid: string; subtitle_lid?: string; body_lid: string; days_before: number; hours_before: number };
+export type PushifyTrialReminderRequest = PushifyPaywallTrialReminder & { title: string; subtitle?: string; body: string };
 export type PushifyPaywallV1 = {
   schema: 'pushify.paywall/v1' | 'pushify.paywall/v2'; id: string; revision: number; default_locale: string;
   locales: Record<string, Record<string, unknown>>;
@@ -46,6 +48,7 @@ export type PushifyPaywallV1 = {
   automatically_scale_font_size: boolean; exit_offer: unknown; state: unknown;
   custom_variables?: Record<string, { type: 'state'; value_type: 'text' | 'number' | 'boolean'; initial_value: string | number | boolean }>;
   surveys?: { close?: PushifyPaywallSurvey; post_purchase?: PushifyPaywallSurvey };
+  trial_reminder?: PushifyPaywallTrialReminder;
 };
 
 export type PushifyPurchaseResult =
@@ -70,7 +73,7 @@ type NativePurchasesModule = {
   setAttributes(attributes: Record<string, string | number | boolean | null>): Promise<PushifyCustomerInfo>;
   restorePurchases(): Promise<PushifyCustomerInfo>;
   syncPurchases(): Promise<PushifyCustomerInfo>;
-  purchase(packageId: string): Promise<PushifyPurchaseResult>;
+  purchase(packageId: string, trialReminder: PushifyTrialReminderRequest | null): Promise<PushifyPurchaseResult>;
   logEvent(name: string, properties: Record<string, unknown>, eventId: string): Promise<number>;
   spendVirtualCurrency(adjustments: Record<string, number>, idempotencyKey: string, reference?: string | null): Promise<{ virtual_currencies: PushifyCustomerInfo['virtual_currencies'] }>;
   readDeferredToken(): Promise<string | null>;
@@ -108,7 +111,7 @@ export class PushifyPurchases {
   setAttributes(attributes: Record<string, string | number | boolean | null>): Promise<PushifyCustomerInfo> { return this.requireNative().setAttributes(attributes); }
   restorePurchases(): Promise<PushifyCustomerInfo> { return this.requireNative().restorePurchases(); }
   syncPurchases(): Promise<PushifyCustomerInfo> { return this.requireNative().syncPurchases(); }
-  purchase(packageId: string): Promise<PushifyPurchaseResult> { return this.requireNative().purchase(packageId); }
+  purchase(packageId: string, trialReminder: PushifyTrialReminderRequest | null = null): Promise<PushifyPurchaseResult> { return this.requireNative().purchase(packageId, trialReminder); }
 
   logEvent(name: string, properties: Record<string, unknown> = {}, eventId = createEventId()): Promise<number> {
     return this.requireNative().logEvent(name, properties, eventId);

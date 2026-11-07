@@ -188,7 +188,16 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     if (!packages.some((item) => item.id === productID)) { setMessage('This purchase option is unavailable.'); return; }
     setBusy(true); setMessage(null);
     try {
-      const result = await props.purchases.purchase(productID);
+      const reminder = props.document.trial_reminder;
+      const reminderTitle = reminder ? localizedValue(reminder.title_lid) : null;
+      const reminderBody = reminder ? localizedValue(reminder.body_lid) : null;
+      const trialReminder = reminder && sourceScreen && reminderTitle && reminderBody ? {
+        ...reminder,
+        title: reminderTitle,
+        ...(reminder.subtitle_lid ? { subtitle: localizedValue(reminder.subtitle_lid) ?? '' } : {}),
+        body: reminderBody,
+      } : null;
+      const result = await props.purchases.purchase(productID, trialReminder);
       if (result.status === 'purchased') props.onPurchased?.(result.customerInfo);
       if (result.status === 'purchased') await presentSurvey('post_purchase', sourceScreen);
       if (result.status === 'purchased') await runPurchaseOutcome('after_purchase', 'close', action, sourceScreen);
@@ -255,7 +264,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
 
   function localized(node: PushifyPaywallNode, fallback = ''): string {
     const key = node.properties.text_lid;
-    const locales = [props.locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
+    const locales = [props.locale, Intl.DateTimeFormat().resolvedOptions().locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
     if (typeof key === 'string') {
       for (const locale of locales) {
         const value = node.properties.text_lid && (screen?.localizations[locale]?.[key] ?? props.document.locales[locale]?.[key]);
@@ -268,7 +277,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   function interpolate(value: string): string { return value.replace(/\{\{\s*state\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (token, key: string) => variables[key] === undefined ? token : String(variables[key])); }
 
   function localizedValue(key: string): string | null {
-    const locales = [props.locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
+    const locales = [props.locale, Intl.DateTimeFormat().resolvedOptions().locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
     for (const locale of locales) {
       for (const candidate of new Set([locale, locale.replace(/-/g, '_'), locale.replace(/_/g, '-')])) {
         const value = screen?.localizations[candidate]?.[key] ?? props.document.locales[candidate]?.[key];

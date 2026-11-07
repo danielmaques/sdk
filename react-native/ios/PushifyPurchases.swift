@@ -128,10 +128,17 @@ final class PushifyPurchasesModule: RCTEventEmitter {
     }
 
     @objc func purchase(_ packageID: String,
+                        trialReminder rawReminder: NSDictionary?,
                         resolver resolve: @escaping RCTPromiseResolveBlock,
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
         perform(resolve, reject) { client in
-            switch try await client.purchase(packageID: packageID) {
+            let payload = rawReminder as? [String: Any]
+            let reminder: PushifyPaywallTrialReminder? = payload.flatMap { value in
+                guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
+                let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try? decoder.decode(PushifyPaywallTrialReminder.self, from: data)
+            }
+            switch try await client.purchase(packageID: packageID, trialReminder: reminder, title: payload?["title"] as? String, subtitle: payload?["subtitle"] as? String, body: payload?["body"] as? String) {
             case .purchased(let snapshot): return ["status": "purchased", "customerInfo": try self.encode(snapshot)]
             case .pending: return ["status": "pending"]
             case .cancelled: return ["status": "cancelled"]

@@ -1,7 +1,12 @@
 package app.pushify.sdk
 
 import android.app.Activity
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.security.keystore.KeyGenParameterSpec
@@ -55,6 +60,8 @@ public class PushifyPurchases(
     private val customerInfoListeners = CopyOnWriteArraySet<CustomerInfoListener>()
     private var pendingPurchaseCompletion: ((Result<PurchaseOutcome>) -> Unit)? = null
     private var pendingOffer: StorePackage? = null
+    private var pendingTrialReminder: JSONObject? = null
+    private var pendingFreeTrialOffer = false
     private val billing = BillingClient.newBuilder(appContext)
         .setListener(this)
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
@@ -291,7 +298,7 @@ public class PushifyPurchases(
     }
 
     /** Starts the native Google Play purchase sheet for the package selected from [offerings]. */
-    public fun purchase(activity: Activity, packageId: String, completion: (Result<PurchaseOutcome>) -> Unit) {
+    public fun purchase(activity: Activity, packageId: String, trialReminder: JSONObject? = null, completion: (Result<PurchaseOutcome>) -> Unit) {
         if (pendingPurchaseCompletion != null) {
             completion(Result.failure(error("purchase_in_progress", "A purchase is already in progress.", false)))
             return
@@ -308,6 +315,10 @@ public class PushifyPurchases(
                     completion(Result.failure(error("offer_unavailable", "The selected Google Play subscription plan is not available.", false)))
                     return@fold
                 }
+                val selectedOffer = details.subscriptionOfferDetails.orEmpty().firstOrNull { it.offerToken == offerToken }
+                val phases = selectedOffer?.pricingPhases?.pricingPhaseList.orEmpty()
+                pendingFreeTrialOffer = phases.size > 1 && phases.first().priceAmountMicros == 0L && phases.first().billingCycleCount > 0 && phases.drop(1).any { it.priceAmountMicros > 0L }
+                pendingTrialReminder = trialReminder?.let { JSONObject(it.toString()) }
                 pendingOffer = storePackage
                 pendingPurchaseCompletion = completion
                 val productParams = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(details)
@@ -318,6 +329,8 @@ public class PushifyPurchases(
                     val callback = pendingPurchaseCompletion
                     pendingPurchaseCompletion = null
                     pendingOffer = null
+                    pendingTrialReminder = null
+                    pendingFreeTrialOffer = false
                     callback?.let { post(it, Result.failure(error("billing_flow_failed", launch.debugMessage, launch.responseCode == BillingClient.BillingResponseCode.SERVICE_DISCONNECTED))) }
                 }
             }, onFailure = { completion(Result.failure(it)) }) }
@@ -411,6 +424,8 @@ public class PushifyPurchases(
         val completion = pendingPurchaseCompletion
         pendingPurchaseCompletion = null
         pendingOffer = null
+        pendingTrialReminder = null
+        pendingFreeTrialOffer = false
         completion?.let { post(it, result) }
     }
 
@@ -419,10 +434,14 @@ public class PushifyPurchases(
             val finish: (Result<JSONObject>) -> Unit = { refreshed ->
                 refreshed.fold(onSuccess = { snapshot ->
                     publishSnapshot(snapshot)
+                    items.firstOrNull { candidate -> pendingOffer?.productId?.let(candidate.products::contains) == true }?.let { scheduleTrialReminderIfEligible(it, snapshot) }
                     completePurchase(Result.success(PurchaseOutcome.Purchased(snapshot)))
                 }, onFailure = { failure ->
                     val snapshot = latest
-                    if (snapshot != null) completePurchase(Result.success(PurchaseOutcome.Purchased(snapshot)))
+                    if (snapshot != null) {
+                        items.firstOrNull { candidate -> pendingOffer?.productId?.let(candidate.products::contains) == true }?.let { scheduleTrialReminderIfEligible(it, snapshot) }
+                        completePurchase(Result.success(PurchaseOutcome.Purchased(snapshot)))
+                    }
                     else completePurchase(Result.failure(failure))
                 })
             }
@@ -436,6 +455,33 @@ public class PushifyPurchases(
                 onFailure = { failure -> completePurchase(Result.failure(failure)) },
             )
         }
+    }
+
+    private fun scheduleTrialReminderIfEligible(purchase: Purchase, snapshot: JSONObject) {
+        val reminder = pendingTrialReminder ?: return
+        if (!pendingFreeTrialOffer || purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return
+        val productId = pendingOffer?.productId ?: return
+        val entitlements = snapshot.optJSONObject("entitlements")?.optJSONArray("active") ?: return
+        val expiryText = (0 until entitlements.length()).mapNotNull { entitlements.optJSONObject(it) }
+            .firstOrNull { it.optString("product_id") == productId }?.optString("expires_at")?.takeIf(String::isNotBlank) ?: return
+        val expiry = runCatching { java.time.Instant.parse(expiryText) }.getOrNull() ?: return
+        val days = reminder.optInt("days_before", -1)
+        val hours = reminder.optInt("hours_before", -1)
+        if (days !in 0..60 || hours !in 0..23) return
+        val fireAt = expiry.toEpochMilli() - (days.toLong() * 86_400_000L + hours.toLong() * 3_600_000L)
+        if (fireAt <= System.currentTimeMillis()) return
+        if (Build.VERSION.SDK_INT >= 33 && appContext.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val title = reminder.optString("title").takeIf(String::isNotBlank) ?: return
+        val body = reminder.optString("body").takeIf(String::isNotBlank) ?: return
+        val intent = Intent(appContext, TrialReminderReceiver::class.java)
+            .putExtra(TrialReminderReceiver.EXTRA_TITLE, title)
+            .putExtra(TrialReminderReceiver.EXTRA_SUBTITLE, reminder.optString("subtitle"))
+            .putExtra(TrialReminderReceiver.EXTRA_BODY, body)
+            .putExtra(TrialReminderReceiver.EXTRA_NOTIFICATION_ID, purchase.purchaseToken.hashCode())
+        val requestCode = purchase.purchaseToken.hashCode()
+        val pendingIntent = PendingIntent.getBroadcast(appContext, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val alarm = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pendingIntent)
     }
 
     private fun syncOwnedPurchases(completion: (Result<JSONObject>) -> Unit) {

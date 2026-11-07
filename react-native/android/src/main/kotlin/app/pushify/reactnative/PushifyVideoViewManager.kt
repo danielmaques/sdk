@@ -30,7 +30,7 @@ internal class PushifyVideoViewManager : SimpleViewManager<PushifyNativeVideoVie
     @ReactProp(name = "muted", defaultBoolean = true) fun setMuted(view: PushifyNativeVideoView, value: Boolean) { view.muted = value }
     @ReactProp(name = "showControls") fun setShowControls(view: PushifyNativeVideoView, value: Boolean) { view.controls = value }
     @ReactProp(name = "fitMode") fun setFitMode(view: PushifyNativeVideoView, value: String?) { view.fitMode = value ?: "fill" }
-    @ReactProp(name = "accessibilityLabel") fun setAccessibilityLabel(view: PushifyNativeVideoView, value: String?) { view.accessibilityLabel = value ?: "Video" }
+    @ReactProp(name = "accessibilityLabel") override fun setAccessibilityLabel(view: PushifyNativeVideoView, value: String?) { view.accessibilityLabel = value ?: "Video" }
 
     override fun onDropViewInstance(view: PushifyNativeVideoView) {
         view.dispose()

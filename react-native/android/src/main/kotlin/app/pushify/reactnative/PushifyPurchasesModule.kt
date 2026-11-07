@@ -35,7 +35,7 @@ class PushifyPurchasesModule(context: ReactApplicationContext) : ReactContextBas
             (browser && scheme !in setOf("http", "https")) || ((browser || scheme in setOf("http", "https")) && uri.host.isNullOrBlank())) {
             promise.reject("invalid_link", "This link is unavailable."); return
         }
-        val activity = currentActivity
+        val activity = reactApplicationContext.currentActivity
         if (method == "in_app_browser" && activity == null) {
             promise.reject("activity_unavailable", "An activity is required to open the in-app browser."); return
         }
@@ -105,10 +105,11 @@ class PushifyPurchasesModule(context: ReactApplicationContext) : ReactContextBas
     }
 
     @ReactMethod
-    fun purchase(packageId: String, promise: Promise) {
+    fun purchase(packageId: String, trialReminder: ReadableMap?, promise: Promise) {
         val sdk = purchases ?: return promise.reject("not_configured", "Call configure before using Pushify purchases.")
-        val activity = currentActivity ?: return promise.reject("activity_unavailable", "Purchases require a foreground Android Activity.")
-        sdk.purchase(activity, packageId) { result ->
+        val activity = reactApplicationContext.currentActivity ?: return promise.reject("activity_unavailable", "Purchases require a foreground Android Activity.")
+        val reminder = trialReminder?.let { JSONObject(it.toHashMap()) }
+        sdk.purchase(activity, packageId, reminder) { result ->
             result.fold(onSuccess = { outcome ->
                 when (outcome) {
                     is PushifyPurchases.PurchaseOutcome.Purchased -> promise.resolve(Arguments.makeNativeMap(mapOf("status" to "purchased", "customerInfo" to toWritableMap(outcome.customer))))

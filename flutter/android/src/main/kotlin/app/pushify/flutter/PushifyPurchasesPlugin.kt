@@ -92,7 +92,8 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
     private fun purchase(call: MethodCall, result: MethodChannel.Result) {
         val sdk = purchases ?: return result.error("not_configured", "Call configure before purchasing.", null)
         val currentActivity = activity ?: return result.error("activity_unavailable", "Purchases require a foreground Android Activity.", null)
-        sdk.purchase(currentActivity, call.argument<String>("packageId").orEmpty()) { outcome ->
+        val reminder = call.argument<Map<String, Any?>>("trialReminder")?.let { JSONObject(it) }
+        sdk.purchase(currentActivity, call.argument<String>("packageId").orEmpty(), reminder) { outcome ->
             outcome.fold(onSuccess = { value ->
                 when (value) {
                     is PushifyPurchases.PurchaseOutcome.Purchased -> result.success(mapOf("status" to "purchased", "customerInfo" to toFlutter(value.customer)))

@@ -20,7 +20,11 @@ extension _PaywallActions on _PushifyPaywallState {
       _message = null;
     });
     try {
-      final result = await widget.purchases.purchase(productId);
+      final reminder = _trialReminderRequest(screen);
+      final result = await widget.purchases.purchase(
+        productId,
+        trialReminder: reminder,
+      );
       if (result.isPurchased && result.customerInfo != null) {
         widget.onPurchased?.call(result.customerInfo!);
         await _presentSurvey('post_purchase', screen);
@@ -41,6 +45,27 @@ extension _PaywallActions on _PushifyPaywallState {
     }
   }
 
+  Map<String, Object?>? _trialReminderRequest(
+    Map<String, Object?>? screen,
+  ) {
+    final reminder = _map(widget.document['trial_reminder']);
+    if (reminder.isEmpty || screen == null) return null;
+    final titleKey = reminder['title_lid'];
+    final subtitleKey = reminder['subtitle_lid'];
+    final bodyKey = reminder['body_lid'];
+    if (titleKey is! String || bodyKey is! String) return null;
+    final title = _localizedValue(titleKey, screen);
+    final body = _localizedValue(bodyKey, screen);
+    if (title == null || body == null) return null;
+    return {
+      ...reminder,
+      'title': title,
+      if (subtitleKey is String)
+        'subtitle': _localizedValue(subtitleKey, screen) ?? '',
+      'body': body,
+    };
+  }
+
   Future<void> _presentSurvey(
     String trigger,
     Map<String, Object?>? screen,
@@ -52,7 +77,7 @@ extension _PaywallActions on _PushifyPaywallState {
     final questionKey = survey['question_lid'];
     if (questionKey is! String) return;
     final question = _localizedValue(questionKey, screen) ?? 'Tell us what you think';
-    final answers = <String, String>[];
+    final answers = <String, String>{};
     for (final option in options) {
       final id = option['id'];
       final key = option['label_lid'];

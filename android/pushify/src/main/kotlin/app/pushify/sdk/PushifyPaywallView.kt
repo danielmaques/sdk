@@ -540,7 +540,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
         }
         val activity = context as? Activity ?: return
         busy = true
-        purchases.purchase(activity, productId) { result ->
+        val reminder = trialReminderRequest(screen)
+        purchases.purchase(activity, productId, reminder) { result ->
             busy = false
             result.onSuccess { outcome ->
                 when (outcome) {
@@ -554,6 +555,20 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 }
             }.onFailure { message = "Purchase could not be completed. Please try again."; render() }
         }
+    }
+
+    private fun trialReminderRequest(screen: JSONObject?): JSONObject? {
+        val reminder = document.optJSONObject("trial_reminder") ?: return null
+        if (screen == null) return null
+        val titleKey = reminder.optString("title_lid").takeIf(String::isNotBlank) ?: return null
+        val bodyKey = reminder.optString("body_lid").takeIf(String::isNotBlank) ?: return null
+        val title = localizedValue(titleKey, screen) ?: return null
+        val body = localizedValue(bodyKey, screen) ?: return null
+        val subtitleKey = reminder.optString("subtitle_lid").takeIf(String::isNotBlank)
+        return JSONObject(reminder.toString())
+            .put("title", title)
+            .put("body", body)
+            .put("subtitle", subtitleKey?.let { localizedValue(it, screen).orEmpty() }.orEmpty())
     }
 
     private fun runPurchaseOutcome(key: String, fallback: String, action: JSONObject, screen: JSONObject?) {

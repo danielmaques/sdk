@@ -39,6 +39,7 @@ RCT_EXTERN_METHOD(restorePurchases:(RCTPromiseResolveBlock)resolve
 RCT_EXTERN_METHOD(syncPurchases:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(purchase:(NSString *)packageID
+                  trialReminder:(NSDictionary *)trialReminder
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(logEvent:(NSString *)name

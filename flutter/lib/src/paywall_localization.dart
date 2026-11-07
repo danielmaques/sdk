@@ -38,6 +38,7 @@ extension _PaywallLocalization on _PushifyPaywallState {
     final locales = _map(widget.document['locales']);
     for (final locale in [
       widget.locale,
+      Localizations.maybeLocaleOf(context)?.toString(),
       widget.document['default_locale'] as String?,
       'en_US',
     ]) {

@@ -2,6 +2,7 @@ import Foundation
 import StoreKit
 import CryptoKit
 import Security
+import UserNotifications
 
 private struct PushifyErrorEnvelope: Decodable {
     struct Detail: Decodable { let code: String; let message: String; let retryable: Bool }
@@ -114,6 +115,15 @@ public struct PushifyPaywallDocument: Codable, Sendable {
     public let state: PushifyJSONValue?
     public let customVariables: [String: PushifyPaywallCustomVariable]?
     public let surveys: [String: PushifyPaywallSurvey]?
+    public let trialReminder: PushifyPaywallTrialReminder?
+}
+
+public struct PushifyPaywallTrialReminder: Codable, Sendable {
+    public let titleLid: String
+    public let subtitleLid: String?
+    public let bodyLid: String
+    public let daysBefore: Int
+    public let hoursBefore: Int
 }
 
 public struct PushifyPaywallSurvey: Codable, Sendable {
@@ -379,7 +389,7 @@ public actor PushifyPurchases {
     }
 
     /// Uses StoreKit's native purchase sheet and grants access only after Pushify verifies the signed transaction.
-    public func purchase(packageID: String) async throws -> PushifyPurchaseResult {
+    public func purchase(packageID: String, trialReminder: PushifyPaywallTrialReminder? = nil, title: String? = nil, subtitle: String? = nil, body: String? = nil) async throws -> PushifyPurchaseResult {
         let catalog = try await offerings()
         guard let package = catalog.offerings.flatMap(\.packages).first(where: { $0.id == packageID }) else { throw PushifyError.productUnavailable(packageID) }
         let products = try await Product.products(for: [package.product.productId])
@@ -389,6 +399,7 @@ public actor PushifyPurchases {
             guard case .verified(let transaction) = verification else { throw PushifyError.unverifiedTransaction }
             do {
                 let snapshot = try await sync(transaction, proof: verification.jwsRepresentation)
+                await scheduleTrialReminderIfEligible(product: product, transaction: transaction, snapshot: snapshot, reminder: trialReminder, title: title, subtitle: subtitle, body: body)
                 await transaction.finish()
                 save(snapshot)
                 return .purchased(snapshot)
@@ -403,6 +414,34 @@ public actor PushifyPurchases {
         @unknown default:
             throw PushifyError.invalidResponse
         }
+    }
+
+    private func scheduleTrialReminderIfEligible(product: Product, transaction: Transaction, snapshot: PushifyCustomerSnapshot, reminder: PushifyPaywallTrialReminder?, title: String?, subtitle: String?, body: String?) async {
+        guard let reminder, let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              product.subscription?.introductoryOffer?.paymentMode == .freeTrial,
+              transaction.offerType == .introductory,
+              transaction.offerPaymentModeStringRepresentation?.replacingOccurrences(of: "_", with: "").lowercased() == "freetrial",
+              let storeExpiry = transaction.expirationDate,
+              let verifiedExpiry = snapshot.entitlements.active.first(where: { $0.productId == transaction.productID })?.expiresAt,
+              abs(storeExpiry.timeIntervalSince(verifiedExpiry)) < 5 else { return }
+
+        let fireDate = storeExpiry.addingTimeInterval(-Double(reminder.daysBefore * 86_400 + reminder.hoursBefore * 3_600))
+        guard fireDate > Date() else { return }
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional || settings.authorizationStatus == .ephemeral else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        if let subtitle, !subtitle.isEmpty { content.subtitle = subtitle }
+        let request = UNNotificationRequest(
+            identifier: "pushify.trial-reminder.\(transaction.id)",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: fireDate.timeIntervalSinceNow, repeats: false)
+        )
+        try? await center.add(request)
     }
 
     public func restorePurchases() async throws -> PushifyCustomerSnapshot {

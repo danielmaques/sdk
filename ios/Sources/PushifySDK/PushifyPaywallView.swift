@@ -368,7 +368,11 @@ public struct PushifyPaywallView: View {
         Task {
             defer { busy = false }
             do {
-                switch try await purchases.purchase(packageID: productID) {
+                let reminder = document.trialReminder
+                let title = reminder.map { surveyText($0.titleLid, localizations: screen?.localizations ?? [:]) }
+                let subtitle = reminder?.subtitleLid.map { surveyText($0, localizations: screen?.localizations ?? [:]) }
+                let body = reminder.map { surveyText($0.bodyLid, localizations: screen?.localizations ?? [:]) }
+                switch try await purchases.purchase(packageID: productID, trialReminder: reminder, title: title, subtitle: subtitle, body: body) {
                 case .purchased:
                     if let screen { await presentSurvey("post_purchase", screen: screen) }
                     await runPurchaseOutcome("after_purchase", fallback: "close", action: action, screen: screen)
