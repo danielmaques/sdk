@@ -268,7 +268,7 @@ extension _PaywallActions on _PushifyPaywallState {
       if (index > 0) {
         _update(() => _screenId = _screens[index - 1]['id'] as String);
       } else {
-        widget.onClose?.call();
+        await _dismissManually();
       }
       return;
     }
@@ -315,7 +315,7 @@ extension _PaywallActions on _PushifyPaywallState {
       return;
     }
     if (kind == 'close' || kind == 'close_workflow') {
-      widget.onClose?.call();
+      await _dismissManually();
       return;
     }
     if (kind == 'purchase' ||

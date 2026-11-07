@@ -14,6 +14,7 @@ public struct PushifyPaywallView: View {
     private let purchases: PushifyPurchases
     private let onDismiss: (() -> Void)?
     private let onCustomAction: ((String) -> Void)?
+    private let isExitOffer: Bool
     @State private var selectedPackageID: String
     @State private var screenID: String
     @State private var busy = false
@@ -23,6 +24,8 @@ public struct PushifyPaywallView: View {
     @State private var carouselPages: [String: Int] = [:]
     @State private var failedExperienceIDs: Set<String> = []
     @State private var variables: [String: PushifyJSONValue]
+    @State private var exitOffering: PushifyOfferings.Offering?
+    @State private var dismissing = false
 
     public init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)? = nil, onCustomAction: ((String) -> Void)? = nil) {
         self.document = document
@@ -30,6 +33,22 @@ public struct PushifyPaywallView: View {
         self.purchases = purchases
         self.onDismiss = onDismiss
         self.onCustomAction = onCustomAction
+        self.isExitOffer = false
+        let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
+        let defaultPackage = Self.packageNodes(entryScreen?.content)
+            .first(where: { Self.bool($0.properties["is_selected_by_default"]) })
+        _selectedPackageID = State(initialValue: Self.string(defaultPackage?.properties["package_id"]) ?? offering.packages.first?.id ?? "")
+        _screenID = State(initialValue: entryScreen?.id ?? "")
+        _variables = State(initialValue: document.customVariables?.mapValues(\.initialValue) ?? [:])
+    }
+
+    private init(document: PushifyPaywallDocument, offering: PushifyOfferings.Offering, purchases: PushifyPurchases, onDismiss: (() -> Void)?, onCustomAction: ((String) -> Void)?, isExitOffer: Bool) {
+        self.document = document
+        self.offering = offering
+        self.purchases = purchases
+        self.onDismiss = onDismiss
+        self.onCustomAction = onCustomAction
+        self.isExitOffer = isExitOffer
         let entryScreen = document.screens.first(where: { $0.id == document.initialScreenID }) ?? document.screens.first
         let defaultPackage = Self.packageNodes(entryScreen?.content)
             .first(where: { Self.bool($0.properties["is_selected_by_default"]) })
@@ -40,12 +59,14 @@ public struct PushifyPaywallView: View {
 
     public var body: some View {
         Group {
-            if let screen = document.screens.first(where: { $0.id == screenID }) ?? document.screens.first {
+            if let exitOffering, let exitDocument = exitOffering.paywall {
+                AnyView(PushifyPaywallView(document: exitDocument, offering: exitOffering, purchases: purchases, onDismiss: onDismiss, onCustomAction: onCustomAction, isExitOffer: true))
+            } else if let screen = document.screens.first(where: { $0.id == screenID }) ?? document.screens.first {
                 VStack(spacing: 0) {
                     if onDismiss != nil {
                         HStack {
                             Spacer()
-                            Button(action: { onDismiss?() }) {
+                            Button(action: { Task { await dismissManually() } }) {
                                 Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 44, height: 44)
                             }
                             .accessibilityLabel("Close paywall")
@@ -64,6 +85,28 @@ public struct PushifyPaywallView: View {
         }
         .sheet(item: $inAppBrowserLink) { link in PushifySafariView(url: link.url).ignoresSafeArea() }
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
+    }
+
+    private func dismissManually() async {
+        guard !dismissing else { return }
+        if isExitOffer { onDismiss?(); return }
+        let index = document.screens.firstIndex(where: { $0.id == screenID })
+        guard let index, index == document.screens.count - 1,
+              let exit = object(document.exitOffer),
+              let dismiss = object(exit["dismiss"]),
+              let destinationID = string(dismiss["offering_id"]),
+              destinationID != offering.id else { onDismiss?(); return }
+        dismissing = true
+        defer { dismissing = false }
+        do {
+            let catalog = try await purchases.offerings()
+            guard let destination = catalog.offerings.first(where: { $0.id == destinationID && $0.paywall != nil }),
+                  destination.paywall != nil else { onDismiss?(); return }
+            _ = try? await purchases.logEvent("PAYWALL_EXIT_OFFER", properties: ["type": "dismiss", "offering_id": destinationID, "paywall_id": document.id])
+            exitOffering = destination
+        } catch {
+            onDismiss?()
+        }
     }
 
     private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> AnyView {
@@ -338,7 +381,7 @@ public struct PushifyPaywallView: View {
             onCustomAction(name.trimmingCharacters(in: .whitespacesAndNewlines))
         case "navigate_back":
             if let index = document.screens.firstIndex(where: { $0.id == screenID }), index > 0 { screenID = document.screens[index - 1].id }
-            else { onDismiss?() }
+            else { Task { await dismissManually() } }
         case "workflow":
             if case .array(let routes)? = action["routes"], let route = routes.compactMap({ object($0) }).first(where: { matchesRoute($0) }),
                let target = string(route["screen_id"]), document.screens.contains(where: { $0.id == target }) {
@@ -350,7 +393,7 @@ public struct PushifyPaywallView: View {
             } else {
                 message = "This flow has no next screen."
             }
-        case "close", "close_workflow": onDismiss?()
+        case "close", "close_workflow": Task { await dismissManually() }
         case "purchase", "purchase_with_outcome", "purchase_product": buySelected(packageID: string(action["package_id"]), action: action, screen: screen)
         default:
             if let next = string(node.properties["next_screen_id"]), document.screens.contains(where: { $0.id == next }) { screenID = next }

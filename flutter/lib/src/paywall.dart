@@ -23,6 +23,7 @@ class PushifyPaywall extends StatefulWidget {
     this.onClose,
     this.onPurchased,
     this.onCustomAction,
+    this._isExitOffer = false,
     super.key,
   });
 
@@ -33,6 +34,7 @@ class PushifyPaywall extends StatefulWidget {
   final VoidCallback? onClose;
   final ValueChanged<Map<String, Object?>>? onPurchased;
   final ValueChanged<String>? onCustomAction;
+  final bool _isExitOffer;
 
   @override
   State<PushifyPaywall> createState() => _PushifyPaywallState();
@@ -50,6 +52,8 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, PageController> _carouselControllers = {};
   final Map<String, String> _selectedTabs = {};
   final Map<String, Object?> _variables = {};
+  Map<String, Object?>? _exitOffering;
+  bool _dismissing = false;
 
   void _update(VoidCallback callback) => setState(callback);
 
@@ -92,6 +96,19 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
 
   @override
   Widget build(BuildContext context) {
+    if (_exitOffering case final exitOffering?) {
+      final document = _map(exitOffering['paywall']);
+      return PushifyPaywall(
+        document: document,
+        offering: exitOffering,
+        purchases: widget.purchases,
+        locale: widget.locale,
+        onClose: widget.onClose,
+        onPurchased: widget.onPurchased,
+        onCustomAction: widget.onCustomAction,
+        _isExitOffer: true,
+      );
+    }
     final matches = _screens.where((item) => item['id'] == _screenId);
     final screen = matches.isEmpty
         ? (_screens.isEmpty ? null : _screens.first)
@@ -111,7 +128,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: IconButton(
-                    onPressed: close,
+                    onPressed: _dismissManually,
                     tooltip: 'Close paywall',
                     icon: const Icon(Icons.close),
                   ),
@@ -133,5 +150,49 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
         ),
       ),
     );
+  }
+
+  Future<void> _dismissManually() async {
+    if (_dismissing) return;
+    _dismissing = true;
+    if (widget._isExitOffer) {
+      widget.onClose?.call();
+      return;
+    }
+    final index = _screens.indexWhere((screen) => screen['id'] == _screenId);
+    final exit = _map(_map(widget.document['exit_offer'])['dismiss']);
+    final offeringId = exit['offering_id'] as String?;
+    if (index >= 0 &&
+        index == _screens.length - 1 &&
+        offeringId != null &&
+        offeringId != widget.offering['id']) {
+      try {
+        final catalog = await widget.purchases.offerings();
+        final offerings = _maps(catalog['offerings']);
+        final matches = offerings.where(
+          (offering) =>
+              offering['id'] == offeringId && offering['paywall'] is Map,
+        );
+        if (matches.isNotEmpty) {
+          final target = matches.first;
+          unawaited(
+            widget.purchases.logEvent(
+              'PAYWALL_EXIT_OFFER',
+              properties: {
+                'type': 'dismiss',
+                'offering_id': offeringId,
+                'paywall_id': widget.document['id'],
+              },
+            ).catchError((_) => 0),
+          );
+          if (mounted) setState(() => _exitOffering = target);
+          return;
+        }
+      } catch (_) {
+        // If the destination is unavailable, dismissal must still complete.
+      }
+    }
+    _dismissing = false;
+    widget.onClose?.call();
   }
 }

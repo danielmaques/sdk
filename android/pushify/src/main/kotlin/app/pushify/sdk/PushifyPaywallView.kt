@@ -38,36 +38,50 @@ import java.util.concurrent.Executors
 /** Native Android renderer for the core Pushify paywall component set. */
 public class PushifyPaywallView @JvmOverloads constructor(
     context: Context,
-    private val document: JSONObject,
-    private val offering: JSONObject,
+    private var document: JSONObject,
+    private var offering: JSONObject,
     private val purchases: PushifyPurchases,
     private val onDismiss: (() -> Unit)? = null,
     private val onCustomAction: ((String) -> Unit)? = null,
 ) : ScrollView(context) {
     private val main = Handler(Looper.getMainLooper())
     private val imageExecutor = Executors.newFixedThreadPool(2)
-    private val packages = offering.optJSONArray("packages") ?: JSONArray()
-    private val entryScreen = (0 until (document.optJSONArray("screens")?.length() ?: 0))
-        .mapNotNull { document.optJSONArray("screens")?.optJSONObject(it) }
-        .firstOrNull { it.optString("id") == document.optString("initial_screen_id") }
-        ?: document.optJSONArray("screens")?.optJSONObject(0)
-    private var selectedPackageId: String = findDefault(entryScreen?.optJSONObject("content"))
-        ?: packages.optJSONObject(0)?.optString("id").orEmpty()
-    private var activeScreenId: String = entryScreen?.optString("id").orEmpty()
-    private val strings = document.optJSONObject("locales") ?: JSONObject()
-    private val variableDeclarations = document.optJSONObject("custom_variables") ?: JSONObject()
-    private val variables = JSONObject().apply {
-        val keys = variableDeclarations.keys()
-        while (keys.hasNext()) { val key = keys.next(); put(key, variableDeclarations.optJSONObject(key)?.opt("initial_value")) }
-    }
-    private val screens = document.optJSONArray("screens") ?: JSONArray()
+    private var packages = JSONArray()
+    private var selectedPackageId = ""
+    private var activeScreenId = ""
+    private var strings = JSONObject()
+    private var variableDeclarations = JSONObject()
+    private val variables = JSONObject()
+    private var screens = JSONArray()
+    private var showingExitOffer = false
+    private var dismissing = false
     private var busy = false
     private var message: String? = null
 
     init {
         isFillViewport = true
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        loadDocumentState()
         render()
+    }
+
+    private fun loadDocumentState() {
+        packages = offering.optJSONArray("packages") ?: JSONArray()
+        screens = document.optJSONArray("screens") ?: JSONArray()
+        val entry = (0 until screens.length()).mapNotNull(screens::optJSONObject)
+            .firstOrNull { it.optString("id") == document.optString("initial_screen_id") }
+            ?: screens.optJSONObject(0)
+        activeScreenId = entry?.optString("id").orEmpty()
+        selectedPackageId = findDefault(entry?.optJSONObject("content"))
+            ?: packages.optJSONObject(0)?.optString("id").orEmpty()
+        strings = document.optJSONObject("locales") ?: JSONObject()
+        variableDeclarations = document.optJSONObject("custom_variables") ?: JSONObject()
+        variables.keys().asSequence().toList().forEach { key -> variables.remove(key) }
+        val keys = variableDeclarations.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            variables.put(key, variableDeclarations.optJSONObject(key)?.opt("initial_value"))
+        }
     }
 
     private fun render() {
@@ -80,15 +94,48 @@ public class PushifyPaywallView @JvmOverloads constructor(
             gravity = Gravity.CENTER_HORIZONTAL
             setBackgroundColor(backgroundColor(screen.optJSONObject("background")))
         }
-        onDismiss?.let { close ->
+        onDismiss?.let {
             val row = LinearLayout(context).apply { gravity = Gravity.END }
-            row.addView(Button(context).apply { text = "Close"; contentDescription = "Close paywall"; setOnClickListener { close() } }, lp(WRAP, dp(48)))
+            row.addView(Button(context).apply { text = "Close"; contentDescription = "Close paywall"; setOnClickListener { dismissManually() } }, lp(WRAP, dp(48)))
             root.addView(row, lp(MATCH, WRAP))
         }
         screen.optJSONObject("content")?.let { root.addView(renderNode(it, screen), lp(MATCH, 0, 1f)) }
         screen.optJSONObject("footer")?.let { root.addView(renderNode(it, screen), lp(MATCH, WRAP)) }
         message?.let { status -> root.addView(TextView(context).apply { text = status; gravity = Gravity.CENTER; contentDescription = status }, lp(MATCH, WRAP)) }
         addView(root, LayoutParams(MATCH, MATCH))
+    }
+
+    private fun dismissManually() {
+        if (dismissing) return
+        if (showingExitOffer) { onDismiss?.invoke(); return }
+        val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == activeScreenId }
+        val dismiss = document.optJSONObject("exit_offer")?.optJSONObject("dismiss")
+        val destinationId = dismiss?.optString("offering_id").orEmpty()
+        if (index >= 0 && index == screens.length() - 1 && destinationId.isNotBlank() && destinationId != offering.optString("id")) {
+            dismissing = true
+            purchases.offerings { result -> main.post {
+                dismissing = false
+                val catalog = result.getOrNull()
+                val available = catalog?.optJSONArray("offerings")
+                val destination = (0 until (available?.length() ?: 0))
+                    .mapNotNull { available?.optJSONObject(it) }
+                    .firstOrNull { it.optString("id") == destinationId && it.optJSONObject("paywall") != null }
+                if (destination != null) {
+                    val event = JSONObject()
+                        .put("type", "dismiss")
+                        .put("offering_id", destinationId)
+                        .put("paywall_id", document.optString("id"))
+                    purchases.logEvent("PAYWALL_EXIT_OFFER", event) {}
+                    document = destination.optJSONObject("paywall")!!
+                    offering = destination
+                    showingExitOffer = true
+                    loadDocumentState()
+                    render()
+                } else onDismiss?.invoke()
+            } }
+            return
+        }
+        onDismiss?.invoke()
     }
 
     private fun renderNode(node: JSONObject, screen: JSONObject): View {
@@ -547,7 +594,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             "navigate_back" -> {
                 val index = (0 until screens.length()).indexOfFirst { screens.optJSONObject(it)?.optString("id") == activeScreenId }
                 if (index > 0) { activeScreenId = screens.optJSONObject(index - 1)?.optString("id").orEmpty(); render() }
-                else onDismiss?.invoke()
+                else dismissManually()
             }
             "workflow" -> {
                 val routes = action.optJSONArray("routes")
@@ -579,7 +626,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 }
                 render()
             }
-            "close", "close_workflow" -> onDismiss?.invoke()
+            "close", "close_workflow" -> dismissManually()
             "purchase", "purchase_with_outcome", "purchase_product" -> purchaseSelected(action.optString("package_id").takeIf(String::isNotBlank), action, screen)
             else -> {
                 val next = properties.optString("next_screen_id")

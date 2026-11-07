@@ -15,6 +15,11 @@ export type PushifyPaywallProps = {
   onCustomAction?: (name: string) => void | Promise<void>;
 };
 
+type PaywallRendererProps = Omit<PushifyPaywallProps, 'onClose'> & {
+  onClose?: (screenId?: string) => void;
+  onPurchaseClose?: () => void;
+};
+
 type PushifyNativeVideoProps = {
   videoUrl?: string;
   posterUrl?: string;
@@ -31,6 +36,58 @@ const NativePushifyVideo = requireNativeComponent<PushifyNativeVideoProps>('Push
 
 /** Accessible renderer for the core Pushify paywall document components. */
 export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactElement {
+  const [exitOffering, setExitOffering] = useState<PushifyOfferings['offerings'][number] | null>(null);
+  const [availableExitOffering, setAvailableExitOffering] = useState<PushifyOfferings['offerings'][number] | null>(null);
+  const closing = useRef(false);
+  useEffect(() => {
+    setExitOffering(null); setAvailableExitOffering(null); closing.current = false;
+    const exit = record(record(props.document.exit_offer).dismiss);
+    const exitOfferingID = text(exit.offering_id);
+    if (!exitOfferingID || exitOfferingID === props.offering.id) return;
+    let current = true;
+    void props.purchases.offerings().then((catalog) => {
+      if (current) setAvailableExitOffering(catalog.offerings.find((candidate) => candidate.id === exitOfferingID && candidate.paywall) ?? null);
+    }).catch(() => { if (current) setAvailableExitOffering(null); });
+    return () => { current = false; };
+  }, [props.document.id, props.document.revision, props.offering.id, props.purchases]);
+
+  async function closeManually(screenId?: string): Promise<void> {
+    if (closing.current) return;
+    closing.current = true;
+    if (exitOffering) { props.onClose?.(); return; }
+    const screens = props.document.screens;
+    const screenIndex = screens.findIndex((candidate) => candidate.id === screenId);
+    const exit = record(record(props.document.exit_offer).dismiss);
+    const exitOfferingID = text(exit.offering_id);
+    if (screenIndex >= 0 && screenIndex === screens.length - 1 && exitOfferingID && exitOfferingID !== props.offering.id) {
+      try {
+        const catalog = availableExitOffering ? null : await props.purchases.offerings();
+        const target = availableExitOffering ?? catalog?.offerings.find((candidate) => candidate.id === exitOfferingID && candidate.paywall);
+        if (target?.paywall) {
+          void props.purchases.logEvent('PAYWALL_EXIT_OFFER', { type: 'dismiss', offering_id: target.id, paywall_id: props.document.id }).catch(() => undefined);
+          closing.current = false;
+          setExitOffering(target);
+          return;
+        }
+      } catch { /* An unavailable exit offer must not trap the customer on the original paywall. */ }
+    }
+    closing.current = false;
+    props.onClose?.();
+  }
+
+  const document = exitOffering?.paywall ?? props.document;
+  const offering = exitOffering ?? props.offering;
+  return React.createElement(PaywallRenderer, {
+    key: `${document.id}-${document.revision}-${offering.id}`,
+    ...props,
+    document,
+    offering,
+    onClose: (screenId?: string) => { void closeManually(screenId); },
+    onPurchaseClose: props.onClose,
+  });
+}
+
+function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const firstScreen = props.document.screens.find((candidate) => candidate.id === props.document.initial_screen_id) ?? props.document.screens[0];
   const packages = props.offering.packages;
   const colorScheme = useColorScheme();
@@ -94,11 +151,11 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     const outcome = record(action[key]);
     const kind = text(outcome.type) ?? fallback;
     if (kind === 'none') return;
-    if (kind === 'close') { props.onClose?.(); return; }
+    if (kind === 'close') { props.onPurchaseClose?.(); return; }
     const index = props.document.screens.findIndex((candidate) => candidate.id === sourceScreen?.id);
     if (kind === 'navigate_back') {
       if (index > 0) setScreenID(props.document.screens[index - 1]!.id);
-      else props.onClose?.();
+      else props.onPurchaseClose?.();
     } else if (kind === 'workflow') {
       const nextScreen = index >= 0 ? props.document.screens[index + 1] : undefined;
       if (nextScreen) setScreenID(nextScreen.id);
@@ -209,7 +266,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     if (kind === 'navigate_back') {
       const index = props.document.screens.findIndex((candidate) => candidate.id === screen?.id);
       if (index > 0) setScreenID(props.document.screens[index - 1]!.id);
-      else props.onClose?.();
+      else props.onClose?.(screen?.id);
       return;
     }
     if (kind === 'workflow') {
@@ -237,7 +294,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     const next = text(node.properties.next_screen_id);
     if (next && props.document.screens.some((candidate) => candidate.id === next)) { setScreenID(next); return; }
     if (kind === 'purchase' || kind === 'purchase_with_outcome' || kind === 'purchase_product' || node.kind === 'purchase_button') { await purchase(text(action.package_id) ?? undefined, action, screen); return; }
-    if (kind === 'close' || kind === 'close_workflow') { props.onClose?.(); return; }
+    if (kind === 'close' || kind === 'close_workflow') { props.onClose?.(screen?.id); return; }
     setMessage('This button action is not supported by this SDK version.');
   }
 
@@ -376,7 +433,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
   const light = record(record(background.value).light);
   const backgroundColor = text(light.value) ?? '#ffffff';
   return React.createElement(View, { style: [styles.root, { backgroundColor }] },
-    props.onClose ? React.createElement(View, { style: styles.closeRow }, React.createElement(Pressable, { onPress: props.onClose, accessibilityRole: 'button', accessibilityLabel: 'Close paywall', hitSlop: 12 }, React.createElement(Text, { style: styles.close }, '×'))) : null,
+    props.onClose ? React.createElement(View, { style: styles.closeRow }, React.createElement(Pressable, { onPress: () => props.onClose?.(screen?.id), accessibilityRole: 'button', accessibilityLabel: 'Close paywall', hitSlop: 12 }, React.createElement(Text, { style: styles.close }, '×'))) : null,
     React.createElement(ScrollView, { contentContainerStyle: styles.content }, screen.content ? renderNode(screen.content) : null),
     screen.footer ? renderNode(screen.footer) : null,
     message ? React.createElement(Text, { accessibilityLiveRegion: 'polite', style: styles.message }, message) : null,
