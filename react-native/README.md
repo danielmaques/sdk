@@ -2,12 +2,13 @@
 
 The React Native package exposes native StoreKit 2 and Google Play Billing through first-party iOS/Android modules. It implements customer bootstrap/identity, attributes, offerings, purchase and restore, verified transaction sync, encrypted customer snapshots, update events, app events, virtual-currency spends and acquisition links.
 
-> **Implementation status:** StoreKit and Play Billing clients expose published `pushify.paywall/v1` and conditional `pushify.paywall/v2` data, Customer Center configuration, common store-management actions, and support ticket intake. The React Native paywall renderer honors a non-first `initial_screen_id`, evaluates ordered State-variable routes on Continue with a linear fallback, and handles ordered `workflow` screen navigation, configurable close/back/next outcomes for purchase success or store cancellation, localized links in native in-app browsers, the system URL handler and safe deep links (including Terms and Privacy), explicit package purchase actions, State/attribute/URL outcome chains, core controls, icons, timelines, carousels, tabs, countdowns and native video views. TypeScript and the Android core SDK compile; React Native host builds and device playback/failure journeys remain unverified. Editor styling/localization parity, web view, and complete Customer Center action coverage remain outstanding. Store sandbox journeys and release validation remain outstanding. The package is not production-ready and has not been published to npm.
+> **Implementation status:** StoreKit and Play Billing clients expose published `pushify.paywall/v1` and conditional `pushify.paywall/v2` data, Customer Center configuration, common store-management actions, and support ticket intake. The React Native paywall renderer honors a non-first `initial_screen_id`, evaluates ordered State-variable routes on Continue with a linear fallback, and handles ordered `workflow` screen navigation, configurable close/back/next outcomes for purchase success or store cancellation, localized links in native in-app browsers, the system URL handler and safe deep links (including Terms and Privacy), explicit package purchase actions, State/attribute/URL outcome chains, core controls, icons, timelines, carousels, tabs, countdowns, native video and Lottie views. Lottie requires the host app to install `lottie-react-native` 7.3.4 and rebuild its native targets. React Native host builds and device playback/failure journeys remain unverified. Editor styling/localization parity, web view, and complete Customer Center action coverage remain outstanding. Store sandbox journeys and release validation remain outstanding. The package is not production-ready and has not been published to npm.
 
 ## Requirements
 
 - React 18 or newer.
 - React Native 0.74 or newer.
+- `lottie-react-native` 7.3.4 (required when a paywall contains Lottie animations).
 - iOS 15 or newer / Android API 23 or newer for the included native module.
 - A Pushify **public app key**.
 - App Links / Universal Links or a URL scheme configured by the host app.
@@ -25,6 +26,8 @@ The npm package is not released yet. During development, add the local package t
 ```
 
 Install dependencies, run CocoaPods installation for iOS (for example, `npx pod-install`), and rebuild the native app. The package includes a React Native native module for reading deferred tokens. If your React Native setup does not autolink this local package, register `PushifyPurchasesPackage` in your Android host application according to your app's native package-registration pattern.
+
+For Lottie paywalls, install `lottie-react-native@7.3.4` in the host app as well. Autolinking adds its iOS and Android runtime dependencies; run CocoaPods and rebuild both native targets after installing it.
 
 The host app is responsible for OS link association files, entitlements, intent filters and route handling.
 

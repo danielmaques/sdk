@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Alert, Animated, Easing, Image, Modal, NativeModules, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
+import LottieView from 'lottie-react-native';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -126,6 +127,22 @@ function PaywallPicker({ options, selected, label, onSelect }: { options: Array<
 
 type MotionValues = { enabled?: boolean; x?: number; y?: number; rotation?: number; scale?: number; opacity?: number; duration_ms?: number; delay_ms?: number; easing?: string };
 type AccessibilityValues = { label?: string; role?: string; hidden?: boolean };
+
+function PaywallLottie({ url, label, height, fit, autoPlay, loop }: { url: string; label: string; height: number; fit: 'fit' | 'fill'; autoPlay: boolean; loop: boolean }): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => { if (mounted) setReducedMotion(enabled); }).catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
+    return () => { mounted = false; subscription.remove(); };
+  }, []);
+  useEffect(() => setFailed(false), [url]);
+  return React.createElement(View, { style: { width: '100%', height, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }, accessibilityRole: 'image', accessibilityLabel: failed ? `${label} unavailable` : label },
+    !url.startsWith('https://') || failed
+      ? React.createElement(Text, { accessibilityElementsHidden: true }, 'Animation unavailable')
+      : React.createElement(LottieView as unknown as React.ComponentType<any>, { source: { uri: url }, autoPlay: autoPlay && !reducedMotion, progress: autoPlay && !reducedMotion ? undefined : 0, loop, resizeMode: fit === 'fill' ? 'cover' : 'contain', onAnimationFailure: () => setFailed(true), style: { width: '100%', height: '100%' } }));
+}
 
 function MotionNode({ children, motion, accessibility }: { children: React.ReactNode; motion: MotionValues; accessibility: AccessibilityValues }): React.ReactElement {
   const active = motion.enabled === true;
@@ -973,6 +990,11 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           accessibilityLabel: text(node.properties.accessibility_label) ?? 'Video',
           style,
         });
+      }
+      case 'lottie': {
+        const size = record(node.properties.size);
+        const height = record(size.height);
+        return React.createElement(PaywallLottie, { key: node.id ?? 'lottie', url: text(node.properties.url) ?? '', label: text(node.properties.accessibility_label) ?? 'Animation', height: height.type === 'fixed' ? Math.max(1, number(height.value) ?? 180) : 180, fit: node.properties.fit_mode === 'fill' ? 'fill' : 'fit', autoPlay: node.properties.auto_play !== false, loop: node.properties.loop !== false });
       }
       case 'icon': {
         const name = text(node.properties.icon_name) ?? '★';

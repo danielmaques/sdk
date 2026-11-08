@@ -22,8 +22,11 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
+import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.browser.customtabs.CustomTabsIntent
+import com.airbnb.lottie.LottieAnimationView
+import com.airbnb.lottie.LottieDrawable
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -454,6 +457,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             "spacer" -> View(context).apply { layoutParams = lp(MATCH, dp(properties.optDouble("size", 8.0).toInt())) }
             "image" -> imageView(properties)
             "video" -> videoView(properties)
+            "lottie" -> lottieView(properties)
             "icon" -> TextView(context).apply {
                 text = iconGlyph(properties.optString("icon_name"))
                 textSize = properties.optDouble("size", 24.0).toFloat().coerceIn(12f, 64f)
@@ -757,6 +761,36 @@ public class PushifyPaywallView @JvmOverloads constructor(
             override fun onViewDetachedFromWindow(view: View) { video.stopPlayback(); released = true }
         })
         return frame
+    }
+
+    private fun lottieView(properties: JSONObject): View {
+        val url = properties.optString("url")
+        val height = properties.optJSONObject("size")?.optJSONObject("height")?.optDouble("value", 180.0)?.toInt()?.coerceIn(1, 2000) ?: 180
+        val label = properties.optString("accessibility_label", "Animation")
+        if (!url.startsWith("https://")) return TextView(context).apply {
+            text = "Animation unavailable"
+            contentDescription = "$label unavailable"
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = lp(MATCH, dp(height))
+        }
+        return LottieAnimationView(context).apply {
+            contentDescription = label
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            scaleType = if (properties.optString("fit_mode") == "fill") ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+            repeatCount = if (properties.optBoolean("loop", true)) LottieDrawable.INFINITE else 0
+            setFailureListener {
+                main.post {
+                    contentDescription = "$label unavailable"
+                    val fallback = TextView(context).apply { text = "Animation unavailable"; gravity = Gravity.CENTER; contentDescription = "$label unavailable" }
+                    (parent as? ViewGroup)?.let { group -> val index = group.indexOfChild(this); group.removeView(this); group.addView(fallback, index, layoutParams) }
+                }
+            }
+            setAnimationFromUrl(url)
+            val animationsAllowed = android.os.Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled()
+            if (properties.optBoolean("auto_play", true) && animationsAllowed) playAnimation() else progress = 0f
+            layoutParams = lp(MATCH, dp(height))
+        }
     }
 
     private fun videoFailure(properties: JSONObject, dark: Boolean): View {

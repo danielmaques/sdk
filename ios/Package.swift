@@ -3,7 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "PushifySDK",
-    platforms: [.iOS(.v15)],
+    platforms: [.iOS(.v15), .macOS(.v10_15)],
     products: [.library(name: "PushifySDK", targets: ["PushifySDK"])],
-    targets: [.target(name: "PushifySDK")]
+    dependencies: [.package(url: "https://github.com/airbnb/lottie-spm.git", from: "4.6.1")],
+    targets: [.target(name: "PushifySDK", dependencies: [.product(name: "Lottie", package: "lottie-spm")])]
 )

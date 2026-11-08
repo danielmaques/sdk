@@ -708,6 +708,31 @@ extension _PaywallRendering on _PushifyPaywallState {
               );
       case 'video':
         return _video(properties);
+      case 'lottie':
+        final url = properties['url'] as String? ?? '';
+        final fit = properties['fit_mode'] == 'fill' ? BoxFit.cover : BoxFit.contain;
+        final size = _map(properties['size']);
+        final height = _map(size['height']);
+        final fixedHeight = height['type'] == 'fixed' ? _number(height['value']) : 180.0;
+        final reducedMotion = MediaQuery.of(context).disableAnimations;
+        if (!url.startsWith('https://')) {
+          return SizedBox(height: fixedHeight, child: Semantics(label: properties['accessibility_label'] as String? ?? 'Animation unavailable', image: true, child: const Center(child: Icon(Icons.animation_outlined))));
+        }
+        return SizedBox(
+          height: fixedHeight,
+          child: Semantics(
+            label: properties['accessibility_label'] as String? ?? 'Animation',
+            image: true,
+            child: Lottie.network(
+              url,
+              fit: fit,
+              animate: (properties['auto_play'] as bool? ?? true) && !reducedMotion,
+              repeat: properties['loop'] as bool? ?? true,
+              frameBuilder: (context, child, composition) => composition == null ? const Center(child: CircularProgressIndicator(strokeWidth: 2)) : child,
+              errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.animation_outlined)),
+            ),
+          ),
+        );
       case 'web_view':
         return properties['pushify_discount_wheel'] is Map
             ? _discountWheel(node, properties, screen)

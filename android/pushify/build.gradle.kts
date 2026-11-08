@@ -18,4 +18,5 @@ dependencies {
     implementation("com.android.billingclient:billing:9.1.0")
     implementation("com.android.installreferrer:installreferrer:2.2")
     implementation("androidx.browser:browser:1.8.0")
+    implementation("com.airbnb.android:lottie:6.7.1")
 }

@@ -25,13 +25,15 @@
   },
   "peerDependencies": {
     "react": ">=18.0.0",
-    "react-native": ">=0.74.0"
+    "react-native": ">=0.74.0",
+    "lottie-react-native": ">=7.3.4 <7.5.0"
   },
   "dependencies": {
     "react-native-webview": "^13.17.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
+    "lottie-react-native": "7.3.4",
     "react-native": "^0.81.0",
     "typescript": "^5.6.3"
   }

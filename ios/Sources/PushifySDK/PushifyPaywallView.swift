@@ -4,6 +4,7 @@ import WebKit
 import UIKit
 import SafariServices
 import StoreKit
+import Lottie
 
 private struct PresentedPaywallSurvey: Identifiable {
     let id: String
@@ -473,6 +474,15 @@ public struct PushifyPaywallView: View {
                 .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "Video")
             } else {
                 videoUnavailable(node.properties, dark: colorScheme == .dark)
+            }
+        case "lottie":
+            if let rawURL = string(node.properties["url"]), let url = URL(string: rawURL), url.scheme?.lowercased() == "https" {
+                let height = number(object(object(node.properties["size"])?["height"])?["value"]) ?? 180
+                PushifyLottieAnimation(url: url, autoPlay: Self.bool(node.properties["auto_play"], default: true), loops: Self.bool(node.properties["loop"], default: true), reduceMotion: reduceMotion, fit: string(node.properties["fit_mode"]) ?? "fit", label: string(node.properties["accessibility_label"]) ?? "Animation")
+                    .frame(height: CGFloat(height))
+                    .id(rawURL)
+            } else {
+                Text("Animation unavailable").frame(maxWidth: .infinity).frame(height: 180).accessibilityLabel(string(node.properties["accessibility_label"]) ?? "Animation unavailable")
             }
         case "web_view":
             if let config = object(node.properties["pushify_discount_wheel"]), number(config["version"]) == 1 {
