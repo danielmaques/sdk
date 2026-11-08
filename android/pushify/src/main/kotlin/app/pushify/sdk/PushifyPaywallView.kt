@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.content.res.Configuration
@@ -63,6 +66,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val onCustomCallback: ((String, JSONObject, (PushifyCustomCallbackResult) -> Unit) -> Unit)? = null,
 ) : ScrollView(context) {
     private data class TapActionRun(var waiting: Boolean = false, var interruptible: Boolean = false, var cancelled: Boolean = false, var runnable: Runnable? = null)
+    private data class EligibleDiscountWheelPrize(val prize: JSONObject, val package: JSONObject, val offer: JSONObject)
     private val main = Handler(Looper.getMainLooper())
     private val tapActionRuns = mutableMapOf<String, TapActionRun>()
     private val imageExecutor = Executors.newFixedThreadPool(2)
@@ -78,6 +82,9 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private var showingExitOffer = false
     private var dismissing = false
     private var busy = false
+    private var discountWheelUsed = false
+    private var discountWheelPrize: JSONObject? = null
+    private var discountWheelRotation = 0f
     private var message: String? = null
     private var focusedInputVariable: String? = null
     private var focusedInputSelection = 0
@@ -493,6 +500,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 gravity = Gravity.CENTER; textSize = 16f; setTypeface(typeface, Typeface.BOLD); contentDescription = "Offer countdown"
             }
             "web_view" -> {
+                val wheel = properties.optJSONObject("pushify_discount_wheel")
+                if (wheel?.optInt("version") == 1) renderDiscountWheel(node, wheel, screen) else {
                 val url = properties.optString("url")
                 val origin = Uri.parse(url)
                 val protocolVersion = properties.optInt("protocol_version", 1)
@@ -546,6 +555,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     addView(experience, FrameLayout.LayoutParams(MATCH, MATCH))
                     addView(status, FrameLayout.LayoutParams(MATCH, MATCH))
                 } else fallback ?: View(context)
+                }
             }
             "tab_control" -> View(context)
             else -> if (children.length() > 0) LinearLayout(context).apply {
@@ -754,6 +764,122 @@ public class PushifyPaywallView @JvmOverloads constructor(
         }
     }
 
+    private fun eligibleDiscountWheelPrizes(config: JSONObject): List<EligibleDiscountWheelPrize> {
+        val prizes = config.optJSONArray("prizes") ?: return emptyList()
+        val result = mutableListOf<EligibleDiscountWheelPrize>()
+        for (index in 0 until prizes.length()) {
+            val prize = prizes.optJSONObject(index) ?: continue
+            val packageId = prize.optString("package_id").takeIf(String::isNotBlank) ?: continue
+            val packageItem = (0 until packages.length()).mapNotNull(packages::optJSONObject).firstOrNull { it.optString("id") == packageId } ?: continue
+            val product = packageItem.optJSONObject("product") ?: continue
+            val offerID = prize.optString("android_offer_id").takeIf(String::isNotBlank) ?: continue
+            val offers = product.optJSONArray("eligible_store_offers") ?: continue
+            val offer = (0 until offers.length()).mapNotNull(offers::optJSONObject).firstOrNull {
+                it.optString("offer_id") == offerID && it.optString("offer_type") == "google_play_subscription" && it.optBoolean("eligible") &&
+                    (product.optString("plan_id").isBlank() || it.optString("base_plan_id") == product.optString("plan_id"))
+            } ?: continue
+            result += EligibleDiscountWheelPrize(prize, packageItem, offer)
+        }
+        return result
+    }
+
+    private fun renderDiscountWheel(node: JSONObject, config: JSONObject, screen: JSONObject): View {
+        val eligible = eligibleDiscountWheelPrizes(config)
+        if (eligible.isEmpty()) return nestedNode(node.optJSONObject("fallback"))?.let { renderNode(it, screen) }
+            ?: TextView(context).apply { text = "No Google Play introductory offers are currently eligible."; gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), dp(12)); contentDescription = text }
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = GradientDrawable().apply { setColor(if (isDarkTheme()) Color.rgb(35, 35, 35) else Color.rgb(247, 247, 247)); cornerRadius = dp(16).toFloat() }
+        }
+        val title = TextView(context).apply { text = "Choose an eligible offer"; textSize = 15f; setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(8)) }
+        root.addView(title, lp(MATCH, WRAP))
+        val size = dp(190)
+        val wheel = object : View(context) {
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            private val colors = intArrayOf(Color.rgb(199, 169, 92), Color.rgb(117, 136, 183), Color.rgb(217, 138, 100), Color.rgb(127, 154, 128), Color.rgb(170, 138, 189), Color.rgb(212, 189, 120), Color.rgb(108, 157, 157), Color.rgb(188, 113, 129))
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+                val diameter = minOf(width, height).toFloat() - dp(8)
+                val left = (width - diameter) / 2f
+                val top = (height - diameter) / 2f
+                val bounds = RectF(left, top, left + diameter, top + diameter)
+                val sweep = 360f / eligible.size
+                eligible.forEachIndexed { index, item ->
+                    paint.color = colors[index % colors.size]
+                    canvas.drawArc(bounds, -90f + index * sweep, sweep, true, paint)
+                    val label = localizedValue(item.prize.optString("label_lid"), screen)?.take(16) ?: "Offer ${index + 1}"
+                    paint.color = Color.rgb(25, 29, 35)
+                    paint.textSize = dp(9).toFloat()
+                    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    val angle = Math.toRadians((-90f + index * sweep + sweep / 2).toDouble())
+                    val radius = diameter * .34f
+                    val x = (width / 2f + kotlin.math.cos(angle) * radius - paint.measureText(label) / 2).toFloat()
+                    val y = (height / 2f + kotlin.math.sin(angle) * radius + paint.textSize / 3).toFloat()
+                    canvas.drawText(label, x, y, paint)
+                }
+                paint.color = if (isDarkTheme()) Color.rgb(35, 35, 35) else Color.WHITE
+                canvas.drawCircle(width / 2f, height / 2f, dp(18).toFloat(), paint)
+                paint.color = Color.rgb(90, 83, 61)
+                paint.textSize = dp(17).toFloat()
+                paint.typeface = Typeface.DEFAULT_BOLD
+                canvas.drawText("✦", width / 2f - paint.measureText("✦") / 2, height / 2f + paint.textSize / 3, paint)
+            }
+        }.apply {
+            rotation = discountWheelRotation
+            contentDescription = "Wheel with ${eligible.size} Google Play offers that are eligible for this account"
+        }
+        val wheelFrame = FrameLayout(context).apply {
+            addView(wheel, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+            addView(TextView(context).apply { text = "▼"; textSize = 18f; gravity = Gravity.CENTER; contentDescription = "Wheel pointer" }, FrameLayout.LayoutParams(dp(28), dp(24), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        }
+        root.addView(wheelFrame, lp(size, size))
+        val result = TextView(context).apply { gravity = Gravity.CENTER; textSize = 12f; setPadding(dp(4), dp(8), dp(4), dp(6)); contentDescription = "Discount wheel result" }
+        val spin = Button(context).apply {
+            text = "Spin for an eligible offer"
+            contentDescription = "Spin once among the current eligible Google Play subscription offers"
+            setOnClickListener {
+                if (discountWheelUsed || busy) return@setOnClickListener
+                val index = eligible.indices.random()
+                val selected = eligible[index]
+                val label = localizedValue(selected.prize.optString("label_lid"), screen)?.ifBlank { null } ?: "Selected offer"
+                discountWheelPrize = JSONObject().put("package_id", selected.package.optString("id")).put("offer_id", selected.offer.optString("offer_id"))
+                    .put("label", label).put("intro_price", selected.offer.optString("localized_price"))
+                    .put("intro_period", selected.offer.optString("renewal_period")).put("renewal_price", selected.offer.optString("renewal_price"))
+                    .put("renewal_period", selected.offer.optString("renewal_period"))
+                selectedPackageId = selected.package.optString("id")
+                discountWheelUsed = true
+                busy = true
+                isEnabled = false
+                text = "Spinning…"
+                val sweep = 360f / eligible.size
+                val target = discountWheelRotation + 360f * 5 + 360f - (index + .5f) * sweep
+                val duration = if (android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) 0L else 1800L
+                wheel.animate().rotation(target).setDuration(duration).withEndAction {
+                    discountWheelRotation = target % 360f
+                    busy = false
+                    val prize = discountWheelPrize ?: JSONObject()
+                    val intro = listOf(prize.optString("intro_price"), prize.optString("intro_period")).filter(String::isNotBlank).joinToString(" for ")
+                    val renewal = listOf(prize.optString("renewal_price"), prize.optString("renewal_period")).filter(String::isNotBlank).joinToString(" / ")
+                    result.text = listOf(prize.optString("label"), listOf(intro, renewal).filter(String::isNotBlank).joinToString(", then "), "Continue below to purchase with Google Play.").filter(String::isNotBlank).joinToString(" · ")
+                    render()
+                }.start()
+            }
+        }
+        root.addView(result, lp(MATCH, WRAP))
+        root.addView(spin, lp(MATCH, WRAP))
+        if (discountWheelPrize != null) {
+            val prize = discountWheelPrize!!
+            val intro = listOf(prize.optString("intro_price"), prize.optString("intro_period")).filter(String::isNotBlank).joinToString(" for ")
+            val renewal = listOf(prize.optString("renewal_price"), prize.optString("renewal_period")).filter(String::isNotBlank).joinToString(" / ")
+            result.text = listOf(prize.optString("label"), listOf(intro, renewal).filter(String::isNotBlank).joinToString(", then "), "Continue below to purchase with Google Play.").filter(String::isNotBlank).joinToString(" · ")
+            spin.isEnabled = false
+            spin.text = "Offer selected"
+        }
+        return root
+    }
+
     private fun purchaseSelected(packageId: String? = null, action: JSONObject = JSONObject(), screen: JSONObject? = null) {
         val productId = packageId ?: selectedPackageId
         if (busy) return
@@ -763,7 +889,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val activity = context as? Activity ?: return
         busy = true
         val reminder = trialReminderRequest(screen)
-        purchases.purchase(activity, productId, reminder) { result ->
+        val wheelOffer = discountWheelPrize?.takeIf { it.optString("package_id") == productId }?.optString("offer_id")?.takeIf(String::isNotBlank)
+        purchases.purchase(activity, productId, reminder, wheelOffer) { result ->
             busy = false
             result.onSuccess { outcome ->
                 when (outcome) {
@@ -785,7 +912,14 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     }
                     PushifyPurchases.PurchaseOutcome.Pending -> { message = "Purchase is pending approval."; render() }
                 }
-            }.onFailure { message = "Purchase could not be completed. Please try again."; render() }
+            }.onFailure { error ->
+                if (wheelOffer != null && (error as? PushifyPurchases.PushifyApiException)?.code == "offer_unavailable") {
+                    discountWheelPrize = null
+                    discountWheelUsed = false
+                    message = "That offer is no longer available. Spin again or continue with the regular package price."
+                } else message = "Purchase could not be completed. Please try again."
+                render()
+            }
         }
     }
 

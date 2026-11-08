@@ -103,10 +103,12 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       _variables[entry.key] = _map(entry.value)['initial_value'];
     }
     final declarations = _map(widget.document['custom_variables']);
-    if (!declarations.containsKey('didCompleteTransaction'))
+    if (!declarations.containsKey('didCompleteTransaction')) {
       _variables['didCompleteTransaction'] = false;
-    if (!declarations.containsKey('didAbandonTransaction'))
+    }
+    if (!declarations.containsKey('didAbandonTransaction')) {
       _variables['didAbandonTransaction'] = false;
+    }
     final requestedStart = widget.document['initial_screen_id'];
     final entryScreens = _screens.where(
       (screen) => screen['id'] == requestedStart,
@@ -132,8 +134,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     for (final run in _tapActionRuns.values) {
       run.cancelled = true;
       run.timer?.cancel();
-      if (!(run.delayCompleter?.isCompleted ?? true))
+      if (!(run.delayCompleter?.isCompleted ?? true)) {
         run.delayCompleter!.complete(false);
+      }
     }
     _tapActionRuns.clear();
     for (final controller in _carouselControllers.values) {

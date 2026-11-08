@@ -46,7 +46,7 @@ extension _PaywallLocalization on _PushifyPaywallState {
           widget.offering['packages'],
         ).map((item) => _map(item['product'])).toList();
         final result = _productAliasValue(field, product, peers);
-        return result == null ? match[0]! : result;
+        return result ?? match[0]!;
       }
       final result = callbackName == null || dataKey == null
           ? null
@@ -246,12 +246,13 @@ extension _PaywallLocalization on _PushifyPaywallState {
       (int.tryParse(match[4] ?? '') ?? 0, 'day', 1),
     ].where((part) => part.$1 > 0).toList();
     if (parts.isEmpty) return null;
-    if (parts.length == 1)
+    if (parts.length == 1) {
       return _ProductPeriod(
         parts.single.$1,
         parts.single.$2,
         parts.single.$1 * parts.single.$3,
       );
+    }
     final days = parts.fold<int>(0, (total, part) => total + part.$1 * part.$3);
     return _ProductPeriod(days, 'day', days);
   }
