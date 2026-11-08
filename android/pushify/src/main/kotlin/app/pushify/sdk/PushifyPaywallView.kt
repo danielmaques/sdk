@@ -404,6 +404,42 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     }
                 }
             }
+            "picker" -> {
+                val valueReference = properties.optString("state_variable")
+                val labelReference = properties.optString("label_state_variable")
+                val valueName = valueReference.removePrefix("state.")
+                val labelName = labelReference.removePrefix("state.")
+                if (!valueReference.startsWith("state.") || !labelReference.startsWith("state.") || variableDeclarations.optJSONObject(valueName)?.optString("value_type") != "selection" || variableDeclarations.optJSONObject(labelName)?.optString("value_type") != "text") return View(context)
+                val options = properties.optJSONArray("options") ?: JSONArray()
+                val entries = (0 until options.length()).mapNotNull(options::optJSONObject)
+                val current = variables.optString(valueName)
+                val selectedIndex = entries.indexOfFirst { it.optString("value") == current }
+                val prompt = localizedValue(properties.optString("label_lid"), screen)?.let(::interpolate).orEmpty().ifBlank { "Choose an option" }
+                val selectedLabel = entries.firstOrNull { it.optString("value") == current }
+                    ?.let { localizedValue(it.optString("label_lid"), screen)?.let(::interpolate)?.ifBlank { current } } ?: "Choose an option"
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(context).apply { text = prompt; textSize = 12f }, lp(MATCH, WRAP))
+                    addView(Button(context).apply {
+                        text = selectedLabel
+                        contentDescription = "$prompt, $selectedLabel"
+                        setOnClickListener {
+                            val labels = entries.map { option ->
+                                localizedValue(option.optString("label_lid"), screen)?.let(::interpolate)?.ifBlank { option.optString("value") } ?: option.optString("value")
+                            }
+                            AlertDialog.Builder(context).setTitle(prompt).setSingleChoiceItems(labels.toTypedArray(), selectedIndex) { dialog, which ->
+                                val option = entries.getOrNull(which)
+                                if (option != null) {
+                                    variables.put(valueName, option.optString("value"))
+                                    variables.put(labelName, labels.getOrNull(which).orEmpty())
+                                    dialog.dismiss()
+                                    render()
+                                }
+                            }.setNegativeButton("Cancel", null).show()
+                        }
+                    }, lp(MATCH, WRAP))
+                }
+            }
             "package" -> packageView(node, screen, properties)
             "purchase_button", "cta" -> Button(context).apply {
                 text = buttonLabel(node, screen).ifBlank { "Continue" }

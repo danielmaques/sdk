@@ -98,6 +98,32 @@ function PaywallChoice({ options, mode, randomize, id, selected, label, onSelect
   }));
 }
 
+function PaywallPicker({ options, selected, label, onSelect }: { options: Array<{ id: string; value: string; label: string }>; selected: string; label: string; onSelect: (value: string) => void }) {
+  const [visible, setVisible] = useState(false);
+  const selectedLabel = options.find((option) => option.value === selected)?.label ?? 'Choose an option';
+  return React.createElement(View, { style: { width: '100%' } },
+    React.createElement(Text, { style: { fontSize: 12, color: '#71717a', marginBottom: 4 } }, label),
+    React.createElement(Pressable, {
+      onPress: () => setVisible(true), accessibilityRole: 'button', accessibilityLabel: label,
+      accessibilityValue: { text: selected ? selectedLabel : 'No option selected' },
+      style: { minHeight: 48, borderWidth: 1, borderColor: '#a1a1aa', borderRadius: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    }, React.createElement(Text, null, selectedLabel), React.createElement(Text, { accessibilityElementsHidden: true }, '⌄')),
+    React.createElement(Modal, { visible, transparent: true, animationType: 'fade', onRequestClose: () => setVisible(false) },
+      React.createElement(Pressable, { onPress: () => setVisible(false), style: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'center', padding: 24 } },
+        React.createElement(View, { accessibilityRole: 'radiogroup', accessibilityLabel: label, style: { backgroundColor: '#ffffff', borderRadius: 14, padding: 16, maxHeight: '80%' } },
+          React.createElement(Text, { accessibilityRole: 'header', style: { fontSize: 17, fontWeight: '600', marginBottom: 8 } }, label),
+          ...options.map((option) => React.createElement(Pressable, {
+            key: option.id, onPress: () => { onSelect(option.value); setVisible(false); }, accessibilityRole: 'radio',
+            accessibilityState: { selected: option.value === selected }, accessibilityLabel: option.label,
+            style: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#e4e4e7' },
+          }, React.createElement(Text, { style: { width: 28, color: '#315ee8' } }, option.value === selected ? '●' : '○'), React.createElement(Text, { style: { flex: 1 } }, option.label))),
+          React.createElement(Pressable, { onPress: () => setVisible(false), accessibilityRole: 'button', style: { minHeight: 44, justifyContent: 'center', alignItems: 'center', marginTop: 8 } }, React.createElement(Text, null, 'Cancel')),
+        ),
+      ),
+    ),
+  );
+}
+
 type MotionValues = { enabled?: boolean; x?: number; y?: number; rotation?: number; scale?: number; opacity?: number; duration_ms?: number; delay_ms?: number; easing?: string };
 type AccessibilityValues = { label?: string; role?: string; hidden?: boolean };
 
@@ -868,6 +894,24 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           setVariables((current) => ({ ...current, [valueName]: multiple ? next : next[0] ?? '', [labelName]: next.map((item) => labels.get(item) ?? item).join(', ') }));
         };
         return React.createElement(PaywallChoice, { key: node.id ?? undefined, options, mode: multiple ? 'multiple' : 'single', randomize: node.properties.randomize_order === true, id: text(node.id) ?? 'choice', selected: chosen, label, onSelect: select });
+      }
+      case 'picker': {
+        const valueReference = text(node.properties.state_variable) ?? '';
+        const labelReference = text(node.properties.label_state_variable) ?? '';
+        const valueName = valueReference.startsWith('state.') ? valueReference.slice(6) : '';
+        const labelName = labelReference.startsWith('state.') ? labelReference.slice(6) : '';
+        if (props.document.custom_variables?.[valueName]?.value_type !== 'selection' || props.document.custom_variables?.[labelName]?.value_type !== 'text') return null;
+        const options = array(node.properties.options).map(record).map((option) => ({
+          id: text(option.id) ?? text(option.value) ?? '',
+          value: text(option.value) ?? '',
+          label: interpolate(localizedValue(text(option.label_lid) ?? '') ?? text(option.value) ?? ''),
+        }));
+        const label = interpolate(localizedValue(text(node.properties.label_lid) ?? '') ?? 'Choose an option');
+        const select = (value: string) => {
+          const selectedLabel = options.find((option) => option.value === value)?.label ?? '';
+          setVariables((current) => ({ ...current, [valueName]: value, [labelName]: selectedLabel }));
+        };
+        return React.createElement(PaywallPicker, { options, selected: typeof variables[valueName] === 'string' ? variables[valueName] as string : '', label, onSelect: select });
       }
       case 'package': {
         const id = typeof node.properties.package_id === 'string' ? node.properties.package_id : '';

@@ -363,6 +363,46 @@ public struct PushifyPaywallView: View {
             } else {
                 EmptyView()
             }
+        case "picker":
+            let valueReference = string(node.properties["state_variable"]) ?? ""
+            let labelReference = string(node.properties["label_state_variable"]) ?? ""
+            let valueName = valueReference.hasPrefix("state.") ? String(valueReference.dropFirst(6)) : ""
+            let labelName = labelReference.hasPrefix("state.") ? String(labelReference.dropFirst(6)) : ""
+            let selected = string(variables[valueName]) ?? ""
+            let promptKey = string(node.properties["label_lid"]) ?? ""
+            let prompt = interpolate(localizedValue(promptKey, screen: screen) ?? "Choose an option")
+            let rawOptions: [[String: PushifyJSONValue]] = node.properties["options"].flatMap { value in
+                if case .array(let values) = value { values.compactMap { object($0) } }
+                else { nil }
+            } ?? []
+            Menu {
+                ForEach(Array(rawOptions.enumerated()), id: \.offset) { _, option in
+                    let optionValue = string(option["value"]) ?? ""
+                    let key = string(option["label_lid"]) ?? ""
+                    let title = interpolate(localizedValue(key, screen: screen) ?? optionValue)
+                    Button(title) {
+                        variables[valueName] = .string(optionValue)
+                        variables[labelName] = .string(title)
+                    }
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(prompt).font(.caption).foregroundStyle(.secondary)
+                        Text(selected.isEmpty ? "Choose an option" : (rawOptions.first(where: { string($0["value"]) == selected }).flatMap { option in
+                            localizedValue(string(option["label_lid"]) ?? "", screen: screen) ?? selected
+                        } ?? selected)).foregroundStyle(.primary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+            }
+            .accessibilityLabel(prompt)
+            .accessibilityValue(selected.isEmpty ? "No option selected" : selected)
         case "package":
             if let packageID = string(node.properties["package_id"]), let package = offering.packages.first(where: { $0.id == packageID }) {
                 Button { selectedPackageID = packageID } label: {

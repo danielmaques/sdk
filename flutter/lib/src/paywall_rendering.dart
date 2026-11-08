@@ -538,6 +538,61 @@ extension _PaywallRendering on _PushifyPaywallState {
           label: multiple ? 'Choose one or more options' : 'Choose one option',
           child: control,
         );
+      case 'picker':
+        final valueReference = properties['state_variable'] as String? ?? '';
+        final labelReference = properties['label_state_variable'] as String? ?? '';
+        final valueName = valueReference.startsWith('state.') ? valueReference.substring(6) : '';
+        final labelName = labelReference.startsWith('state.') ? labelReference.substring(6) : '';
+        final choices = _maps(properties['options']);
+        final selected = _variables[valueName] as String? ?? '';
+        final promptKey = properties['label_lid'] as String? ?? '';
+        final prompt = _interpolate(_localizedValue(promptKey, screen) ?? 'Choose an option');
+        String choiceLabel(Map<String, Object?> choice) {
+          final key = choice['label_lid'] as String? ?? '';
+          return _interpolate(_localizedValue(key, screen) ?? choice['value'] as String? ?? '');
+        }
+        final selectedOption = choices.where((choice) => choice['value'] == selected).firstOrNull;
+        final selectedLabel = selectedOption == null ? 'Choose an option' : choiceLabel(selectedOption);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(prompt, style: Theme.of(context).textTheme.labelSmall),
+            const SizedBox(height: 4),
+            Semantics(
+              button: true,
+              label: prompt,
+              value: selected.isEmpty ? 'No option selected' : selectedLabel,
+              child: OutlinedButton(
+                onPressed: () async {
+                  final next = await showModalBottomSheet<String>(
+                    context: context,
+                    builder: (sheetContext) => SafeArea(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          Padding(padding: const EdgeInsets.all(16), child: Text(prompt, style: Theme.of(sheetContext).textTheme.titleMedium)),
+                          for (final choice in choices)
+                            ListTile(
+                              title: Text(choiceLabel(choice)),
+                              trailing: choice['value'] == selected ? const Icon(Icons.check) : null,
+                              onTap: () => Navigator.of(sheetContext).pop(choice['value'] as String? ?? ''),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                  if (next == null) return;
+                  final option = choices.where((choice) => choice['value'] == next).firstOrNull;
+                  _update(() {
+                    if (valueName.isNotEmpty) _variables[valueName] = next;
+                    if (labelName.isNotEmpty) _variables[labelName] = option == null ? '' : choiceLabel(option);
+                  });
+                },
+                child: Row(children: [Expanded(child: Text(selectedLabel, textAlign: TextAlign.start)), const Icon(Icons.arrow_drop_down)]),
+              ),
+            ),
+          ],
+        );
       case 'package':
         final packageId = properties['package_id'] as String?;
         final matches = _packages.where((value) => value['id'] == packageId);
