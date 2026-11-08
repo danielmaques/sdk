@@ -1,18 +1,13 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'purchases.dart';
-
-class PushifyCustomCallbackResult {
-  const PushifyCustomCallbackResult({required this.status, this.data = const {}});
-
-  final String status;
-  final Map<String, Object?> data;
-}
 
 part 'paywall_rendering.dart';
 part 'paywall_actions.dart';
@@ -20,6 +15,16 @@ part 'paywall_localization.dart';
 part 'paywall_experience.dart';
 part 'paywall_feedback.dart';
 part 'paywall_helpers.dart';
+
+class PushifyCustomCallbackResult {
+  const PushifyCustomCallbackResult({
+    required this.status,
+    this.data = const {},
+  });
+
+  final String status;
+  final Map<String, Object?> data;
+}
 
 class _TapActionRun {
   bool waiting = false;
@@ -55,8 +60,10 @@ class PushifyPaywall extends StatefulWidget {
   final FutureOr<PushifyCustomCallbackResult> Function(
     String name,
     Map<String, Object?> variables,
-  )? onCustomCallback;
-  final void Function(String name, Map<String, Object?> parameters)? onCustomPlacement;
+  )?
+  onCustomCallback;
+  final void Function(String name, Map<String, Object?> parameters)?
+  onCustomPlacement;
   final bool _isExitOffer;
 
   @override
@@ -95,8 +102,10 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       _variables[entry.key] = _map(entry.value)['initial_value'];
     }
     final declarations = _map(widget.document['custom_variables']);
-    if (!declarations.containsKey('didCompleteTransaction')) _variables['didCompleteTransaction'] = false;
-    if (!declarations.containsKey('didAbandonTransaction')) _variables['didAbandonTransaction'] = false;
+    if (!declarations.containsKey('didCompleteTransaction'))
+      _variables['didCompleteTransaction'] = false;
+    if (!declarations.containsKey('didAbandonTransaction'))
+      _variables['didAbandonTransaction'] = false;
     final requestedStart = widget.document['initial_screen_id'];
     final entryScreens = _screens.where(
       (screen) => screen['id'] == requestedStart,
@@ -122,7 +131,8 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     for (final run in _tapActionRuns.values) {
       run.cancelled = true;
       run.timer?.cancel();
-      if (!(run.delayCompleter?.isCompleted ?? true)) run.delayCompleter!.complete(false);
+      if (!(run.delayCompleter?.isCompleted ?? true))
+        run.delayCompleter!.complete(false);
     }
     _tapActionRuns.clear();
     for (final controller in _carouselControllers.values) {
@@ -201,7 +211,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     if (_dismissing) return;
     _dismissing = true;
     _presentationClosed = true;
-    final currentScreens = _screens.where((screen) => screen['id'] == _screenId);
+    final currentScreens = _screens.where(
+      (screen) => screen['id'] == _screenId,
+    );
     await _presentSurvey(
       'close',
       currentScreens.isEmpty ? null : currentScreens.first,

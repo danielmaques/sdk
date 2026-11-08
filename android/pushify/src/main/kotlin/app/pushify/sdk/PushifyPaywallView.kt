@@ -898,7 +898,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             java.text.NumberFormat.getCurrencyInstance(java.util.Locale.forLanguageTag(deviceLocale)).apply { currency = java.util.Currency.getInstance(code) }
         }
         fun money(value: Double): String? = currencyFormatter()?.format(value)
-        fun periodCount(unit: String): Int? = period?.let { aliasPeriodIn(it, unit) }
+        fun periodCount(unit: String): Double? = period?.let { aliasUnitsIn(it, unit) }
         fun count(value: AliasPeriod): String = (words.optString("num_${value.unit}_${if (value.count == 1) "one" else "other"}", "%d ${value.unit}${if (value.count == 1) "" else "s"}")).replace("%d", value.count.toString())
         fun unit(value: AliasPeriod, short: Boolean = false): String {
             if (value.count > 1) return words.optString(if (short) "num_${value.unit}s_short" else "num_${value.unit}_other", if (short) "%d${value.unit.first()}" else "%d ${value.unit}s").replace("%d", value.count.toString())
@@ -918,29 +918,32 @@ public class PushifyPaywallView @JvmOverloads constructor(
             "price_per_period", "price_per_period_abbreviated" -> product.optString("localized_price").takeIf(String::isNotBlank)?.let { price -> period?.let { "$price/${unit(it, field.endsWith("abbreviated"))}" } ?: price }
             "price_per_day", "price_per_week", "price_per_month", "price_per_year" -> {
                 val target = field.removePrefix("price_per_")
-                val count = periodCount(target)
-                if (amount == null) null else money(if (count == null) amount else kotlin.math.floor(amount / count * 100.0) / 100.0)
+                val units = periodCount(target)
+                val formatter = currencyFormatter()
+                if (amount == null || formatter == null) null else {
+                    val scale = Math.pow(10.0, formatter.maximumFractionDigits.toDouble())
+                    money(if (units == null || units <= 0) amount else kotlin.math.floor(amount / units * scale) / scale)
+                }
             }
             "relative_discount" -> {
                 if (amount == null || period == null || currencyCode == null) "" else {
-                    val monthly = amount / maxOf(1.0, period.days / 30.0)
+                    val monthly = amount / aliasUnitsIn(period, "month")
                     val top = peers.asSequence().filter { it.optString("currency_code") == currencyCode }
                         .mapNotNull { peer ->
                             val peerAmount = peer.optString("price_amount").toDoubleOrNull()
                             val peerPeriod = parseAliasPeriod(peer.optString("duration").takeIf(String::isNotBlank))
-                            if (peerAmount == null || peerPeriod == null) null else peerAmount / maxOf(1.0, peerPeriod.days / 30.0)
+                            if (peerAmount == null || peerPeriod == null) null else peerAmount / aliasUnitsIn(peerPeriod, "month")
                         }.maxOrNull() ?: 0.0
-                    if (top <= monthly) "" else words.optString("percent", "%d%%").replace("%d", (((1 - monthly / top) * 100).toInt()).toString()).replace("%%", "%")
+                    if (top <= monthly) "" else words.optString("percent", "%d%%").replace("%d", (((1 - monthly / top) * 100).roundToInt()).toString()).replace("%%", "%")
                 }
             }
             "offer_price", "offer_price_per_day", "offer_price_per_week", "offer_price_per_month", "offer_price_per_year" -> if (trial != null) words.optString("free_price", "free") else product.opt("localized_price")
-            "offer_price_with_zero" -> if (trial != null) "0 ${product.optString("currency_code")}".trim() else product.opt("localized_price")
+            "offer_price_with_zero" -> if (trial != null) money(0.0) else product.opt("localized_price")
             "offer_period" -> trial?.let { unit(AliasPeriod(1, it.unit, it.days)) } ?: ""
             "offer_period_abbreviated" -> trial?.let { unit(AliasPeriod(1, it.unit, it.days), true) } ?: ""
             "offer_period_with_unit" -> trial?.let(::count) ?: ""
             "offer_period_in_days", "offer_period_in_weeks", "offer_period_in_months", "offer_period_in_years" -> trial?.let { aliasPeriodIn(it, field.removePrefix("offer_period_in_").removeSuffix("s"))?.toString() } ?: ""
             "offer_end_date" -> trial?.let { "in ${it.days} day${if (it.days == 1) "" else "s"}" } ?: ""
-            "relative_discount", "price_per_day", "price_per_week", "price_per_month", "price_per_year", "currency_symbol" -> null
             "secondary_offer_price", "secondary_offer_period", "secondary_offer_period_abbreviated" -> ""
             else -> null
         }
@@ -958,7 +961,17 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return AliasPeriod(total, "day", total)
     }
 
-    private fun aliasPeriodIn(period: AliasPeriod, unit: String): Int? = (period.days.toDouble() / mapOf("day" to 1.0, "week" to 7.0, "month" to 30.0, "year" to 365.0)[unit]!!).roundToInt()
+    private fun aliasUnitsIn(period: AliasPeriod, unit: String): Double {
+        val factors = mapOf(
+            "day" to mapOf("day" to 1.0, "week" to 1.0 / 7, "month" to 1.0 / 30, "year" to 1.0 / 365),
+            "week" to mapOf("day" to 7.0, "week" to 1.0, "month" to 7.0 * 12 / 365, "year" to 7.0 / 365),
+            "month" to mapOf("day" to 30.0, "week" to 365.0 / 12 / 7, "month" to 1.0, "year" to 1.0 / 12),
+            "year" to mapOf("day" to 365.0, "week" to 365.0 / 7, "month" to 12.0, "year" to 1.0),
+        )
+        return period.count * factors.getValue(period.unit).getValue(unit)
+    }
+
+    private fun aliasPeriodIn(period: AliasPeriod, unit: String): Int = aliasUnitsIn(period, unit).roundToInt()
 
     private fun localizedValue(key: String, screen: JSONObject): String? {
         val perScreen = screen.optJSONObject("localizations") ?: JSONObject()

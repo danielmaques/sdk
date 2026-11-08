@@ -655,11 +655,19 @@ public struct PushifyPaywallView: View {
             }
             return words[short ? "\(value.unit)_short" : value.unit] ?? value.unit
         }
+        func unitsIn(_ value: Period, _ unit: String) -> Double? {
+            let factors: [String: [String: Double]] = [
+                "day": ["day": 1, "week": 1 / 7, "month": 1 / 30, "year": 1 / 365],
+                "week": ["day": 7, "week": 1, "month": 7 * 12 / 365, "year": 7 / 365],
+                "month": ["day": 30, "week": 365 / 12 / 7, "month": 1, "year": 1 / 12],
+                "year": ["day": 365, "week": 365 / 7, "month": 12, "year": 1],
+            ]
+            guard let factor = factors[value.unit]?[unit] else { return nil }
+            return Double(value.count) * factor
+        }
         func amountFor(_ unit: String) -> Int? {
-            guard let period else { return nil }
-            let per: [String: Double] = ["day": 1, "week": 7, "month": 30, "year": 365]
-            guard let factor = per[unit] else { return nil }
-            return Int((period.days / factor).rounded())
+            guard let period, let units = unitsIn(period, unit) else { return nil }
+            return Int(units.rounded())
         }
         switch field {
         case "price", "localized_price": return product.localizedPrice ?? price.flatMap(money)
@@ -687,9 +695,14 @@ public struct PushifyPaywallView: View {
         case "price_per_day", "price_per_week", "price_per_month", "price_per_year":
             guard let price else { return nil }
             let unit = field.replacingOccurrences(of: "price_per_", with: "")
-            guard let amount = amountFor(unit) else { return money(price) }
-            let decimals = max(0, min(6, NumberFormatter().maximumFractionDigits))
-            let rounded = (price / Double(max(1, amount)) * pow(10, Double(decimals))).rounded(.down) / pow(10, Double(decimals))
+            guard let period, let units = unitsIn(period, unit), units > 0 else { return money(price) }
+            let fractionDigits = currency.flatMap { code -> Int? in
+                let formatter = NumberFormatter(); formatter.numberStyle = .currency; formatter.currencyCode = code
+                formatter.locale = Locale(identifier: locale.replacingOccurrences(of: "_", with: "-"))
+                return formatter.maximumFractionDigits
+            } ?? 2
+            let scale = pow(10, Double(max(0, min(6, fractionDigits))))
+            let rounded = (price / units * scale).rounded(.down) / scale
             return money(rounded)
         case "offer_price", "offer_price_per_day", "offer_price_per_week", "offer_price_per_month", "offer_price_per_year":
             guard let price else { return nil }
@@ -702,18 +715,20 @@ public struct PushifyPaywallView: View {
         case "offer_period_in_days", "offer_period_in_weeks", "offer_period_in_months", "offer_period_in_years":
             guard let trial else { return "" }
             let unit = field.replacingOccurrences(of: "offer_period_in_", with: "").replacingOccurrences(of: "s", with: "")
-            let days: [String: Double] = ["day": 1, "week": 7, "month": 30, "year": 365]
-            return days[unit].map { String(Int((trial.days / $0).rounded())) } ?? ""
+            return unitsIn(trial, unit).map { String(Int($0.rounded())) } ?? ""
         case "relative_discount":
             guard let price, let period, let currency else { return "" }
-            let monthly = price / max(1, period.days / 30)
+            let monthly = price / max(1, unitsIn(period, "month") ?? 1)
             let others = peers.compactMap { peer -> Double? in
                 guard peer.productId != product.productId, peer.currencyCode == currency, let amount = peer.priceAmount.flatMap(Double.init), let parsed = parse(peer.duration) else { return nil }
-                return amount / max(1, parsed.days / 30)
+                return amount / max(1, unitsIn(parsed, "month") ?? 1)
             }
             guard let highest = others.max(), monthly < highest else { return "" }
-            return (words["percent"] ?? "%d%%").replacingOccurrences(of: "%d", with: String(Int((1 - monthly / highest) * 100))).replacingOccurrences(of: "%%", with: "%")
-        case "offer_end_date", "secondary_offer_price", "secondary_offer_period", "secondary_offer_period_abbreviated": return ""
+            return (words["percent"] ?? "%d%%").replacingOccurrences(of: "%d", with: String(Int(((1 - monthly / highest) * 100).rounded()))).replacingOccurrences(of: "%%", with: "%")
+        case "offer_end_date":
+            guard let trial else { return "" }
+            return "in \(trial.days) day\(trial.days == 1 ? "" : "s")"
+        case "secondary_offer_price", "secondary_offer_period", "secondary_offer_period_abbreviated": return ""
         default: return nil
         }
     }

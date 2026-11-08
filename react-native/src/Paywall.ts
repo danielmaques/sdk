@@ -1023,11 +1023,24 @@ function productAliasValue(field: string, product: ProductVariableSource, peers:
   const period = parse(product.duration), trial = parse(product.trial_duration);
   const amount = Number(product.price_amount);
   const currency = product.currency_code;
-  const money = (value: number) => currency && Number.isFinite(value) ? new Intl.NumberFormat(locale.replace(/_/g, '-'), { style: 'currency', currency }).format(value) : undefined;
+  const currencyFormatter = currency ? new Intl.NumberFormat(locale.replace(/_/g, '-'), { style: 'currency', currency }) : null;
+  const money = (value: number) => currencyFormatter && Number.isFinite(value) ? currencyFormatter.format(value) : undefined;
   const plural = (item: ProductPeriod) => (words[`num_${item.unit}_${item.count === 1 ? 'one' : 'other'}`] ?? `%d ${item.unit}${item.count === 1 ? '' : 's'}`).replace('%d', String(item.count));
   const unit = (item: ProductPeriod, short = false) => item.count > 1 ? (words[short ? `num_${item.unit}s_short` : `num_${item.unit}_other`] ?? (short ? `%d${item.unit[0]}` : `%d ${item.unit}s`)).replace('%d', String(item.count)) : words[short ? `${item.unit}_short` : item.unit] ?? item.unit;
-  const per = (name: ProductPeriod['unit']) => period && Number.isFinite(amount) ? Math.floor(amount / Math.max(1, period.days / ({ day: 1, week: 7, month: 30, year: 365 }[name])) * 100) / 100 : amount;
-  const numericPer = (name: ProductPeriod['unit']) => period ? Math.max(1, Math.round(period.days / ({ day: 1, week: 7, month: 30, year: 365 }[name]))) : null;
+  const unitsIn = (value: ProductPeriod, target: ProductPeriod['unit']) => value.count * ({
+    day: { day: 1, week: 1 / 7, month: 1 / 30, year: 1 / 365 },
+    week: { day: 7, week: 1, month: 7 * 12 / 365, year: 7 / 365 },
+    month: { day: 30, week: 365 / 12 / 7, month: 1, year: 1 / 12 },
+    year: { day: 365, week: 365 / 7, month: 12, year: 1 },
+  }[value.unit][target]);
+  const per = (name: ProductPeriod['unit']) => {
+    if (!Number.isFinite(amount)) return undefined;
+    const units = period ? unitsIn(period, name) : null;
+    const formatter = currencyFormatter;
+    if (units === null || units <= 0 || formatter === null) return money(amount);
+    const scale = 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2);
+    return money(Math.floor(amount / units * scale) / scale);
+  };
   switch (field) {
     case 'price': case 'localized_price': return product.localized_price ?? money(amount);
     case 'product_id': return product.product_id;
@@ -1050,8 +1063,7 @@ function productAliasValue(field: string, product: ProductVariableSource, peers:
     }
     case 'price_per_day': case 'price_per_week': case 'price_per_month': case 'price_per_year': {
       const target = field.replace('price_per_', '') as ProductPeriod['unit'];
-      const count = numericPer(target);
-      return count ? money(per(target) ?? amount) : money(amount);
+      return per(target);
     }
     case 'offer_price': case 'offer_price_per_day': case 'offer_price_per_week': case 'offer_price_per_month': case 'offer_price_per_year':
       return trial ? words.free_price ?? 'free' : money(amount);
@@ -1061,16 +1073,15 @@ function productAliasValue(field: string, product: ProductVariableSource, peers:
     case 'offer_period_in_days': case 'offer_period_in_weeks': case 'offer_period_in_months': case 'offer_period_in_years': {
       if (!trial) return '';
       const target = field.replace('offer_period_in_', '').replace(/s$/, '') as ProductPeriod['unit'];
-      const divisor = { day: 1, week: 7, month: 30, year: 365 }[target];
-      return String(Math.round(trial.days / divisor));
+      return String(Math.round(unitsIn(trial, target)));
     }
     case 'offer_end_date': return trial ? `in ${trial.days} day${trial.days === 1 ? '' : 's'}` : '';
     case 'relative_discount': {
       if (!period || !Number.isFinite(amount) || !currency) return '';
-      const monthly = amount / Math.max(1, period.days / 30);
+      const monthly = amount / unitsIn(period, 'month');
       const top = Math.max(0, ...peers.filter((candidate) => candidate.currency_code === currency).map((candidate) => {
         const peerPeriod = parse(candidate.duration), peerAmount = Number(candidate.price_amount);
-        return peerPeriod && Number.isFinite(peerAmount) ? peerAmount / Math.max(1, peerPeriod.days / 30) : 0;
+        return peerPeriod && Number.isFinite(peerAmount) ? peerAmount / unitsIn(peerPeriod, 'month') : 0;
       }));
       const pct = top > monthly ? Math.round((1 - monthly / top) * 100) : 0;
       return pct > 0 ? (words.percent ?? '%d%%').replace('%d', String(pct)).replace('%%', '%') : '';
