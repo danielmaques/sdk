@@ -127,6 +127,34 @@ final class PushifyPurchasesModule: RCTEventEmitter {
         perform(resolve, reject) { try self.encode(try await $0.syncPurchases()) }
     }
 
+    @objc func redeemOfferCode(_ resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+        if #available(iOS 16.0, *) {
+            guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }) else {
+                reject("scene_unavailable", "Offer code redemption is unavailable right now.", nil)
+                return
+            }
+            guard let purchases else {
+                reject("not_configured", "Call configure before using Pushify purchases.", nil)
+                return
+            }
+            Task { @MainActor in
+                do {
+                    try await AppStore.presentOfferCodeRedeemSheet(in: scene)
+                    _ = try await purchases.syncPurchases()
+                    resolve(nil)
+                } catch {
+                    reject("offer_code_failed", "Offer code redemption could not be completed.", error)
+                }
+            }
+        } else {
+            SKPaymentQueue.default().presentCodeRedemptionSheet()
+            resolve(nil)
+        }
+    }
+
     @objc func purchase(_ packageID: String,
                         trialReminder rawReminder: NSDictionary?,
                         resolver resolve: @escaping RCTPromiseResolveBlock,

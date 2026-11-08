@@ -135,7 +135,7 @@ class PushifyPurchases {
   }) async {
     final value = await _invoke<Map<Object?, Object?>>('purchase', {
       'packageId': packageId,
-      if (trialReminder != null) 'trialReminder': trialReminder,
+      'trialReminder': ?trialReminder,
     });
     if (value == null) {
       throw const PushifyException(
@@ -153,6 +153,11 @@ class PushifyPurchases {
   /// Reconciles current store ownership without presenting a purchase UI.
   Future<Map<String, Object?>> syncPurchases() async =>
       _requireMap(await _invoke<Map<Object?, Object?>>('syncPurchases'));
+
+  /// Presents Apple's native offer-code sheet on iOS and syncs after it closes.
+  Future<void> redeemOfferCode() async {
+    await _invoke<void>('redeemOfferCode');
+  }
 
   /// Sends a deduplicated app event. Reuse [eventId] to safely retry that event.
   Future<int> logEvent(

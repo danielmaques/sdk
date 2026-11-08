@@ -92,6 +92,29 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
                 let snapshot = call.method == "restorePurchases" ? try await client.restorePurchases() : try await client.syncPurchases()
                 self.finish(result, try self.encode(snapshot))
             }
+        case "redeemOfferCode":
+            if #available(iOS 16.0, *) {
+                guard let scene = UIApplication.shared.connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive }) else {
+                    result(FlutterError(code: "scene_unavailable", message: "Offer code redemption is unavailable right now.", details: nil))
+                    return
+                }
+                guard let purchases else {
+                    result(FlutterError(code: "not_configured", message: "Call configure before using Pushify purchases.", details: nil))
+                    return
+                }
+                Task { @MainActor in
+                    do {
+                        try await AppStore.presentOfferCodeRedeemSheet(in: scene)
+                        _ = try await purchases.syncPurchases()
+                        self.finish(result, NSNull())
+                    } catch { self.finishError(result, error) }
+                }
+            } else {
+                SKPaymentQueue.default().presentCodeRedemptionSheet()
+                finish(result, NSNull())
+            }
         case "purchase":
             guard let packageID = args["packageId"] as? String else { result(FlutterError(code: "invalid_package", message: "packageId is required.", details: nil)); return }
             let reminderPayload = args["trialReminder"] as? [String: Any]

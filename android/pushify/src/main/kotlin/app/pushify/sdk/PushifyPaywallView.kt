@@ -1173,7 +1173,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
             "restore_purchases", "restore" -> restore()
             "set_user_attributes" -> setUserAttributes(action)
-            "navigate_to" -> openActionLink(action, screen)
+            "navigate_to" -> if (action.optString("destination") == "offer_code") redeemOfferCode(screen) else openActionLink(action, screen)
             "custom_action" -> {
                 val name = action.optString("name").trim()
                 val callback = onCustomAction
@@ -1310,6 +1310,21 @@ public class PushifyPaywallView @JvmOverloads constructor(
             message = "This link could not be opened."
             render()
         }
+    }
+
+    private fun redeemOfferCode(screen: JSONObject) {
+        val activity = context as? Activity
+        if (activity == null) {
+            message = "Offer code redemption is unavailable right now."
+            render()
+            return
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("Redeem a promo code")
+            .setMessage("Google Play opens the selected plan's checkout. Choose Redeem in the payment options to enter your code.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue") { _, _ -> purchaseSelected(screen = screen) }
+            .show()
     }
 
     private fun backgroundColor(background: JSONObject?): Int {

@@ -3,6 +3,7 @@ import AVKit
 import WebKit
 import UIKit
 import SafariServices
+import StoreKit
 
 private struct PresentedPaywallSurvey: Identifiable {
     let id: String
@@ -863,7 +864,9 @@ public struct PushifyPaywallView: View {
         case "update_variable": updateVariable(action)
         case "restore_purchases", "restore": restore()
         case "set_user_attributes": setUserAttributes(action)
-        case "navigate_to": openActionLink(action, screen: screen)
+        case "navigate_to":
+            if string(action["destination"]) == "offer_code" { redeemOfferCode() }
+            else { openActionLink(action, screen: screen) }
         case "custom_action":
             guard let name = string(action["name"]), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { message = "This custom action has no name."; return }
             guard let onCustomAction else { message = "This app action is unavailable."; return }
@@ -903,6 +906,30 @@ public struct PushifyPaywallView: View {
         guard valid else { message = "This custom placement has invalid parameters."; return }
         message = nil
         onCustomPlacement(rawName.trimmingCharacters(in: .whitespacesAndNewlines), parameters)
+    }
+
+    private func redeemOfferCode() {
+        if #available(iOS 16.0, *) {
+            guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }) else {
+                message = "Offer code redemption is unavailable right now."
+                return
+            }
+            Task {
+                do {
+                    try await AppStore.presentOfferCodeRedeemSheet(in: scene)
+                    // The sheet does not report whether a code was redeemed. Reconcile
+                    // transactions after it closes; Transaction.updates handles later delivery.
+                    _ = try await purchases.syncPurchases()
+                    message = nil
+                } catch {
+                    message = "Offer code redemption could not be completed."
+                }
+            }
+        } else {
+            SKPaymentQueue.default().presentCodeRedemptionSheet()
+        }
     }
 
 

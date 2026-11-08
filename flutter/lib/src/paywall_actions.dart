@@ -350,7 +350,13 @@ extension _PaywallActions on _PushifyPaywallState {
               try { result = await Future<PushifyCustomCallbackResult>.sync(() => callback(name, Map.unmodifiable(arguments))); }
               catch (_) { if (mounted && !run.cancelled) _update(() => _message = 'This app callback could not be completed. Please try again.'); result = const PushifyCustomCallbackResult(status: 'failure'); }
               final entries = result.data.entries;
-              final valid = (result.status == 'success' || result.status == 'failure') && entries.length <= 20 && entries.every((entry) => RegExp(r'^[A-Za-z_][A-Za-z0-9_.-]{0,99}$').hasMatch(entry.key) && (entry.value == null || entry.value is bool || entry.value is String && entry.value.length <= 500 || entry.value is num && entry.value.isFinite));
+              bool validValue(Object? value) {
+                if (value == null || value is bool) return true;
+                if (value is String) return value.length <= 500;
+                if (value is num) return value.isFinite;
+                return false;
+              }
+              final valid = (result.status == 'success' || result.status == 'failure') && entries.length <= 20 && entries.every((entry) => RegExp(r'^[A-Za-z_][A-Za-z0-9_.-]{0,99}$').hasMatch(entry.key) && validValue(entry.value));
               if (!valid && mounted && !run.cancelled) _update(() => _message = 'This app callback returned an invalid result.');
               if (!mounted || _presentationClosed || run.cancelled) return false;
               final status = valid ? result.status : 'failure';
@@ -358,7 +364,7 @@ extension _PaywallActions on _PushifyPaywallState {
               _update(() {});
               final branch = _maps(step[status == 'success' ? 'on_success' : 'on_failure']);
               for (final branchStep in branch) {
-                if (!mounted || _presentationClosed || run.cancelled) return;
+                if (!mounted || _presentationClosed || run.cancelled) return false;
                 if (branchStep['type'] == 'update_variable') {
                   final variableName = (branchStep['variable'] as String? ?? '').replaceFirst(RegExp(r'^state\.'), '');
                   final definition = _map(_map(widget.document['custom_variables'])[variableName]);
@@ -391,7 +397,9 @@ extension _PaywallActions on _PushifyPaywallState {
             }
           }
           if (step['behavior'] == 'non_blocking') { unawaited(dispatchCallback()); }
-          else if (!await dispatchCallback()) return;
+          else if (!await dispatchCallback()) {
+            return;
+          }
         } else if (step['type'] == 'custom_placement') {
           _dispatchCustomPlacement(step);
         }
@@ -484,6 +492,40 @@ extension _PaywallActions on _PushifyPaywallState {
       return;
     }
     if (kind == 'navigate_to') {
+      if (action['destination'] == 'offer_code') {
+        if (Platform.isIOS) {
+          try {
+            await widget.purchases.redeemOfferCode();
+            _update(() => _message = null);
+          } catch (_) {
+            _update(() => _message = 'Offer code redemption could not be completed.');
+          }
+        } else if (Platform.isAndroid) {
+          final proceed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Redeem a promo code'),
+              content: const Text(
+                'Google Play opens the selected plan checkout. Choose Redeem in the payment options to enter your code.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Continue'),
+                ),
+              ],
+            ),
+          );
+          if (proceed == true && mounted) await _buy(screen: screen);
+        } else {
+          _update(() => _message = 'Offer code redemption is unavailable on this platform.');
+        }
+        return;
+      }
       await _openActionLink(action, screen);
       return;
     }

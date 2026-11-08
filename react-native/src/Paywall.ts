@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, Modal, NativeModules, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Alert, Animated, Easing, Image, Modal, NativeModules, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
@@ -457,7 +457,31 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       finally { setBusy(false); }
       return;
     }
-    if (kind === 'navigate_to') { await openActionLink(action); return; }
+    if (kind === 'navigate_to') {
+      if (action.destination === 'offer_code') {
+        if (Platform.OS === 'ios') {
+          try {
+            await NativeModules.PushifyPurchases.redeemOfferCode();
+            setMessage(null);
+          } catch {
+            setMessage('Offer code redemption could not be completed.');
+          }
+        } else if (Platform.OS === 'android') {
+          Alert.alert(
+            'Redeem a promo code',
+            "Google Play opens the selected plan's checkout. Choose Redeem in the payment options to enter your code.",
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Continue', onPress: () => { void purchase(undefined, {}, screen); } },
+            ],
+          );
+        } else {
+          setMessage('Offer code redemption is unavailable on this platform.');
+        }
+        return;
+      }
+      await openActionLink(action); return;
+    }
     if (kind === 'custom_placement') { dispatchCustomPlacement(action); return; }
     if (kind === 'custom_action') {
       const name = text(action.name)?.trim();

@@ -38,6 +38,8 @@ RCT_EXTERN_METHOD(restorePurchases:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(syncPurchases:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(redeemOfferCode:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(purchase:(NSString *)packageID
                   trialReminder:(NSDictionary *)trialReminder
                   resolver:(RCTPromiseResolveBlock)resolve
