@@ -272,6 +272,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 text = localized(node, screen)
                 textSize = properties.optDouble("font_size", 20.0).toFloat().coerceIn(10f, 72f)
                 gravity = Gravity.CENTER
+                properties.optJSONObject("color")?.let { setTextColor(colorValue(it, currentTextColor, isDarkTheme())) }
                 setTypeface(typeface, if (properties.optString("font_weight") in listOf("bold", "semibold")) Typeface.BOLD else Typeface.NORMAL)
                 setPadding(0, dp(6), 0, dp(6))
             }
@@ -414,7 +415,16 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 text = iconGlyph(properties.optString("icon_name"))
                 textSize = properties.optDouble("size", 24.0).toFloat().coerceIn(12f, 64f)
                 gravity = Gravity.CENTER
-                setTextColor(colorValue(properties.optJSONObject("color"), Color.rgb(49, 94, 232)))
+                setTextColor(colorValue(properties.optJSONObject("color"), Color.rgb(49, 94, 232), isDarkTheme()))
+                properties.optJSONObject("icon_background")?.let { iconBackground ->
+                    val shape = iconBackground.optJSONObject("shape")?.optString("type")
+                    background = GradientDrawable().apply {
+                        this.shape = if (shape == "circle") GradientDrawable.OVAL else GradientDrawable.RECTANGLE
+                        cornerRadius = dp(8).toFloat()
+                        setColor(colorValue(iconBackground.optJSONObject("color"), Color.TRANSPARENT, isDarkTheme()))
+                    }
+                    setPadding(dp(6), dp(6), dp(6), dp(6))
+                }
                 contentDescription = properties.optString("accessibility_label").ifBlank { properties.optString("icon_name") }
             }
             "timeline" -> LinearLayout(context).apply {
@@ -425,8 +435,18 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP; setPadding(0, 0, 0, dp(14)) }
                     val rail = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
                     val icon = item.optJSONObject("icon")
-                    rail.addView(TextView(context).apply { text = iconGlyph(icon?.optString("icon_name").orEmpty()); textSize = 18f; gravity = Gravity.CENTER; contentDescription = icon?.optString("accessibility_label") }, lp(dp(32), dp(32)))
-                    if (i < items.length() - 1) rail.addView(View(context).apply { setBackgroundColor(Color.LTGRAY) }, lp(dp(2), dp(28)))
+                    rail.addView(TextView(context).apply {
+                        text = iconGlyph(icon?.optString("icon_name").orEmpty()); textSize = 18f; gravity = Gravity.CENTER
+                        icon?.optJSONObject("color")?.let { setTextColor(colorValue(it, currentTextColor, isDarkTheme())) }
+                        icon?.optJSONObject("icon_background")?.optJSONObject("color")?.let { color ->
+                            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(colorValue(color, Color.TRANSPARENT, isDarkTheme())) }
+                        }
+                        contentDescription = icon?.optString("accessibility_label")
+                    }, lp(dp(32), dp(32)))
+                    if (i < items.length() - 1) rail.addView(View(context).apply {
+                        val connector = item.optJSONObject("connector")?.optJSONObject("color")
+                        setBackgroundColor(colorValue(connector, if (isDarkTheme()) Color.DKGRAY else Color.LTGRAY, isDarkTheme()))
+                    }, lp(dp(2), dp(28)))
                     row.addView(rail, lp(dp(38), WRAP))
                     val copy = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, 0, 0) }
                     nestedNode(item.optJSONObject("title"))?.let { copy.addView(renderNode(it, screen), lp(MATCH, WRAP)) }
@@ -1355,9 +1375,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return JSONObject().put("id", value.optString("id")).put("kind", kind).put("properties", properties).put("children", normalized)
     }
     private fun iconGlyph(name: String): String = when (name.lowercase()) { "check", "checkmark" -> "✓"; "star" -> "★"; "bell" -> "♢"; "unlock" -> "◇"; "heart" -> "♥"; "clock" -> "◷"; else -> "●" }
-    private fun colorValue(value: JSONObject?, fallback: Int): Int {
-        val light = value?.optJSONObject("light") ?: value?.optJSONObject("value")?.optJSONObject("light")
-        val hex = light?.optString("value")?.takeIf(String::isNotBlank) ?: return fallback
+    private fun isDarkTheme(): Boolean = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    private fun colorValue(value: JSONObject?, fallback: Int, dark: Boolean = isDarkTheme()): Int {
+        val colors = value?.optJSONObject("value") ?: value
+        val selected = (if (dark) colors?.optJSONObject("dark") else null) ?: colors?.optJSONObject("light")
+        val hex = selected?.optString("value")?.takeIf(String::isNotBlank) ?: return fallback
         return runCatching { Color.parseColor(hex) }.getOrDefault(fallback)
     }
     private fun findNodeText(node: JSONObject?): String? {

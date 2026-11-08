@@ -279,12 +279,20 @@ extension _PaywallRendering on _PushifyPaywallState {
         );
       case 'text':
       case 'title':
+        final dark = Theme.of(context).brightness == Brightness.dark;
         return Text(
           _localized(node, screen),
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: _number(properties['font_size']) ?? 20,
             fontWeight: _fontWeight(properties['font_weight']),
+            color: properties.containsKey('color')
+                ? _color(
+                    properties['color'],
+                    Theme.of(context).colorScheme.onSurface,
+                    dark: dark,
+                  )
+                : null,
           ),
         );
       case 'input':
@@ -543,15 +551,45 @@ extension _PaywallRendering on _PushifyPaywallState {
           _ => Icons.circle,
         };
         final size = _number(properties['size']) ?? 24;
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        final iconBackground = _map(properties['icon_background']);
+        final backgroundColor = _map(iconBackground['color']);
+        final foreground = _color(
+          properties['color'],
+          Theme.of(context).colorScheme.primary,
+          dark: dark,
+        );
+        if (backgroundColor.isNotEmpty) {
+          final shape = _map(iconBackground['shape']);
+          return Container(
+            width: size,
+            height: size,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: _color(
+                iconBackground['color'],
+                Theme.of(context).colorScheme.primary,
+                dark: dark,
+              ),
+              shape: shape['type'] == 'circle'
+                  ? BoxShape.circle
+                  : BoxShape.rectangle,
+              borderRadius: shape['type'] == 'circle'
+                  ? null
+                  : BorderRadius.circular(8),
+            ),
+            child: Icon(
+              glyph,
+              size: size,
+              color: foreground,
+              semanticLabel: properties['accessibility_label'] as String?,
+            ),
+          );
+        }
         return Icon(
           glyph,
           size: size,
-          color: _color(
-            _map(properties['color'])['light'] is Map
-                ? _map(_map(properties['color'])['light'])['value']
-                : properties['color'],
-            Theme.of(context).colorScheme.primary,
-          ),
+          color: foreground,
           semanticLabel: properties['accessibility_label'] as String?,
         );
       case 'timeline':
@@ -714,18 +752,41 @@ extension _PaywallRendering on _PushifyPaywallState {
     };
     final title = _map(item['title']);
     final description = _map(item['description']);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final iconBackground = _map(_map(icon['icon_background'])['color']);
+    final iconColor = _color(
+      icon['color'],
+      iconBackground.isNotEmpty
+          ? Theme.of(context).colorScheme.onPrimary
+          : Theme.of(context).colorScheme.primary,
+      dark: dark,
+    );
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Column(
             children: [
-              CircleAvatar(radius: 14, child: Icon(glyph, size: 16)),
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: iconBackground.isEmpty
+                    ? null
+                    : _color(
+                        _map(icon['icon_background'])['color'],
+                        Theme.of(context).colorScheme.primary,
+                        dark: dark,
+                      ),
+                child: Icon(glyph, size: 16, color: iconColor),
+              ),
               if (connector)
                 Expanded(
                   child: Container(
                     width: 2,
-                    color: Theme.of(context).colorScheme.outlineVariant,
+                    color: _color(
+                      _map(item['connector'])['color'],
+                      Theme.of(context).colorScheme.outlineVariant,
+                      dark: dark,
+                    ),
                     margin: const EdgeInsets.symmetric(vertical: 4),
                   ),
                 ),
@@ -808,12 +869,15 @@ extension _PaywallRendering on _PushifyPaywallState {
       .replaceAll('{{ count_minutes_with_zero }}', minutes)
       .replaceAll('{{ count_seconds_with_zero }}', seconds);
 
-  Color _color(Object? value, Color fallback) {
+  Color _color(Object? value, Color fallback, {bool dark = false}) {
     if (value is Map) {
       final object = _map(value);
-      final directLight = _map(object['light']);
       final nestedValue = _map(object['value']);
-      value = directLight['value'] ?? _map(nestedValue['light'])['value'];
+      final direct = _map(object[dark ? 'dark' : 'light']);
+      final nested = _map(nestedValue[dark ? 'dark' : 'light']);
+      final fallbackVariant = _map(object[dark ? 'light' : 'dark']);
+      final fallbackNested = _map(nestedValue[dark ? 'light' : 'dark']);
+      value = direct['value'] ?? nested['value'] ?? fallbackVariant['value'] ?? fallbackNested['value'];
     }
     if (value is! String) return fallback;
     final hex = value.replaceFirst('#', '');

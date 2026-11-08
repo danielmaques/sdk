@@ -712,7 +712,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       case 'stack': return React.createElement(View, { key: node.id ?? undefined, style: styles.stack }, ...children);
       case 'hstack': return React.createElement(View, { key: node.id ?? undefined, style: styles.row }, ...children.map((child) => React.createElement(View, { style: styles.rowChild }, child)));
       case 'text':
-      case 'title': return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight) }] }, localized(node));
+      case 'title': return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight), ...(node.properties.color != null ? { color: color(node.properties.color, colorScheme === 'dark' ? '#f5f5f5' : '#171717', colorScheme === 'dark') } : {}) }] }, localized(node));
       case 'input': {
         const reference = text(node.properties.state_variable) ?? '';
         const name = reference.startsWith('state.') ? reference.slice(6) : '';
@@ -843,13 +843,18 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       case 'icon': {
         const name = text(node.properties.icon_name) ?? '★';
         const symbols: Record<string, string> = { check: '✓', checkmark: '✓', star: '★', bell: '♢', unlock: '◇', lock: '▣', heart: '♥', clock: '◷' };
-        return React.createElement(Text, { key: node.id ?? undefined, accessibilityLabel: text(node.properties.accessibility_label) ?? undefined, style: { fontSize: number(node.properties.size) ?? 24, color: color(node.properties.color, '#315ee8'), textAlign: 'center' } }, symbols[name] ?? '●');
+        const dark = colorScheme === 'dark';
+        const iconBackground = record(node.properties.icon_background);
+        const size = number(node.properties.size) ?? 24;
+        return React.createElement(Text, { key: node.id ?? undefined, accessibilityLabel: text(node.properties.accessibility_label) ?? undefined, style: { width: size, height: size, fontSize: size, color: color(node.properties.color, dark ? '#8ab4f8' : '#315ee8', dark), textAlign: 'center', textAlignVertical: 'center', ...(Object.keys(iconBackground).length ? { backgroundColor: color(iconBackground.color, dark ? '#292929' : '#e8e8e8', dark), overflow: 'hidden', borderRadius: text(record(iconBackground.shape).type) === 'circle' ? 999 : 8, padding: 6 } : {}) } }, symbols[name] ?? '●');
       }
       case 'timeline': {
         const items = array(node.properties.items).map(record);
+        const dark = colorScheme === 'dark';
         return React.createElement(View, { key: node.id ?? undefined, style: styles.stack }, ...items.map((item, index) => {
           const icon = record(item.icon); const title = nestedNode(item.title); const description = nestedNode(item.description);
-          return React.createElement(View, { key: `${node.id ?? 'timeline'}-${index}`, style: styles.timelineRow }, React.createElement(View, { style: styles.timelineRail }, React.createElement(View, { style: styles.timelineIcon }, React.createElement(Text, { style: styles.timelineGlyph }, iconGlyph(text(icon.icon_name)))), index < items.length - 1 ? React.createElement(View, { style: styles.timelineLine }) : null), React.createElement(View, { style: styles.timelineCopy }, title ? renderNode(title) : null, description ? renderNode(description) : null));
+          const iconBackground = record(icon.icon_background);
+          return React.createElement(View, { key: `${node.id ?? 'timeline'}-${index}`, style: styles.timelineRow }, React.createElement(View, { style: styles.timelineRail }, React.createElement(View, { style: [styles.timelineIcon, { backgroundColor: color(iconBackground.color, dark ? '#292929' : '#315ee8', dark) }] }, React.createElement(Text, { style: [styles.timelineGlyph, { color: color(icon.color, '#ffffff', dark) }] }, iconGlyph(text(icon.icon_name)))), index < items.length - 1 ? React.createElement(View, { style: [styles.timelineLine, { backgroundColor: color(record(item.connector).color, dark ? '#555555' : '#d4d4d4', dark) }] }) : null), React.createElement(View, { style: styles.timelineCopy }, title ? renderNode(title) : null, description ? renderNode(description) : null));
         }));
       }
       case 'carousel': {
@@ -1012,10 +1017,12 @@ function replaceCountdown(value: Record<string, unknown>, days: number, hours: s
 }
 function twoDigits(value: number): string { return String(value).padStart(2, '0'); }
 function iconGlyph(name: string | null): string { return ({ check: '✓', checkmark: '✓', star: '★', bell: '♢', unlock: '◇' } as Record<string, string>)[name ?? ''] ?? '•'; }
-function color(value: unknown, fallback: string): string {
+function color(value: unknown, fallback: string, dark = false): string {
   if (value && typeof value === 'object') {
     const object = record(value);
-    value = record(object.light).value ?? record(record(object.value).light).value;
+    const nested = record(object.value);
+    const colors = Object.keys(nested).length ? nested : object;
+    value = (dark ? record(colors.dark).value : undefined) ?? record(colors.light).value;
   }
   if (typeof value === 'string' && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return value.length === 9 ? `#${value.slice(7)}${value.slice(1, 7)}` : value;
   return fallback;

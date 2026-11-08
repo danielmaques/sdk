@@ -244,6 +244,7 @@ public struct PushifyPaywallView: View {
             }.frame(maxWidth: .infinity)
         case "text", "title":
             Text(localized(node, screen: screen)).font(.system(size: CGFloat(number(node.properties["font_size"]) ?? 20), weight: fontWeight(node.properties["font_weight"]), design: .default))
+                .foregroundStyle(colorString(node.properties["color"], dark: colorScheme == .dark).map { Color(hex: $0) } ?? Color.primary)
                 .multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
         case "input":
             let reference = string(node.properties["state_variable"]) ?? ""
@@ -434,9 +435,19 @@ public struct PushifyPaywallView: View {
                 EmptyView()
             }
         case "icon":
+            let iconBackground = object(node.properties["icon_background"])
+            let backgroundColor = colorString(iconBackground?["color"], dark: colorScheme == .dark)
+            let shape = object(iconBackground?["shape"])
             Image(systemName: symbolName(string(node.properties["icon_name"]) ?? "star"))
                 .font(.system(size: CGFloat(number(node.properties["size"]) ?? 24)))
-                .foregroundStyle(Color(hex: colorString(node.properties["color"]) ?? "#315ee8"))
+                .foregroundStyle(Color(hex: colorString(node.properties["color"], dark: colorScheme == .dark) ?? "#315ee8"))
+                .padding(backgroundColor == nil ? 0 : 6)
+                .background {
+                    if let backgroundColor {
+                        if string(shape?["type"]) == "circle" { Circle().fill(Color(hex: backgroundColor)) }
+                        else { RoundedRectangle(cornerRadius: 8).fill(Color(hex: backgroundColor)) }
+                    }
+                }
                 .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "")
         case "timeline":
             let items = array(node.properties["items"])
@@ -445,7 +456,11 @@ public struct PushifyPaywallView: View {
                     HStack(alignment: .top, spacing: CGFloat(number(node.properties["column_gutter"]) ?? 14)) {
                         VStack(spacing: 4) {
                             if let icon = nestedNode(item["icon"]) { AnyView(render(icon, screen: screen)).frame(width: 28, height: 28) }
-                            if index < items.count - 1 { Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 2).frame(maxHeight: .infinity) }
+                            if index < items.count - 1 {
+                                let connector = object(item["connector"])
+                                let lineColor = colorString(connector?["color"], dark: colorScheme == .dark)
+                                Rectangle().fill(lineColor.map { Color(hex: $0) } ?? Color.secondary.opacity(0.3)).frame(width: 2).frame(maxHeight: .infinity)
+                            }
                         }
                         VStack(alignment: .leading, spacing: CGFloat(number(node.properties["text_spacing"]) ?? 4)) {
                             if let title = nestedNode(item["title"]) { AnyView(render(title, screen: screen)) }
@@ -1153,12 +1168,12 @@ public struct PushifyPaywallView: View {
         return nestedNode(object)
     }
     private func symbolName(_ value: String) -> String { ["check": "checkmark", "unlock": "lock.open", "bell": "bell", "star": "star.fill", "heart": "heart.fill", "clock": "clock", "lock": "lock.fill" ][value] ?? "circle.fill" }
-    private func colorString(_ value: PushifyJSONValue?) -> String? {
+    private func colorString(_ value: PushifyJSONValue?, dark: Bool = false) -> String? {
         if case .string(let color)? = value { return color }
         if case .object(let object)? = value {
-            let colors: [String: PushifyJSONValue]
-            if case .object(let nested)? = object["value"] { colors = nested } else { colors = object }
-            if case .object(let light)? = colors["light"], case .string(let color)? = light["value"] { return color }
+            let colors = self.object(object["value"]) ?? object
+            let selected = (dark ? self.object(colors["dark"]) : nil) ?? self.object(colors["light"])
+            if case .string(let color)? = selected?["value"] { return color }
         }
         return nil
     }
