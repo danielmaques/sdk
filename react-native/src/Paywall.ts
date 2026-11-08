@@ -1064,7 +1064,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const backgroundColor = text(light.value) ?? '#ffffff';
   return React.createElement(View, { style: [styles.root, { backgroundColor }] },
     props.onClose ? React.createElement(View, { style: styles.closeRow }, React.createElement(Pressable, { onPress: () => { void closeWithSurvey(screen); }, accessibilityRole: 'button', accessibilityLabel: 'Close paywall', hitSlop: 12 }, React.createElement(Text, { style: styles.close }, '×'))) : null,
-    React.createElement(ScrollView, { contentContainerStyle: styles.content }, screen.content ? renderNode(screen.content) : null),
+    React.createElement(ScrollView, { contentContainerStyle: styles.content, scrollEnabled: props.document.scroll_enabled !== false }, screen.content ? renderNode(screen.content) : null),
     screen.footer ? renderNode(screen.footer) : null,
     message ? React.createElement(Text, { accessibilityLiveRegion: 'polite', style: styles.message }, message) : null,
     React.createElement(Modal, { visible: activeSurvey !== null, transparent: true, animationType: 'fade', onRequestClose: () => finishSurvey() },

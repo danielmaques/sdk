@@ -116,6 +116,7 @@ public struct PushifyPaywallDocument: Codable, Sendable {
     public let customVariables: [String: PushifyPaywallCustomVariable]?
     public let surveys: [String: PushifyPaywallSurvey]?
     public let trialReminder: PushifyPaywallTrialReminder?
+    public let scrollEnabled: Bool?
 }
 
 public struct PushifyPaywallCustomVariable: Codable, Sendable {

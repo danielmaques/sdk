@@ -199,6 +199,9 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
                 ),
               Expanded(
                 child: SingleChildScrollView(
+                  physics: widget.document['scroll_enabled'] == false
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
                   child: _render(_map(screen['content']), screen),
                 ),
               ),

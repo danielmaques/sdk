@@ -19,7 +19,9 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.os.Handler
 import android.os.Looper
+import android.os.Bundle
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
@@ -100,6 +102,10 @@ public class PushifyPaywallView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean = false
+
+    override fun onTouchEvent(event: MotionEvent): Boolean = false
+
     init {
         isFillViewport = true
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
@@ -147,7 +153,18 @@ public class PushifyPaywallView @JvmOverloads constructor(
             row.addView(Button(context).apply { text = "Close"; contentDescription = "Close paywall"; setOnClickListener { dismissManually() } }, lp(WRAP, dp(48)))
             root.addView(row, lp(MATCH, WRAP))
         }
-        screen.optJSONObject("content")?.let { root.addView(renderNode(it, screen), lp(MATCH, 0, 1f)) }
+        screen.optJSONObject("content")?.let { content ->
+            val body = object : ScrollView(context) {
+                private fun allowsScroll() = document.optBoolean("scroll_enabled", true)
+                override fun onInterceptTouchEvent(event: MotionEvent): Boolean = if (allowsScroll()) super.onInterceptTouchEvent(event) else false
+                override fun onTouchEvent(event: MotionEvent): Boolean = if (allowsScroll()) super.onTouchEvent(event) else false
+                override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean =
+                    if (!allowsScroll() && action in setOf(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) false
+                    else super.performAccessibilityAction(action, arguments)
+            }.apply { isFillViewport = true; isVerticalScrollBarEnabled = false }
+            body.addView(renderNode(content, screen), lp(MATCH, WRAP))
+            root.addView(body, lp(MATCH, 0, 1f))
+        }
         screen.optJSONObject("footer")?.let { root.addView(renderNode(it, screen), lp(MATCH, WRAP)) }
         message?.let { status -> root.addView(TextView(context).apply { text = status; gravity = Gravity.CENTER; contentDescription = status }, lp(MATCH, WRAP)) }
         addView(root, LayoutParams(MATCH, MATCH))

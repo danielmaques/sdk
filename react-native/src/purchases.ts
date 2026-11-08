@@ -75,6 +75,7 @@ export type PushifyPaywallV1 = {
   custom_variables?: Record<string, { type: 'state'; value_type: 'text' | 'number' | 'boolean' | 'selection'; initial_value: string | number | boolean | string[] }>;
   surveys?: { close?: PushifyPaywallSurvey; post_purchase?: PushifyPaywallSurvey };
   trial_reminder?: PushifyPaywallTrialReminder;
+  scroll_enabled?: boolean;
 };
 
 export type PushifyPurchaseResult =

@@ -125,7 +125,16 @@ public struct PushifyPaywallView: View {
                             .accessibilityLabel("Close paywall")
                         }
                     }
-                    if let content = screen.content { render(content, screen: screen).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                    if let content = screen.content {
+                        Group {
+                            if document.scrollEnabled != false {
+                                ScrollView(.vertical) { render(content, screen: screen).frame(maxWidth: .infinity) }
+                            } else {
+                                render(content, screen: screen).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                     if let footer = screen.footer { render(footer, screen: screen) }
                     if let message { Text(message).font(.footnote).foregroundStyle(.secondary).padding(.horizontal) }
                 }
