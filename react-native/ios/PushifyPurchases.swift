@@ -223,6 +223,10 @@ final class PushifyPurchasesModule: RCTEventEmitter {
            case let .server(status, code, message, retryable) = apiError {
             let details = NSError(domain: "app.pushify.sdk", code: status, userInfo: ["retryable": retryable])
             reject(code, message, details)
+        } else if let purchasesError = error as? PushifyError,
+                  case let .productUnavailable(item) = purchasesError,
+                  item.contains("eligible store offer") {
+            reject("offer_unavailable", "The selected introductory offer is no longer available.", nil)
         } else {
             reject("pushify_error", String(describing: error), error)
         }

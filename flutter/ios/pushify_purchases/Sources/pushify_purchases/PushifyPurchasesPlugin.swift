@@ -188,6 +188,10 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
         if let apiError = error as? PushifyError,
            case let .server(status, code, message, retryable) = apiError {
             flutterError = FlutterError(code: code, message: message, details: ["status": status, "retryable": retryable])
+        } else if let purchasesError = error as? PushifyError,
+                  case let .productUnavailable(item) = purchasesError,
+                  item.contains("eligible store offer") {
+            flutterError = FlutterError(code: "offer_unavailable", message: "The selected introductory offer is no longer available.", details: nil)
         } else {
             flutterError = FlutterError(code: "pushify_error", message: String(describing: error), details: nil)
         }
