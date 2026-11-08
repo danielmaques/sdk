@@ -791,7 +791,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     const offer = winner?.offer ?? {};
     const intro = [text(offer.localized_price), text(offer.billing_period)].filter(Boolean).join(' for ');
     const renewal = [text(offer.renewal_price), text(offer.renewal_period)].filter(Boolean).join(' / ');
-    const colors = ['#c7a95c', '#7588b7', '#d98a64', '#7f9a80', '#aa8abd', '#d4bd78', '#6c9d9d', '#bc7181'];
+  const colors = ['#70d000', '#f5e663', '#ff9b35', '#b5eb32', '#4bbd28', '#f9c846', '#76dc67', '#ffb24c'];
     return React.createElement(View, { key: wheelID, style: styles.discountWheel },
       React.createElement(Text, { style: styles.wheelTitle }, 'Choose an eligible offer'),
       React.createElement(View, { style: styles.wheelStage },

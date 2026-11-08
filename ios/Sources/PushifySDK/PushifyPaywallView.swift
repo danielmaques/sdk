@@ -634,7 +634,7 @@ public struct PushifyPaywallView: View {
     private func renderDiscountWheel(_ node: PushifyPaywallNode, config: [String: PushifyJSONValue], screen: PushifyPaywallScreen) -> some View {
         let eligible = eligibleDiscountWheelPrizes(config)
         let wheelID = node.id ?? "discount-wheel"
-        let colors: [Color] = [.init(red: 0.78, green: 0.66, blue: 0.36), .init(red: 0.39, green: 0.50, blue: 0.69), .init(red: 0.78, green: 0.43, blue: 0.32), .init(red: 0.39, green: 0.57, blue: 0.43), .init(red: 0.57, green: 0.43, blue: 0.68), .init(red: 0.76, green: 0.66, blue: 0.42), .init(red: 0.32, green: 0.56, blue: 0.56), .init(red: 0.68, green: 0.36, blue: 0.45)]
+        let colors: [Color] = [.init(red: 0.44, green: 0.82, blue: 0), .init(red: 0.96, green: 0.90, blue: 0.39), .init(red: 1, green: 0.61, blue: 0.21), .init(red: 0.71, green: 0.92, blue: 0.20), .init(red: 0.29, green: 0.74, blue: 0.16), .init(red: 0.98, green: 0.78, blue: 0.27), .init(red: 0.46, green: 0.86, blue: 0.40), .init(red: 1, green: 0.70, blue: 0.30)]
         let gradientStops = eligible.enumerated().flatMap { index, _ -> [Gradient.Stop] in
             let start = Double(index) / Double(eligible.count)
             let end = Double(index + 1) / Double(eligible.count)

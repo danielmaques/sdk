@@ -1097,9 +1097,9 @@ class _DiscountWheelPainter extends CustomPainter {
 
   final List<String> labels;
   static const _colors = <Color>[
-    Color(0xffc7a95c), Color(0xff7588b7), Color(0xffd98a64),
-    Color(0xff7f9a80), Color(0xffaa8abd), Color(0xffd4bd78),
-    Color(0xff6c9d9d), Color(0xffbc7181),
+    Color(0xff70d000), Color(0xfff5e663), Color(0xffff9b35),
+    Color(0xffb5eb32), Color(0xff4bbd28), Color(0xfff9c846),
+    Color(0xff76dc67), Color(0xffffb24c),
   ];
 
   @override

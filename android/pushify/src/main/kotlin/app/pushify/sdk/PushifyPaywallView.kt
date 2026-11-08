@@ -885,7 +885,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val size = dp(190)
         val wheel = object : View(context) {
             private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            private val colors = intArrayOf(Color.rgb(199, 169, 92), Color.rgb(117, 136, 183), Color.rgb(217, 138, 100), Color.rgb(127, 154, 128), Color.rgb(170, 138, 189), Color.rgb(212, 189, 120), Color.rgb(108, 157, 157), Color.rgb(188, 113, 129))
+            private val colors = intArrayOf(Color.rgb(112, 208, 0), Color.rgb(245, 230, 99), Color.rgb(255, 155, 53), Color.rgb(181, 235, 50), Color.rgb(75, 189, 40), Color.rgb(249, 200, 70), Color.rgb(118, 220, 103), Color.rgb(255, 178, 76))
             override fun onDraw(canvas: Canvas) {
                 super.onDraw(canvas)
                 val diameter = minOf(width, height).toFloat() - dp(8)
