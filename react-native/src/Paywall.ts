@@ -911,14 +911,14 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     message ? React.createElement(Text, { accessibilityLiveRegion: 'polite', style: styles.message }, message) : null,
     React.createElement(Modal, { visible: activeSurvey !== null, transparent: true, animationType: 'fade', onRequestClose: () => finishSurvey() },
       activeSurvey ? React.createElement(View, { style: styles.surveyBackdrop },
-        React.createElement(View, { style: styles.surveyCard, accessibilityRole: 'summary' },
-          React.createElement(Text, { style: styles.surveyQuestion }, localizedValue(activeSurvey.survey?.question_lid ?? '') ?? 'Tell us what you think'),
+        React.createElement(View, { style: [styles.surveyCard, colorScheme === 'dark' && styles.surveyCardDark], accessibilityRole: 'summary' },
+          React.createElement(Text, { style: [styles.surveyQuestion, colorScheme === 'dark' && styles.surveyQuestionDark] }, localizedValue(activeSurvey.survey?.question_lid ?? '') ?? 'Tell us what you think'),
           ...(activeSurvey.survey?.options ?? []).map((option) => React.createElement(Pressable, {
             key: option.id,
             onPress: () => finishSurvey(option.id),
             accessibilityRole: 'button',
-          }, React.createElement(Text, { style: styles.surveyOption }, localizedValue(option.label_lid) ?? option.label_lid))),
-          React.createElement(Pressable, { onPress: () => finishSurvey(), accessibilityRole: 'button' }, React.createElement(Text, { style: styles.surveySkip }, localizedValue(activeSurvey.survey?.skip_label_lid ?? '') ?? 'Skip')),
+          }, React.createElement(Text, { style: [styles.surveyOption, colorScheme === 'dark' && styles.surveyOptionDark] }, localizedValue(option.label_lid) ?? option.label_lid))),
+          React.createElement(Pressable, { onPress: () => finishSurvey(), accessibilityRole: 'button' }, React.createElement(Text, { style: [styles.surveySkip, colorScheme === 'dark' && styles.surveySkipDark] }, localizedValue(activeSurvey.survey?.skip_label_lid ?? '') ?? 'Skip')),
         ),
       ) : null,
     ),
@@ -1124,7 +1124,7 @@ function productAliasValue(field: string, product: ProductVariableSource, peers:
 function weight(value: unknown): 'normal' | '500' | '600' | 'bold' { return value === 'bold' ? 'bold' : value === 'semibold' ? '600' : value === 'medium' ? '500' : 'normal'; }
 
 const styles = StyleSheet.create({
-  surveyBackdrop: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.55)' }, surveyCard: { borderRadius: 18, backgroundColor: '#ffffff', padding: 20, gap: 12 }, surveyQuestion: { fontSize: 18, fontWeight: '700', marginBottom: 4 }, surveyOption: { paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, overflow: 'hidden', backgroundColor: '#f2f3f5', color: '#171717' }, surveySkip: { textAlign: 'center', padding: 10, color: '#555555' },
+  surveyBackdrop: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.55)' }, surveyCard: { borderRadius: 18, backgroundColor: '#ffffff', padding: 20, gap: 12 }, surveyCardDark: { backgroundColor: '#1c1c1e' }, surveyQuestion: { fontSize: 18, fontWeight: '700', marginBottom: 4, color: '#171717' }, surveyQuestionDark: { color: '#f5f5f7' }, surveyOption: { paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, overflow: 'hidden', backgroundColor: '#f2f3f5', color: '#171717' }, surveyOptionDark: { backgroundColor: '#343438', color: '#f5f5f7' }, surveySkip: { textAlign: 'center', padding: 10, color: '#555555' }, surveySkipDark: { color: '#c5c5ca' },
   root: { flex: 1, padding: 16 }, closeRow: { minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }, close: { fontSize: 28, paddingHorizontal: 8 },
   webExperience: { width: '100%', overflow: 'hidden', borderRadius: 12, backgroundColor: '#000000' }, webExperienceFrame: { ...StyleSheet.absoluteFillObject }, webExperienceFallback: { ...StyleSheet.absoluteFillObject, zIndex: 1 }, webExperienceStatus: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000' }, webExperienceStatusText: { color: '#ffffff', textAlign: 'center' },
   content: { flexGrow: 1, justifyContent: 'center', gap: 10 }, stack: { gap: 10, alignItems: 'stretch' }, row: { flexDirection: 'row', alignItems: 'center' }, rowChild: { flex: 1 },
