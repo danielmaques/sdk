@@ -92,6 +92,10 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   bool _presentationClosed = false;
   final Set<String> _surveyedTriggers = {};
   final Map<String, _TapActionRun> _tapActionRuns = {};
+  bool _discountWheelUsed = false;
+  bool _discountWheelSpinning = false;
+  double _discountWheelTurns = 0;
+  Map<String, Object?>? _discountWheelPrize;
 
   void _update(VoidCallback callback) => setState(callback);
 

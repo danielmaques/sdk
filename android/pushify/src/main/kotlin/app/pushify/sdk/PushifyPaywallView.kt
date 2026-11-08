@@ -66,7 +66,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val onCustomCallback: ((String, JSONObject, (PushifyCustomCallbackResult) -> Unit) -> Unit)? = null,
 ) : ScrollView(context) {
     private data class TapActionRun(var waiting: Boolean = false, var interruptible: Boolean = false, var cancelled: Boolean = false, var runnable: Runnable? = null)
-    private data class EligibleDiscountWheelPrize(val prize: JSONObject, val package: JSONObject, val offer: JSONObject)
+    private data class EligibleDiscountWheelPrize(val prize: JSONObject, val packageItem: JSONObject, val offer: JSONObject)
     private val main = Handler(Looper.getMainLooper())
     private val tapActionRuns = mutableMapOf<String, TapActionRun>()
     private val imageExecutor = Executors.newFixedThreadPool(2)
@@ -844,11 +844,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 val index = eligible.indices.random()
                 val selected = eligible[index]
                 val label = localizedValue(selected.prize.optString("label_lid"), screen)?.ifBlank { null } ?: "Selected offer"
-                discountWheelPrize = JSONObject().put("package_id", selected.package.optString("id")).put("offer_id", selected.offer.optString("offer_id"))
+                discountWheelPrize = JSONObject().put("package_id", selected.packageItem.optString("id")).put("offer_id", selected.offer.optString("offer_id"))
                     .put("label", label).put("intro_price", selected.offer.optString("localized_price"))
-                    .put("intro_period", selected.offer.optString("renewal_period")).put("renewal_price", selected.offer.optString("renewal_price"))
+                    .put("intro_period", selected.offer.optString("billing_period")).put("renewal_price", selected.offer.optString("renewal_price"))
                     .put("renewal_period", selected.offer.optString("renewal_period"))
-                selectedPackageId = selected.package.optString("id")
+                selectedPackageId = selected.packageItem.optString("id")
                 discountWheelUsed = true
                 busy = true
                 isEnabled = false

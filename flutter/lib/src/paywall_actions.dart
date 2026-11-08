@@ -19,11 +19,17 @@ extension _PaywallActions on _PushifyPaywallState {
       _busy = true;
       _message = null;
     });
+    String? selectedStoreOfferId;
     try {
       final reminder = _trialReminderRequest(screen);
+      final wheelPrize = _discountWheelPrize;
+      if (wheelPrize != null && wheelPrize['package_id'] == productId) {
+        selectedStoreOfferId = wheelPrize['offer_id'] as String?;
+      }
       final result = await widget.purchases.purchase(
         productId,
         trialReminder: reminder,
+        storeOfferId: selectedStoreOfferId,
       );
       if (result.isPurchased && result.customerInfo != null) {
         final product = _map(_maps(widget.offering['packages']).firstWhere((item) => item['id'] == productId, orElse: () => {})['product']);
@@ -42,10 +48,16 @@ extension _PaywallActions on _PushifyPaywallState {
       if (result.isPending) {
         _update(() => _message = 'Purchase is pending approval.');
       }
-    } catch (_) {
-      _update(
-        () => _message = 'Purchase could not be completed. Please try again.',
-      );
+    } catch (error) {
+      if (selectedStoreOfferId != null && error is PushifyException && error.code == 'offer_unavailable') {
+        _update(() {
+          _discountWheelPrize = null;
+          _discountWheelUsed = false;
+          _message = 'That offer is no longer available. Spin again or continue with the regular package price.';
+        });
+      } else {
+        _update(() => _message = 'Purchase could not be completed. Please try again.');
+      }
     } finally {
       if (mounted) _update(() => _busy = false);
     }

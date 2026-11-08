@@ -206,6 +206,10 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [screenID, setScreenID] = useState(firstScreen?.id ?? '');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [discountWheelUsed, setDiscountWheelUsed] = useState<Record<string, boolean>>({});
+  const [discountWheelSpinning, setDiscountWheelSpinning] = useState<Record<string, boolean>>({});
+  const [discountWheelTurns, setDiscountWheelTurns] = useState<Record<string, number>>({});
+  const [discountWheelPrize, setDiscountWheelPrize] = useState<{ nodeID: string; packageID: string; offerID: string; label: string; offer: Record<string, unknown> } | null>(null);
   const [now, setNow] = useState(Date.now());
   const [carouselPages, setCarouselPages] = useState<Record<string, number>>({});
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
@@ -221,6 +225,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [transactionProducts, setTransactionProducts] = useState<{ purchased?: PushifyOfferings['offerings'][number]['packages'][number]['product']; abandoned?: PushifyOfferings['offerings'][number]['packages'][number]['product'] }>({});
   const [activeSurvey, setActiveSurvey] = useState<{ trigger: 'close' | 'post_purchase'; survey: NonNullable<PushifyPaywallV1['surveys']>['close'] } | null>(null);
   const surveyedTriggers = useRef(new Set<string>());
+  const discountWheelAnimations = useRef(new Map<string, Animated.Value>());
   const surveyResolver = useRef<(() => void) | null>(null);
   const tapActionRuns = useRef(new Map<string, TapActionRun>());
   const mounted = useRef(true);
@@ -282,7 +287,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         ...(reminder.subtitle_lid ? { subtitle: localizedValue(reminder.subtitle_lid) ?? '' } : {}),
         body: reminderBody,
       } : null;
-      const result = await props.purchases.purchase(productID, trialReminder);
+      const wheelOffer = discountWheelPrize?.packageID === productID ? discountWheelPrize.offerID : null;
+      const result = await props.purchases.purchase(productID, trialReminder, wheelOffer);
       if (result.status === 'purchased') {
         const product = packages.find((item) => item.id === productID)?.product;
         setTransactionProducts(product ? { purchased: product } : {});
@@ -304,9 +310,19 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         await runPurchaseOutcome('on_abandon', 'none', action, sourceScreen);
       }
       if (result.status === 'pending') setMessage('Purchase is pending approval.');
-    } catch {
+    } catch (error) {
+      if (wheelOfferFor(productID) && record(error).code === 'offer_unavailable') {
+        setDiscountWheelPrize(null);
+        setDiscountWheelUsed({});
+        setMessage('This offer is no longer available. Spin again to choose another eligible offer.');
+        return;
+      }
       setMessage('Purchase could not be completed. Please try again.');
     } finally { setBusy(false); }
+  }
+
+  function wheelOfferFor(packageID: string): string | null {
+    return discountWheelPrize?.packageID === packageID ? discountWheelPrize.offerID : null;
   }
 
   async function runPurchaseOutcome(key: string, fallback: string, action: Record<string, unknown>, sourceScreen?: PushifyPaywallV1['screens'][number]): Promise<void> {
@@ -696,6 +712,80 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return condition.mode === 'all' ? results.every(Boolean) : results.some(Boolean);
   }
 
+  function eligibleDiscountWheelPrizes(config: Record<string, unknown>): Array<{ prize: Record<string, unknown>; packageItem: (typeof packages)[number]; offer: Record<string, unknown>; label: string }> {
+    const prizes = array(config.prizes).map(record);
+    const eligible: Array<{ prize: Record<string, unknown>; packageItem: (typeof packages)[number]; offer: Record<string, unknown>; label: string }> = [];
+    for (const prize of prizes) {
+      const packageItem = packages.find((item) => item.id === prize.package_id);
+      if (!packageItem) continue;
+      const iosIntro = Platform.OS === 'ios' && prize.ios_offer === 'introductory';
+      const androidOfferId = Platform.OS === 'android' ? text(prize.android_offer_id) : null;
+      if (!iosIntro && !androidOfferId) continue;
+      const offer = (packageItem.product.eligible_store_offers ?? []).find((candidate) =>
+        candidate.eligible &&
+        (iosIntro
+          ? candidate.offer_type === 'apple_introductory' && candidate.offer_id === 'introductory'
+          : candidate.offer_type === 'google_play_subscription' && candidate.offer_id === androidOfferId && (!packageItem.product.plan_id || candidate.base_plan_id === packageItem.product.plan_id)),
+      );
+      if (!offer) continue;
+      const labelKey = text(prize.label_lid);
+      const label = labelKey ? localizedValue(labelKey) ?? 'Eligible offer' : 'Eligible offer';
+      eligible.push({ prize, packageItem, offer: offer as unknown as Record<string, unknown>, label });
+    }
+    return eligible;
+  }
+
+  function renderDiscountWheel(node: PushifyPaywallNode): React.ReactNode {
+    const wheelID = node.id ?? 'discount-wheel';
+    const eligible = eligibleDiscountWheelPrizes(record(node.properties.pushify_discount_wheel));
+    if (!eligible.length) {
+      const fallback = nestedNode(node.properties.fallback);
+      return fallback ? renderNode(fallback) : React.createElement(View, { key: wheelID, style: styles.wheelFallback }, React.createElement(Text, { style: styles.message }, 'No eligible introductory offers are available.'));
+    }
+    let rotation = discountWheelAnimations.current.get(wheelID);
+    if (!rotation) { rotation = new Animated.Value(0); discountWheelAnimations.current.set(wheelID, rotation); }
+    const winner = discountWheelPrize?.nodeID === wheelID ? discountWheelPrize : null;
+    const offer = winner?.offer ?? {};
+    const intro = [text(offer.localized_price), text(offer.billing_period)].filter(Boolean).join(' for ');
+    const renewal = [text(offer.renewal_price), text(offer.renewal_period)].filter(Boolean).join(' / ');
+    const colors = ['#c7a95c', '#7588b7', '#d98a64', '#7f9a80', '#aa8abd', '#d4bd78', '#6c9d9d', '#bc7181'];
+    return React.createElement(View, { key: wheelID, style: styles.discountWheel },
+      React.createElement(Text, { style: styles.wheelTitle }, 'Choose an eligible offer'),
+      React.createElement(View, { style: styles.wheelStage },
+        React.createElement(Animated.View, { style: [styles.wheelDisk, { transform: [{ rotate: rotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }] },
+          ...eligible.map((item, index) => {
+            const angle = (2 * Math.PI * index) / eligible.length - Math.PI / 2;
+            return React.createElement(View, { key: String(item.prize.id ?? index), style: [styles.wheelLabel, { backgroundColor: colors[index % colors.length], left: 100 + Math.cos(angle) * 57 - 34, top: 100 + Math.sin(angle) * 57 - 22 }] }, React.createElement(Text, { numberOfLines: 2, style: styles.wheelLabelText }, item.label));
+          }),
+          React.createElement(View, { style: styles.wheelHub }, React.createElement(Text, { style: styles.wheelHubText }, '✦')),
+        ),
+        React.createElement(Text, { accessibilityElementsHidden: true, style: styles.wheelPointer }, '▼'),
+      ),
+      winner
+        ? React.createElement(Text, { accessibilityRole: 'text', style: styles.wheelResult }, `${winner.label}: ${[intro, renewal].filter(Boolean).join(', then ')}`)
+        : React.createElement(Pressable, {
+            accessibilityRole: 'button',
+            accessibilityState: { disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) },
+            disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]),
+            style: [styles.wheelButton, (discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) && styles.disabled],
+            onPress: () => {
+              if (discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) return;
+              const index = Math.floor(Math.random() * eligible.length);
+              const chosen = eligible[index]!;
+              setDiscountWheelUsed((current) => ({ ...current, [wheelID]: true }));
+              setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: true }));
+              setSelected(chosen.packageItem.id);
+              setDiscountWheelPrize({ nodeID: wheelID, packageID: chosen.packageItem.id, offerID: String(chosen.offer.offer_id), label: chosen.label, offer: chosen.offer });
+              const degrees = (5 + (eligible.length - index - 0.5) / eligible.length) * 360;
+              const nextRotation = (discountWheelTurns[wheelID] ?? 0) + degrees;
+              setDiscountWheelTurns((current) => ({ ...current, [wheelID]: nextRotation }));
+              Animated.timing(rotation!, { toValue: nextRotation, duration: 1800, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: false })));
+            },
+          }, React.createElement(Text, { style: styles.wheelButtonText }, discountWheelSpinning[wheelID] ? 'Spinning…' : 'Spin for an eligible offer')),
+      React.createElement(Text, { style: styles.wheelFootnote }, 'Continue below to purchase with the selected store offer.'),
+    );
+  }
+
   function renderNode(node: PushifyPaywallNode): React.ReactNode {
     if (!visibilityMatches(node.properties.pushify_visibility)) return null;
     const content = renderNodeContent(node);
@@ -876,6 +966,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         const nested = nestedNode(replaced); return nested ? renderNode(nested) : null;
       }
       case 'web_view': {
+        const wheelConfig = record(node.properties.pushify_discount_wheel);
+        if (number(wheelConfig.version) === 1) return renderDiscountWheel(node);
         const fallback = nestedNode(node.properties.fallback);
         const url = text(node.properties.url) ?? '';
         const size = record(node.properties.size);
@@ -1131,4 +1223,5 @@ const styles = StyleSheet.create({
   text: { textAlign: 'center', flexShrink: 1 }, inputWrap: { width: '100%', marginVertical: 6, gap: 5 }, inputLabel: { fontSize: 13, color: '#444444' }, input: { minHeight: 42, borderWidth: 1, borderColor: '#777777', borderRadius: 8, paddingHorizontal: 12, color: '#111111', backgroundColor: '#ffffff' }, package: { borderWidth: 1, borderColor: '#8b8b8b', borderRadius: 14, padding: 14, marginVertical: 5 }, packageActive: { borderWidth: 2, borderColor: '#315ee8' }, packageTitle: { fontSize: 16, fontWeight: '600' }, price: { marginLeft: 26, marginTop: 4 },
   cta: { backgroundColor: '#315ee8', borderRadius: 14, padding: 16, alignItems: 'center', minHeight: 52 }, disabled: { opacity: 0.55 }, ctaText: { color: '#ffffff', fontWeight: '700' }, quiet: { padding: 12, alignItems: 'center' }, image: { width: '100%', height: 180 }, message: { textAlign: 'center', padding: 8 },
   timelineRow: { flexDirection: 'row', minHeight: 54 }, timelineRail: { alignItems: 'center', width: 36 }, timelineIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#315ee8', alignItems: 'center', justifyContent: 'center' }, timelineGlyph: { color: '#ffffff', fontWeight: '700' }, timelineLine: { width: 2, flex: 1, backgroundColor: '#d4d4d4', marginVertical: 4 }, timelineCopy: { flex: 1, paddingBottom: 12 }, dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, padding: 8 }, dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#d4d4d4' }, dotActive: { width: 18, backgroundColor: '#315ee8' }, tabRow: { flexDirection: 'row', gap: 6, marginBottom: 10 }, tab: { flex: 1, alignItems: 'center', padding: 10, borderRadius: 9, backgroundColor: '#f1f1f1' }, tabActive: { backgroundColor: '#dce5ff' },
+  discountWheel: { alignItems: 'center', gap: 10, padding: 14, borderRadius: 16, backgroundColor: '#f3f3f3' }, wheelTitle: { fontSize: 16, fontWeight: '700', color: '#171717' }, wheelStage: { width: 220, height: 220, alignItems: 'center', justifyContent: 'center' }, wheelDisk: { width: 200, height: 200, borderRadius: 100, borderWidth: 2, borderColor: '#242424', backgroundColor: '#ffffff', overflow: 'hidden' }, wheelLabel: { position: 'absolute', width: 68, minHeight: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 1, borderColor: 'rgba(0,0,0,0.18)' }, wheelLabelText: { textAlign: 'center', fontSize: 9, lineHeight: 11, fontWeight: '700', color: '#17202a' }, wheelHub: { position: 'absolute', width: 42, height: 42, borderRadius: 21, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center', left: 79, top: 79 }, wheelHubText: { fontSize: 20, fontWeight: '700', color: '#5a533d' }, wheelPointer: { position: 'absolute', top: -2, alignSelf: 'center', zIndex: 2, color: '#171717', fontSize: 20 }, wheelButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, borderRadius: 22, backgroundColor: '#315ee8' }, wheelButtonText: { color: '#ffffff', fontWeight: '700' }, wheelResult: { textAlign: 'center', fontWeight: '700', color: '#171717' }, wheelFootnote: { textAlign: 'center', fontSize: 11, color: '#555555' }, wheelFallback: { padding: 12, borderRadius: 12, backgroundColor: '#f3f3f3' },
 });

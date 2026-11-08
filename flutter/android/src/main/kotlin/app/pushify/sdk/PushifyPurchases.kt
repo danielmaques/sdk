@@ -228,6 +228,8 @@ public class PushifyPurchases(
                                 .put("localized_price", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.formattedPrice)
                                 .put("price_amount", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.let { java.math.BigDecimal.valueOf(it.priceAmountMicros, 6).stripTrailingZeros().toPlainString() })
                                 .put("currency_code", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.priceCurrencyCode)
+                                .put("billing_period", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.billingPeriod)
+                                .put("billing_cycle_count", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.billingCycleCount)
                                 .put("renewal_price", eligible.pricingPhases.pricingPhaseList.lastOrNull { it.recurrenceMode == 1 }?.formattedPrice)
                                 .put("renewal_period", eligible.pricingPhases.pricingPhaseList.lastOrNull { it.recurrenceMode == 1 }?.billingPeriod)
                                 .put("eligible", true)

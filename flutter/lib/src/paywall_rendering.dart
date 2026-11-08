@@ -139,6 +139,125 @@ extension _PaywallRendering on _PushifyPaywallState {
     );
   }
 
+  List<Map<String, Object?>> _eligibleDiscountWheelPrizes(
+    Map<String, Object?> config,
+  ) {
+    final rawPrizes = _maps(config['prizes']);
+    final eligible = <Map<String, Object?>>[];
+    for (final prize in rawPrizes) {
+      final packageId = prize['package_id'] as String?;
+      final offerId = prize['android_offer_id'] as String?;
+      if (packageId == null || offerId == null || offerId.isEmpty) continue;
+      final matchingPackages = _packages.where((item) => item['id'] == packageId).toList();
+      if (matchingPackages.isEmpty) continue;
+      final package = matchingPackages.first;
+      final product = _map(package['product']);
+      final planId = product['plan_id'] as String?;
+      final matchingOffers = _maps(product['eligible_store_offers']).where((item) {
+        return item['offer_id'] == offerId &&
+            item['offer_type'] == 'google_play_subscription' &&
+            item['eligible'] == true &&
+            (planId == null || planId.isEmpty || item['base_plan_id'] == planId);
+      }).toList();
+      if (matchingOffers.isNotEmpty) eligible.add({'prize': prize, 'package': package, 'offer': matchingOffers.first});
+    }
+    return eligible;
+  }
+
+  Widget _discountWheel(
+    Map<String, Object?> node,
+    Map<String, Object?> properties,
+    Map<String, Object?> screen,
+  ) {
+    final config = _map(properties['pushify_discount_wheel']);
+    final eligible = _eligibleDiscountWheelPrizes(config);
+    if (eligible.isEmpty) {
+      final fallback = _map(properties['fallback']);
+      return fallback.isEmpty
+          ? const Center(child: Text('No Google Play introductory offers are eligible.'))
+          : _render(fallback, screen);
+    }
+    final wheelId = node['id'] as String? ?? 'discount-wheel';
+    final labels = eligible.map((item) {
+      final prize = _map(item['prize']);
+      return _localizedValue(prize['label_lid'] as String? ?? '', screen) ?? 'Offer';
+    }).toList();
+    final winner = _discountWheelPrize;
+    final matchingWinner = winner?['node_id'] == wheelId ? winner : null;
+    final offer = _map(matchingWinner?['offer']);
+    final winnerLabel = matchingWinner?['label'] as String? ?? 'Offer selected';
+    final intro = [offer['localized_price'], offer['billing_period']]
+        .whereType<String>().where((value) => value.isNotEmpty).join(' for ');
+    final renewal = [offer['renewal_price'], offer['renewal_period']]
+        .whereType<String>().where((value) => value.isNotEmpty).join(' / ');
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 1800);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Choose an eligible offer', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Stack(alignment: Alignment.topCenter, children: [
+            AnimatedRotation(
+              turns: _discountWheelTurns,
+              duration: duration,
+              curve: Curves.easeOutCubic,
+              child: CustomPaint(
+                size: const Size(190, 190),
+                painter: _DiscountWheelPainter(labels),
+              ),
+            ),
+            const Padding(padding: EdgeInsets.only(top: 0), child: Icon(Icons.arrow_drop_down, size: 30)),
+          ]),
+          const SizedBox(height: 8),
+          if (matchingWinner != null) ...[
+            Text('$winnerLabel: ${[intro, renewal].where((value) => value.isNotEmpty).join(', then ')}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 3),
+            const Text('The price and renewal terms come from Google Play.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+          ] else
+            FilledButton(
+              onPressed: _discountWheelUsed || _discountWheelSpinning ? null : () {
+                final index = math.Random().nextInt(eligible.length);
+                final selected = eligible[index];
+                final selectedPrize = _map(selected['prize']);
+                final selectedPackage = _map(selected['package']);
+                final selectedOffer = _map(selected['offer']);
+                final turns = 5 + (eligible.length - index - 0.5) / eligible.length;
+                final reduceMotion = MediaQuery.disableAnimationsOf(context);
+                _update(() {
+                  _discountWheelUsed = true;
+                  _discountWheelSpinning = !reduceMotion;
+                  _selectedPackage = selectedPackage['id'] as String? ?? '';
+                  _discountWheelPrize = {
+                    'node_id': wheelId,
+                    'label': labels[index],
+                    'prize': selectedPrize,
+                    'package': selectedPackage,
+                    'offer': selectedOffer,
+                  };
+                  _discountWheelTurns += reduceMotion ? 0 : turns;
+                });
+                if (!reduceMotion) {
+                  Future<void>.delayed(duration).then((_) {
+                    if (mounted) _update(() => _discountWheelSpinning = false);
+                  });
+                }
+              },
+              child: Text(_discountWheelSpinning ? 'Spinning…' : 'Spin for an eligible offer'),
+            ),
+          const SizedBox(height: 3),
+          Text('Continue below to purchase with Google Play.', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
+        ]),
+      ),
+    );
+  }
+
   Widget _experienceUnavailable() => ColoredBox(
     color: Colors.black,
     child: Center(
@@ -535,7 +654,9 @@ extension _PaywallRendering on _PushifyPaywallState {
       case 'video':
         return _video(properties);
       case 'web_view':
-        return _webView(properties, screen);
+        return properties['pushify_discount_wheel'] is Map
+            ? _discountWheel(node, properties, screen)
+            : _webView(properties, screen);
       case 'icon':
         final name = (properties['icon_name'] as String? ?? 'star')
             .toLowerCase();
@@ -889,4 +1010,52 @@ extension _PaywallRendering on _PushifyPaywallState {
           : 0xff000000 | parsed,
     );
   }
+}
+
+class _DiscountWheelPainter extends CustomPainter {
+  _DiscountWheelPainter(this.labels);
+
+  final List<String> labels;
+  static const _colors = <Color>[
+    Color(0xffc7a95c), Color(0xff7588b7), Color(0xffd98a64),
+    Color(0xff7f9a80), Color(0xffaa8abd), Color(0xffd4bd78),
+    Color(0xff6c9d9d), Color(0xffbc7181),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (labels.isEmpty) return;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.shortestSide / 2 - 4;
+    final bounds = Rect.fromCircle(center: center, radius: radius);
+    final sweep = 2 * math.pi / labels.length;
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (var index = 0; index < labels.length; index++) {
+      paint.color = _colors[index % _colors.length];
+      final path = Path()
+        ..moveTo(center.dx, center.dy)
+        ..arcTo(bounds, -math.pi / 2 + index * sweep, sweep, false)
+        ..close();
+      canvas.drawPath(path, paint);
+      final text = labels[index].length > 14 ? '${labels[index].substring(0, 13)}…' : labels[index];
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: const TextStyle(color: Color(0xff17202a), fontSize: 9, fontWeight: FontWeight.w700)),
+        textDirection: ui.TextDirection.ltr,
+        maxLines: 2,
+        textAlign: TextAlign.center,
+      )..layout(maxWidth: radius * .56);
+      final angle = -math.pi / 2 + (index + .5) * sweep;
+      final labelCenter = Offset(center.dx + math.cos(angle) * radius * .57, center.dy + math.sin(angle) * radius * .57);
+      painter.paint(canvas, labelCenter - Offset(painter.width / 2, painter.height / 2));
+    }
+    canvas.drawCircle(center, radius * .19, Paint()..color = Colors.white);
+    final hub = TextPainter(
+      text: const TextSpan(text: '✦', style: TextStyle(color: Color(0xff5a533d), fontSize: 17, fontWeight: FontWeight.bold)),
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+    hub.paint(canvas, center - Offset(hub.width / 2, hub.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiscountWheelPainter oldDelegate) => labels != oldDelegate.labels;
 }

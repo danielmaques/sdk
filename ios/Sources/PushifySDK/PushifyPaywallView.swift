@@ -576,6 +576,12 @@ public struct PushifyPaywallView: View {
         let eligible = eligibleDiscountWheelPrizes(config)
         let wheelID = node.id ?? "discount-wheel"
         let colors: [Color] = [.init(red: 0.78, green: 0.66, blue: 0.36), .init(red: 0.39, green: 0.50, blue: 0.69), .init(red: 0.78, green: 0.43, blue: 0.32), .init(red: 0.39, green: 0.57, blue: 0.43), .init(red: 0.57, green: 0.43, blue: 0.68), .init(red: 0.76, green: 0.66, blue: 0.42), .init(red: 0.32, green: 0.56, blue: 0.56), .init(red: 0.68, green: 0.36, blue: 0.45)]
+        let gradientStops = eligible.enumerated().flatMap { index, _ -> [Gradient.Stop] in
+            let start = Double(index) / Double(eligible.count)
+            let end = Double(index + 1) / Double(eligible.count)
+            let color = colors[index % colors.count]
+            return [Gradient.Stop(color: color, location: start), Gradient.Stop(color: color, location: end - 0.0001)]
+        }
         let winnerText = discountWheelPrize.map { prize in
             let price = prize.introPrice ?? ""
             let cadence = prize.introPeriod.map { " for \($0)" } ?? ""
@@ -590,7 +596,7 @@ public struct PushifyPaywallView: View {
             } else {
                 ZStack {
                     Circle()
-                        .fill(AngularGradient(colors: eligible.enumerated().map { colors[$0.offset % colors.count] }, center: .center, startAngle: .degrees(-90), endAngle: .degrees(270)))
+                        .fill(AngularGradient(gradient: Gradient(stops: gradientStops), center: .center, startAngle: .degrees(-90), endAngle: .degrees(270)))
                     ForEach(Array(eligible.enumerated()), id: \.offset) { index, item in
                         let angle = Double(index) * 360 / Double(eligible.count) + 180 / Double(eligible.count)
                         Text(localizedValue(string(item.prize["label_lid"]) ?? "", screen: screen) ?? "Offer \(index + 1)")
