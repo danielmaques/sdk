@@ -161,6 +161,8 @@ public struct PushifyOfferings: Codable, Sendable {
                 public let localizedPrice: String?
                 public let priceAmount: String?
                 public let currencyCode: String?
+                public var duration: String? = nil
+                public var trialDuration: String? = nil
             }
             public let id: String
             public let product: StoreProduct
@@ -169,9 +171,11 @@ public struct PushifyOfferings: Codable, Sendable {
         public let description: String
         public let packages: [Package]
         public let paywall: PushifyPaywallDocument?
+        public var variableLocalizations: [String: [String: String]]? = nil
     }
     public let currentOfferingId: String?
     public let offerings: [Offering]
+    public var variableLocalizations: [String: [String: String]]? = nil
 }
 
 public enum PushifyPurchaseResult: Sendable {
@@ -280,14 +284,34 @@ public actor PushifyPurchases {
                                 displayName: native?.displayName,
                                 localizedPrice: native?.displayPrice,
                                 priceAmount: native.map { NSDecimalNumber(decimal: $0.price).stringValue },
-                                currencyCode: native?.priceFormatStyle.currencyCode
+                                currencyCode: native?.priceFormatStyle.currencyCode,
+                                duration: native?.subscription.map { Self.isoPeriod($0.subscriptionPeriod) } ?? package.product.duration,
+                                trialDuration: native.flatMap(Self.trialPeriod) ?? package.product.trialDuration
                             )
                         )
                     },
-                    paywall: offering.paywall
+                    paywall: offering.paywall,
+                    variableLocalizations: catalog.variableLocalizations
                 )
-            }
+            },
+            variableLocalizations: catalog.variableLocalizations
         )
+    }
+
+    private static func isoPeriod(_ period: Product.SubscriptionPeriod, count: Int = 1) -> String {
+        let amount = period.value * max(1, count)
+        switch period.unit {
+        case .day: return "P\(amount)D"
+        case .week: return "P\(amount)W"
+        case .month: return "P\(amount)M"
+        case .year: return "P\(amount)Y"
+        @unknown default: return "P\(amount)M"
+        }
+    }
+
+    private static func trialPeriod(_ product: Product) -> String? {
+        guard let offer = product.subscription?.introductoryOffer, offer.paymentMode == .freeTrial else { return nil }
+        return isoPeriod(offer.period, count: offer.periodCount)
     }
 
     /// Loads the published, localized account-management configuration for the current customer.

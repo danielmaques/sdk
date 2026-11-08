@@ -192,8 +192,11 @@ public class PushifyPurchases(
     private fun enrichOfferingBody(body: JSONObject, details: Map<String, ProductDetails>): JSONObject {
         val enriched = JSONObject(body.toString())
         val offerings = enriched.optJSONArray("offerings") ?: return enriched
+        val variableLocalizations = enriched.optJSONObject("variable_localizations")
         for (i in 0 until offerings.length()) {
-            val packages = offerings.optJSONObject(i)?.optJSONArray("packages") ?: continue
+            val offering = offerings.optJSONObject(i) ?: continue
+            if (variableLocalizations != null) offering.put("variable_localizations", JSONObject(variableLocalizations.toString()))
+            val packages = offering.optJSONArray("packages") ?: continue
             for (j in 0 until packages.length()) {
                 val item = packages.optJSONObject(j) ?: continue
                 val product = item.optJSONObject("product") ?: continue
@@ -217,10 +220,16 @@ public class PushifyPurchases(
                                 .put("billing_cycle_count", phase.billingCycleCount))
                         }
                         product.put("pricing_phases", phases)
-                        offer.pricingPhases.pricingPhaseList.firstOrNull()?.let { phase ->
+                        val phaseList = offer.pricingPhases.pricingPhaseList
+                        val regularPhase = phaseList.lastOrNull { it.recurrenceMode == 1 } ?: phaseList.lastOrNull()
+                        regularPhase?.let { phase ->
                             product.put("localized_price", phase.formattedPrice)
                             product.put("price_amount", java.math.BigDecimal.valueOf(phase.priceAmountMicros, 6).stripTrailingZeros().toPlainString())
                             product.put("currency_code", phase.priceCurrencyCode)
+                            product.put("duration", phase.billingPeriod)
+                        }
+                        phaseList.firstOrNull { it.priceAmountMicros == 0L && it.recurrenceMode != 1 }?.let { phase ->
+                            scaleBillingPeriod(phase.billingPeriod, phase.billingCycleCount)?.let { product.put("trial_duration", it) }
                         }
                     }
                 } else {
@@ -233,6 +242,13 @@ public class PushifyPurchases(
             }
         }
         return enriched
+    }
+
+    private fun scaleBillingPeriod(period: String, cycles: Int): String? {
+        val match = Regex("^P(\\d+)([DWMY])$").matchEntire(period) ?: return null
+        val amount = match.groupValues[1].toIntOrNull() ?: return null
+        if (cycles <= 0 || amount <= 0) return null
+        return "P${amount * cycles}${match.groupValues[2]}"
     }
 
     public fun identify(newCustomerId: String, completion: (Result<JSONObject>) -> Unit) {

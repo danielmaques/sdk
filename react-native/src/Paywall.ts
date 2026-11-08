@@ -378,7 +378,17 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return interpolate(fallback || (typeof node.properties.text === 'string' ? node.properties.text : ''));
   }
 
-  function interpolate(value: string): string { return value.replace(/\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*)|products\.(purchased|abandoned)\.([A-Za-z_][A-Za-z0-9_]*))\s*\}\}/g, (token, stateKey?: string, callbackName?: string, dataKey?: string, outcome?: 'purchased' | 'abandoned', productField?: string) => { if (stateKey) return variables[stateKey] === undefined ? token : Array.isArray(variables[stateKey]) ? variables[stateKey].join(', ') : String(variables[stateKey]); if (callbackName && dataKey) { const result = callbackData[callbackName]?.[dataKey]; return result === undefined || result === null ? token : String(result); } const product = outcome ? transactionProducts[outcome] : undefined; if (!product || !productField) return token; const fields: Record<string, unknown> = { price: product.localized_price, localized_price: product.localized_price, product_id: product.product_id, store_product_name: product.display_name, currency_code: product.currency_code }; const result = fields[productField]; return result === undefined || result === null ? token : String(result); }); }
+  function interpolate(value: string): string {
+    const locale = props.locale ?? props.document.default_locale ?? 'en_US';
+    const words = props.offering.variable_localizations?.[locale] ?? props.offering.variable_localizations?.[locale.replace(/-/g, '_')] ?? props.offering.variable_localizations?.['en_US'] ?? {};
+    return value.replace(/\{\{\s*(?:state\.([A-Za-z_][A-Za-z0-9_]*)|callbacks\.([A-Za-z_][A-Za-z0-9_]*)\.data\.([A-Za-z_][A-Za-z0-9_.-]*)|products\.(purchased|abandoned)\.([A-Za-z_][A-Za-z0-9_]*))\s*\}\}/g, (token, stateKey?: string, callbackName?: string, dataKey?: string, outcome?: 'purchased' | 'abandoned', productField?: string) => {
+      if (stateKey) return variables[stateKey] === undefined ? token : Array.isArray(variables[stateKey]) ? variables[stateKey].join(', ') : String(variables[stateKey]);
+      if (callbackName && dataKey) { const result = callbackData[callbackName]?.[dataKey]; return result === undefined || result === null ? token : String(result); }
+      const product = outcome ? transactionProducts[outcome] : undefined;
+      if (!product || !productField) return token;
+      return productAliasValue(productField, product, packages.map((item) => item.product), words, locale) ?? token;
+    });
+  }
 
   function localizedValue(key: string): string | null {
     const locales = [props.locale, Intl.DateTimeFormat().resolvedOptions().locale, props.document.default_locale, 'en_US'].filter((item): item is string => Boolean(item));
@@ -996,6 +1006,79 @@ function findPackage(node: PushifyPaywallNode | null | undefined, selectedOnly: 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function text(value: unknown): string | null { return typeof value === 'string' ? value : null; }
 function number(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
+type ProductVariableSource = PushifyOfferings['offerings'][number]['packages'][number]['product'];
+type ProductPeriod = { count: number; unit: 'day' | 'week' | 'month' | 'year'; days: number };
+function productAliasValue(field: string, product: ProductVariableSource, peers: ProductVariableSource[], words: Record<string, string>, locale: string): string | undefined {
+  const parse = (iso?: string | null): ProductPeriod | null => {
+    if (!iso) return null;
+    const match = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?$/.exec(iso);
+    if (!match) return null;
+    const parts = [[Number(match[1] ?? 0), 'year', 365], [Number(match[2] ?? 0), 'month', 30], [Number(match[3] ?? 0), 'week', 7], [Number(match[4] ?? 0), 'day', 1]] as const;
+    const present = parts.filter(([count]) => count > 0);
+    if (!present.length) return null;
+    if (present.length === 1) return { count: present[0]![0], unit: present[0]![1] as ProductPeriod['unit'], days: present[0]![0] * present[0]![2] };
+    const days = present.reduce((sum, part) => sum + part[0] * part[2], 0);
+    return { count: Math.round(days), unit: 'day', days };
+  };
+  const period = parse(product.duration), trial = parse(product.trial_duration);
+  const amount = Number(product.price_amount);
+  const currency = product.currency_code;
+  const money = (value: number) => currency && Number.isFinite(value) ? new Intl.NumberFormat(locale.replace(/_/g, '-'), { style: 'currency', currency }).format(value) : undefined;
+  const plural = (item: ProductPeriod) => (words[`num_${item.unit}_${item.count === 1 ? 'one' : 'other'}`] ?? `%d ${item.unit}${item.count === 1 ? '' : 's'}`).replace('%d', String(item.count));
+  const unit = (item: ProductPeriod, short = false) => item.count > 1 ? (words[short ? `num_${item.unit}s_short` : `num_${item.unit}_other`] ?? (short ? `%d${item.unit[0]}` : `%d ${item.unit}s`)).replace('%d', String(item.count)) : words[short ? `${item.unit}_short` : item.unit] ?? item.unit;
+  const per = (name: ProductPeriod['unit']) => period && Number.isFinite(amount) ? Math.floor(amount / Math.max(1, period.days / ({ day: 1, week: 7, month: 30, year: 365 }[name])) * 100) / 100 : amount;
+  const numericPer = (name: ProductPeriod['unit']) => period ? Math.max(1, Math.round(period.days / ({ day: 1, week: 7, month: 30, year: 365 }[name]))) : null;
+  switch (field) {
+    case 'price': case 'localized_price': return product.localized_price ?? money(amount);
+    case 'product_id': return product.product_id;
+    case 'store_product_name': return product.display_name;
+    case 'currency_code': return currency;
+    case 'currency_symbol': return currency ? new Intl.NumberFormat(locale.replace(/_/g, '-'), { style: 'currency', currency }).formatToParts(0).find((part) => part.type === 'currency')?.value : undefined;
+    case 'period': return period ? unit(period) : '';
+    case 'period_abbreviated': return period ? unit(period, true) : '';
+    case 'periodly': return period ? (period.count > 1 ? plural(period) : words[{ day: 'daily', week: 'weekly', month: 'monthly', year: 'yearly' }[period.unit]] ?? '') : '';
+    case 'period_with_unit': return period ? plural(period) : '';
+    case 'period_in_days': case 'period_in_weeks': case 'period_in_months': case 'period_in_years': {
+      if (!period) return '';
+      const target = field.replace('period_in_', '').replace(/s$/, '') as ProductPeriod['unit'];
+      const divisor = { day: 1, week: 7, month: 30, year: 365 }[target];
+      return String(Math.round(period.days / divisor));
+    }
+    case 'price_per_period': case 'price_per_period_abbreviated': {
+      const base = product.localized_price ?? money(amount);
+      return base && period ? `${base}/${unit(period, field.endsWith('abbreviated'))}` : base;
+    }
+    case 'price_per_day': case 'price_per_week': case 'price_per_month': case 'price_per_year': {
+      const target = field.replace('price_per_', '') as ProductPeriod['unit'];
+      const count = numericPer(target);
+      return count ? money(per(target) ?? amount) : money(amount);
+    }
+    case 'offer_price': case 'offer_price_per_day': case 'offer_price_per_week': case 'offer_price_per_month': case 'offer_price_per_year':
+      return trial ? words.free_price ?? 'free' : money(amount);
+    case 'offer_price_with_zero': return trial ? money(0) : money(amount);
+    case 'offer_period': case 'offer_period_abbreviated': return trial ? unit({ ...trial, count: 1 }, field.endsWith('abbreviated')) : '';
+    case 'offer_period_with_unit': return trial ? plural(trial) : '';
+    case 'offer_period_in_days': case 'offer_period_in_weeks': case 'offer_period_in_months': case 'offer_period_in_years': {
+      if (!trial) return '';
+      const target = field.replace('offer_period_in_', '').replace(/s$/, '') as ProductPeriod['unit'];
+      const divisor = { day: 1, week: 7, month: 30, year: 365 }[target];
+      return String(Math.round(trial.days / divisor));
+    }
+    case 'offer_end_date': return trial ? `in ${trial.days} day${trial.days === 1 ? '' : 's'}` : '';
+    case 'relative_discount': {
+      if (!period || !Number.isFinite(amount) || !currency) return '';
+      const monthly = amount / Math.max(1, period.days / 30);
+      const top = Math.max(0, ...peers.filter((candidate) => candidate.currency_code === currency).map((candidate) => {
+        const peerPeriod = parse(candidate.duration), peerAmount = Number(candidate.price_amount);
+        return peerPeriod && Number.isFinite(peerAmount) ? peerAmount / Math.max(1, peerPeriod.days / 30) : 0;
+      }));
+      const pct = top > monthly ? Math.round((1 - monthly / top) * 100) : 0;
+      return pct > 0 ? (words.percent ?? '%d%%').replace('%d', String(pct)).replace('%%', '%') : '';
+    }
+    case 'secondary_offer_price': case 'secondary_offer_period': case 'secondary_offer_period_abbreviated': return '';
+    default: return undefined;
+  }
+}
 function weight(value: unknown): 'normal' | '500' | '600' | 'bold' { return value === 'bold' ? 'bold' : value === 'semibold' ? '600' : value === 'medium' ? '500' : 'normal'; }
 
 const styles = StyleSheet.create({

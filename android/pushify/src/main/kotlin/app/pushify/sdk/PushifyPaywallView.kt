@@ -871,13 +871,8 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 else -> state.toString()
             } else if (match.groupValues[4].isNotEmpty()) {
                 val product = transactionProducts[match.groupValues[4]] ?: return@replace match.value
-                val result = when (match.groupValues[5]) {
-                    "price", "localized_price" -> product.opt("localized_price")
-                    "product_id" -> product.opt("product_id")
-                    "store_product_name" -> product.opt("display_name")
-                    "currency_code" -> product.opt("currency_code")
-                    else -> null
-                }
+                val peers = offering.optJSONArray("packages")?.let { packages -> (0 until packages.length()).mapNotNull { packages.optJSONObject(it)?.optJSONObject("product") } }.orEmpty()
+                val result = productAliasValue(match.groupValues[5], product, peers)
                 if (result == null || result == JSONObject.NULL) match.value else result.toString()
             } else when (val result = callbackData.optJSONObject(match.groupValues[2])?.opt(match.groupValues[3])) {
                 null, JSONObject.NULL -> match.value
@@ -885,6 +880,85 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 else -> result.toString()
             }
         }
+
+    private data class AliasPeriod(val count: Int, val unit: String, val days: Int)
+
+    private fun productAliasValue(field: String, product: JSONObject, peers: List<JSONObject>): Any? {
+        val deviceLocale = java.util.Locale.getDefault().toLanguageTag()
+        val wordsByLocale = offering.optJSONObject("variable_localizations") ?: JSONObject()
+        val words = wordsByLocale.optJSONObject(deviceLocale)
+            ?: wordsByLocale.optJSONObject(deviceLocale.replace('-', '_'))
+            ?: wordsByLocale.optJSONObject(document.optString("default_locale", "en_US"))
+            ?: wordsByLocale.optJSONObject("en_US") ?: JSONObject()
+        val period = parseAliasPeriod(product.optString("duration").takeIf(String::isNotBlank))
+        val trial = parseAliasPeriod(product.optString("trial_duration").takeIf(String::isNotBlank))
+        val amount = product.optString("price_amount").toDoubleOrNull()
+        val currencyCode = product.optString("currency_code").takeIf(String::isNotBlank)
+        fun currencyFormatter(): java.text.NumberFormat? = currencyCode?.let { code ->
+            java.text.NumberFormat.getCurrencyInstance(java.util.Locale.forLanguageTag(deviceLocale)).apply { currency = java.util.Currency.getInstance(code) }
+        }
+        fun money(value: Double): String? = currencyFormatter()?.format(value)
+        fun periodCount(unit: String): Int? = period?.let { aliasPeriodIn(it, unit) }
+        fun count(value: AliasPeriod): String = (words.optString("num_${value.unit}_${if (value.count == 1) "one" else "other"}", "%d ${value.unit}${if (value.count == 1) "" else "s"}")).replace("%d", value.count.toString())
+        fun unit(value: AliasPeriod, short: Boolean = false): String {
+            if (value.count > 1) return words.optString(if (short) "num_${value.unit}s_short" else "num_${value.unit}_other", if (short) "%d${value.unit.first()}" else "%d ${value.unit}s").replace("%d", value.count.toString())
+            return words.optString(if (short) "${value.unit}_short" else value.unit, value.unit)
+        }
+        return when (field) {
+            "price", "localized_price" -> product.opt("localized_price")
+            "product_id" -> product.opt("product_id")
+            "store_product_name" -> product.opt("display_name")
+            "currency_code" -> product.opt("currency_code")
+            "currency_symbol" -> currencyFormatter()?.currency?.symbol
+            "period" -> period?.let { unit(it) } ?: ""
+            "period_abbreviated" -> period?.let { unit(it, true) } ?: ""
+            "periodly" -> if (period == null) "" else if (period.count > 1) count(period) else words.optString(mapOf("day" to "daily", "week" to "weekly", "month" to "monthly", "year" to "yearly")[period.unit], "")
+            "period_with_unit" -> period?.let(::count) ?: ""
+            "period_in_days", "period_in_weeks", "period_in_months", "period_in_years" -> period?.let { aliasPeriodIn(it, field.removePrefix("period_in_").removeSuffix("s"))?.toString() } ?: ""
+            "price_per_period", "price_per_period_abbreviated" -> product.optString("localized_price").takeIf(String::isNotBlank)?.let { price -> period?.let { "$price/${unit(it, field.endsWith("abbreviated"))}" } ?: price }
+            "price_per_day", "price_per_week", "price_per_month", "price_per_year" -> {
+                val target = field.removePrefix("price_per_")
+                val count = periodCount(target)
+                if (amount == null) null else money(if (count == null) amount else kotlin.math.floor(amount / count * 100.0) / 100.0)
+            }
+            "relative_discount" -> {
+                if (amount == null || period == null || currencyCode == null) "" else {
+                    val monthly = amount / maxOf(1.0, period.days / 30.0)
+                    val top = peers.asSequence().filter { it.optString("currency_code") == currencyCode }
+                        .mapNotNull { peer ->
+                            val peerAmount = peer.optString("price_amount").toDoubleOrNull()
+                            val peerPeriod = parseAliasPeriod(peer.optString("duration").takeIf(String::isNotBlank))
+                            if (peerAmount == null || peerPeriod == null) null else peerAmount / maxOf(1.0, peerPeriod.days / 30.0)
+                        }.maxOrNull() ?: 0.0
+                    if (top <= monthly) "" else words.optString("percent", "%d%%").replace("%d", (((1 - monthly / top) * 100).toInt()).toString()).replace("%%", "%")
+                }
+            }
+            "offer_price", "offer_price_per_day", "offer_price_per_week", "offer_price_per_month", "offer_price_per_year" -> if (trial != null) words.optString("free_price", "free") else product.opt("localized_price")
+            "offer_price_with_zero" -> if (trial != null) "0 ${product.optString("currency_code")}".trim() else product.opt("localized_price")
+            "offer_period" -> trial?.let { unit(AliasPeriod(1, it.unit, it.days)) } ?: ""
+            "offer_period_abbreviated" -> trial?.let { unit(AliasPeriod(1, it.unit, it.days), true) } ?: ""
+            "offer_period_with_unit" -> trial?.let(::count) ?: ""
+            "offer_period_in_days", "offer_period_in_weeks", "offer_period_in_months", "offer_period_in_years" -> trial?.let { aliasPeriodIn(it, field.removePrefix("offer_period_in_").removeSuffix("s"))?.toString() } ?: ""
+            "offer_end_date" -> trial?.let { "in ${it.days} day${if (it.days == 1) "" else "s"}" } ?: ""
+            "relative_discount", "price_per_day", "price_per_week", "price_per_month", "price_per_year", "currency_symbol" -> null
+            "secondary_offer_price", "secondary_offer_period", "secondary_offer_period_abbreviated" -> ""
+            else -> null
+        }
+    }
+
+    private fun parseAliasPeriod(raw: String?): AliasPeriod? {
+        if (raw == null) return null
+        val match = Regex("^P(?:(\\d+)Y)?(?:(\\d+)M)?(?:(\\d+)W)?(?:(\\d+)D)?$").matchEntire(raw) ?: return null
+        val units = listOf("year", "month", "week", "day")
+        val days = listOf(365, 30, 7, 1)
+        val parts = (1..4).mapNotNull { index -> match.groupValues[index].toIntOrNull()?.takeIf { it > 0 }?.let { Triple(it, units[index - 1], days[index - 1]) } }
+        if (parts.isEmpty()) return null
+        if (parts.size == 1) return AliasPeriod(parts[0].first, parts[0].second, parts[0].first * parts[0].third)
+        val total = parts.sumOf { it.first * it.third }
+        return AliasPeriod(total, "day", total)
+    }
+
+    private fun aliasPeriodIn(period: AliasPeriod, unit: String): Int? = (period.days.toDouble() / mapOf("day" to 1.0, "week" to 7.0, "month" to 30.0, "year" to 365.0)[unit]!!).roundToInt()
 
     private fun localizedValue(key: String, screen: JSONObject): String? {
         val perScreen = screen.optJSONObject("localizations") ?: JSONObject()

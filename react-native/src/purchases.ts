@@ -11,15 +11,19 @@ export type PushifyCustomerInfo = {
 export type PushifyOfferings = {
   schema: 'pushify.offerings/v1';
   current_offering_id: string | null;
+  variable_localizations?: Record<string, Record<string, string>>;
   offerings: Array<{
     id: string;
     description: string;
+    variable_localizations?: Record<string, Record<string, string>>;
     paywall: PushifyPaywallV1 | null;
     packages: Array<{ id: string; product: {
       product_id: string;
       plan_id: string | null;
       type: string | null;
       display_name?: string;
+      duration?: string | null;
+      trial_duration?: string | null;
       localized_price?: string;
       price_amount?: string;
       currency_code?: string;

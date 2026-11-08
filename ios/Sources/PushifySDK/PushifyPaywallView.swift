@@ -599,14 +599,7 @@ public struct PushifyPaywallView: View {
             } else if match.range(at: 4).location != NSNotFound, match.range(at: 5).location != NSNotFound {
                 let outcome = ns.substring(with: match.range(at: 4)), field = ns.substring(with: match.range(at: 5))
                 guard let product = transactionProducts[outcome] else { continue }
-                let raw: String?
-                switch field {
-                case "price", "localized_price": raw = product.localizedPrice
-                case "product_id": raw = product.productId
-                case "store_product_name": raw = product.displayName
-                case "currency_code": raw = product.currencyCode
-                default: raw = nil
-                }
+                let raw = productAliasValue(field, product: product, peers: offering.packages.map(\.product), locale: Locale.current.identifier)
                 guard let raw else { continue }
                 result = (result as NSString).replacingCharacters(in: match.range, with: raw)
                 continue
@@ -618,6 +611,111 @@ public struct PushifyPaywallView: View {
             result = (result as NSString).replacingCharacters(in: match.range, with: formatted)
         }
         return result
+    }
+
+    private func productAliasValue(_ field: String, product: PushifyOfferings.Offering.Package.StoreProduct, peers: [PushifyOfferings.Offering.Package.StoreProduct], locale: String) -> String? {
+        typealias Period = (count: Int, unit: String, days: Double)
+        func parse(_ raw: String?) -> Period? {
+            guard let raw else { return nil }
+            let regex = try? NSRegularExpression(pattern: #"^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?$"#)
+            let ns = raw as NSString
+            guard let match = regex?.firstMatch(in: raw, range: NSRange(location: 0, length: ns.length)), match.range.length == ns.length else { return nil }
+            let values = (1...4).map { index -> Int in
+                guard match.range(at: index).location != NSNotFound else { return 0 }
+                return Int(ns.substring(with: match.range(at: index))) ?? 0
+            }
+            let units = [("year", values[0], 365.0), ("month", values[1], 30.0), ("week", values[2], 7.0), ("day", values[3], 1.0)].filter { $0.1 > 0 }
+            guard !units.isEmpty else { return nil }
+            if units.count == 1 { return (units[0].1, units[0].0, Double(units[0].1) * units[0].2) }
+            let days = units.reduce(0.0) { $0 + Double($1.1) * $1.2 }
+            return (Int(days.rounded()), "day", days)
+        }
+        let words = offering.variableLocalizations?[locale] ?? offering.variableLocalizations?[locale.replacingOccurrences(of: "-", with: "_")] ?? offering.variableLocalizations?[document.defaultLocale] ?? offering.variableLocalizations?["en_US"] ?? [:]
+        let period = parse(product.duration)
+        let trial = parse(product.trialDuration)
+        let price = product.priceAmount.flatMap(Double.init)
+        let currency = product.currencyCode
+        func money(_ amount: Double) -> String? {
+            guard let currency else { return nil }
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .currency
+            formatter.currencyCode = currency
+            formatter.locale = Locale(identifier: locale.replacingOccurrences(of: "_", with: "-"))
+            return formatter.string(from: NSNumber(value: amount))
+        }
+        func countText(_ value: Period) -> String {
+            let oneOrOther = words["num_\(value.unit)_\(value.count == 1 ? "one" : "other")"] ?? "%d \(value.unit)s"
+            return oneOrOther.replacingOccurrences(of: "%d", with: String(value.count))
+        }
+        func unitText(_ value: Period, short: Bool = false) -> String {
+            if value.count > 1 {
+                let key = short ? "num_\(value.unit)s_short" : "num_\(value.unit)_other"
+                let fallback = short ? "%d\(value.unit.prefix(1))" : "%d \(value.unit)s"
+                return (words[key] ?? fallback).replacingOccurrences(of: "%d", with: String(value.count))
+            }
+            return words[short ? "\(value.unit)_short" : value.unit] ?? value.unit
+        }
+        func amountFor(_ unit: String) -> Int? {
+            guard let period else { return nil }
+            let per: [String: Double] = ["day": 1, "week": 7, "month": 30, "year": 365]
+            guard let factor = per[unit] else { return nil }
+            return Int((period.days / factor).rounded())
+        }
+        switch field {
+        case "price", "localized_price": return product.localizedPrice ?? price.flatMap(money)
+        case "product_id": return product.productId
+        case "store_product_name": return product.displayName
+        case "currency_code": return currency
+        case "currency_symbol":
+            guard let currency else { return nil }
+            let formatter = NumberFormatter(); formatter.numberStyle = .currency; formatter.currencyCode = currency
+            formatter.locale = Locale(identifier: locale.replacingOccurrences(of: "_", with: "-")); return formatter.currencySymbol
+        case "period": return period.map { unitText($0) } ?? ""
+        case "period_abbreviated": return period.map { unitText($0, short: true) } ?? ""
+        case "periodly":
+            guard let period else { return "" }
+            if period.count > 1 { return countText(period) }
+            return words[["day": "daily", "week": "weekly", "month": "monthly", "year": "yearly"][period.unit] ?? ""] ?? ""
+        case "period_with_unit": return period.map(countText) ?? ""
+        case "period_in_days", "period_in_weeks", "period_in_months", "period_in_years":
+            let unit = field.replacingOccurrences(of: "period_in_", with: "").replacingOccurrences(of: "s", with: "")
+            return amountFor(unit).map(String.init) ?? ""
+        case "price_per_period", "price_per_period_abbreviated":
+            guard let formatted = product.localizedPrice ?? price.flatMap(money) else { return nil }
+            guard let period else { return formatted }
+            return "\(formatted)/\(unitText(period, short: field.hasSuffix("abbreviated")))"
+        case "price_per_day", "price_per_week", "price_per_month", "price_per_year":
+            guard let price else { return nil }
+            let unit = field.replacingOccurrences(of: "price_per_", with: "")
+            guard let amount = amountFor(unit) else { return money(price) }
+            let decimals = max(0, min(6, NumberFormatter().maximumFractionDigits))
+            let rounded = (price / Double(max(1, amount)) * pow(10, Double(decimals))).rounded(.down) / pow(10, Double(decimals))
+            return money(rounded)
+        case "offer_price", "offer_price_per_day", "offer_price_per_week", "offer_price_per_month", "offer_price_per_year":
+            guard let price else { return nil }
+            return trial != nil ? (words["free_price"] ?? "free") : money(price)
+        case "offer_price_with_zero": return trial != nil ? money(0) : price.flatMap(money)
+        case "offer_period", "offer_period_abbreviated":
+            guard let trial else { return "" }
+            return unitText((1, trial.unit, trial.days), short: field.hasSuffix("abbreviated"))
+        case "offer_period_with_unit": return trial.map(countText) ?? ""
+        case "offer_period_in_days", "offer_period_in_weeks", "offer_period_in_months", "offer_period_in_years":
+            guard let trial else { return "" }
+            let unit = field.replacingOccurrences(of: "offer_period_in_", with: "").replacingOccurrences(of: "s", with: "")
+            let days: [String: Double] = ["day": 1, "week": 7, "month": 30, "year": 365]
+            return days[unit].map { String(Int((trial.days / $0).rounded())) } ?? ""
+        case "relative_discount":
+            guard let price, let period, let currency else { return "" }
+            let monthly = price / max(1, period.days / 30)
+            let others = peers.compactMap { peer -> Double? in
+                guard peer.productId != product.productId, peer.currencyCode == currency, let amount = peer.priceAmount.flatMap(Double.init), let parsed = parse(peer.duration) else { return nil }
+                return amount / max(1, parsed.days / 30)
+            }
+            guard let highest = others.max(), monthly < highest else { return "" }
+            return (words["percent"] ?? "%d%%").replacingOccurrences(of: "%d", with: String(Int((1 - monthly / highest) * 100))).replacingOccurrences(of: "%%", with: "%")
+        case "offer_end_date", "secondary_offer_price", "secondary_offer_period", "secondary_offer_period_abbreviated": return ""
+        default: return nil
+        }
     }
 
     private func localizedValue(_ key: String, screen: PushifyPaywallScreen) -> String? {
