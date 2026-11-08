@@ -168,7 +168,7 @@ extension _PaywallLocalization on _PushifyPaywallState {
         final formatter = currencyFormat();
         if (formatter == null) return null;
         final scale = math.pow(10, formatter.maximumFractionDigits).toDouble();
-        return formatter.format(math.floor(amount / units * scale) / scale);
+        return formatter.format((amount / units * scale).floor() / scale);
       case 'offer_price':
       case 'offer_price_per_day':
       case 'offer_price_per_week':

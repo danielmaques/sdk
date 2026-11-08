@@ -82,7 +82,7 @@ extension _PaywallRendering on _PushifyPaywallState {
         : UiKitView(
             key: ValueKey('pushify-video-$url'),
             viewType: 'app.pushify/paywall-video',
-            layoutDirection: TextDirection.ltr,
+            layoutDirection: ui.TextDirection.ltr,
             creationParams: player,
             creationParamsCodec: const StandardMessageCodec(),
           );
@@ -371,7 +371,7 @@ extension _PaywallRendering on _PushifyPaywallState {
             : rawSelected is String && rawSelected.isNotEmpty ? <String>[rawSelected] : <String>[];
         final choices = _maps(properties['options']);
         if (properties['randomize_order'] == true) {
-          choices.shuffle(Random(_randomizationSeed ^ (node['id'] as String? ?? '').hashCode));
+          choices.shuffle(math.Random(_randomizationSeed ^ (node['id'] as String? ?? '').hashCode));
         }
         String choiceLabel(Map<String, Object?> choice) {
           final key = choice['label_lid'] as String? ?? '';

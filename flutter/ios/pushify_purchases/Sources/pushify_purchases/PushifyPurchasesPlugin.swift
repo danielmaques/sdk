@@ -124,7 +124,7 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
                 return try? decoder.decode(PushifyPaywallTrialReminder.self, from: data)
             }
             withClient(result) { client in
-                switch try await client.purchase(packageID: packageID, trialReminder: reminder, title: reminderPayload?["title"] as? String, subtitle: reminderPayload?["subtitle"] as? String, body: reminderPayload?["body"] as? String) {
+                switch try await client.purchase(packageID: packageID, trialReminder: reminder, storeOfferId: args["storeOfferId"] as? String, title: reminderPayload?["title"] as? String, subtitle: reminderPayload?["subtitle"] as? String, body: reminderPayload?["body"] as? String) {
                 case .purchased(let snapshot): self.finish(result, ["status": "purchased", "customerInfo": try self.encode(snapshot)])
                 case .pending: self.finish(result, ["status": "pending"])
                 case .cancelled: self.finish(result, ["status": "cancelled"])

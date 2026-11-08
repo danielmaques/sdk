@@ -27,6 +27,28 @@ export type PushifyOfferings = {
       localized_price?: string;
       price_amount?: string;
       currency_code?: string;
+      eligible_store_offers?: Array<{
+        offer_id: string;
+        offer_type: 'apple_introductory' | 'google_play_subscription';
+        eligible: boolean;
+        base_plan_id?: string;
+        localized_price?: string;
+        price_amount?: string;
+        currency_code?: string;
+        payment_mode?: 'free_trial' | 'pay_as_you_go' | 'pay_up_front' | 'unknown';
+        billing_period?: string;
+        billing_cycle_count?: number;
+        renewal_price?: string;
+        renewal_period?: string;
+        pricing_phases?: Array<{
+          formatted_price: string;
+          price_amount_micros: string;
+          currency_code: string;
+          billing_period: string;
+          recurrence_mode: number;
+          billing_cycle_count: number;
+        }>;
+      }>;
       pricing_phases?: Array<{
         formatted_price: string;
         price_amount_micros: string;
@@ -77,7 +99,7 @@ type NativePurchasesModule = {
   setAttributes(attributes: Record<string, string | number | boolean | null>): Promise<PushifyCustomerInfo>;
   restorePurchases(): Promise<PushifyCustomerInfo>;
   syncPurchases(): Promise<PushifyCustomerInfo>;
-  purchase(packageId: string, trialReminder: PushifyTrialReminderRequest | null): Promise<PushifyPurchaseResult>;
+  purchase(packageId: string, trialReminder: PushifyTrialReminderRequest | null, storeOfferId?: string | null): Promise<PushifyPurchaseResult>;
   logEvent(name: string, properties: Record<string, unknown>, eventId: string): Promise<number>;
   spendVirtualCurrency(adjustments: Record<string, number>, idempotencyKey: string, reference?: string | null): Promise<{ virtual_currencies: PushifyCustomerInfo['virtual_currencies'] }>;
   readDeferredToken(): Promise<string | null>;
@@ -115,7 +137,7 @@ export class PushifyPurchases {
   setAttributes(attributes: Record<string, string | number | boolean | null>): Promise<PushifyCustomerInfo> { return this.requireNative().setAttributes(attributes); }
   restorePurchases(): Promise<PushifyCustomerInfo> { return this.requireNative().restorePurchases(); }
   syncPurchases(): Promise<PushifyCustomerInfo> { return this.requireNative().syncPurchases(); }
-  purchase(packageId: string, trialReminder: PushifyTrialReminderRequest | null = null): Promise<PushifyPurchaseResult> { return this.requireNative().purchase(packageId, trialReminder); }
+  purchase(packageId: string, trialReminder: PushifyTrialReminderRequest | null = null, storeOfferId?: string | null): Promise<PushifyPurchaseResult> { return this.requireNative().purchase(packageId, trialReminder, storeOfferId); }
 
   logEvent(name: string, properties: Record<string, unknown> = {}, eventId = createEventId()): Promise<number> {
     return this.requireNative().logEvent(name, properties, eventId);

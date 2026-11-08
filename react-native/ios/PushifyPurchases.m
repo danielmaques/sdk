@@ -42,6 +42,7 @@ RCT_EXTERN_METHOD(redeemOfferCode:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(purchase:(NSString *)packageID
                   trialReminder:(NSDictionary *)trialReminder
+                  storeOfferId:(NSString *)storeOfferId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(logEvent:(NSString *)name

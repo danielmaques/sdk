@@ -105,11 +105,11 @@ class PushifyPurchasesModule(context: ReactApplicationContext) : ReactContextBas
     }
 
     @ReactMethod
-    fun purchase(packageId: String, trialReminder: ReadableMap?, promise: Promise) {
+    fun purchase(packageId: String, trialReminder: ReadableMap?, storeOfferId: String?, promise: Promise) {
         val sdk = purchases ?: return promise.reject("not_configured", "Call configure before using Pushify purchases.")
         val activity = reactApplicationContext.currentActivity ?: return promise.reject("activity_unavailable", "Purchases require a foreground Android Activity.")
         val reminder = trialReminder?.let { JSONObject(it.toHashMap()) }
-        sdk.purchase(activity, packageId, reminder) { result ->
+        sdk.purchase(activity, packageId, reminder, storeOfferId) { result ->
             result.fold(onSuccess = { outcome ->
                 when (outcome) {
                     is PushifyPurchases.PurchaseOutcome.Purchased -> promise.resolve(Arguments.makeNativeMap(mapOf("status" to "purchased", "customerInfo" to toWritableMap(outcome.customer))))

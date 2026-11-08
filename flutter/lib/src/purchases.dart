@@ -132,10 +132,12 @@ class PushifyPurchases {
   Future<PushifyPurchaseResult> purchase(
     String packageId, {
     Map<String, Object?>? trialReminder,
+    String? storeOfferId,
   }) async {
     final value = await _invoke<Map<Object?, Object?>>('purchase', {
       'packageId': packageId,
       'trialReminder': ?trialReminder,
+      'storeOfferId': ?storeOfferId,
     });
     if (value == null) {
       throw const PushifyException(

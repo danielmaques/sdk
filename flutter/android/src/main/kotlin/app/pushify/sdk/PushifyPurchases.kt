@@ -206,6 +206,34 @@ public class PushifyPurchases(
                 val native = details["$type:$productId"] ?: continue
                 product.put("display_name", native.name)
                 if (type == BillingClient.ProductType.SUBS) {
+                    val eligibleOffers = JSONArray()
+                    native.subscriptionOfferDetails.orEmpty()
+                        .filter { planId == null || it.basePlanId == planId }
+                        .forEach { eligible ->
+                            val offerId = eligible.offerId ?: return@forEach
+                            val phases = JSONArray()
+                            eligible.pricingPhases.pricingPhaseList.forEach { phase ->
+                                phases.put(JSONObject()
+                                    .put("formatted_price", phase.formattedPrice)
+                                    .put("price_amount_micros", phase.priceAmountMicros.toString())
+                                    .put("currency_code", phase.priceCurrencyCode)
+                                    .put("billing_period", phase.billingPeriod)
+                                    .put("recurrence_mode", phase.recurrenceMode)
+                                    .put("billing_cycle_count", phase.billingCycleCount))
+                            }
+                            eligibleOffers.put(JSONObject()
+                                .put("offer_id", offerId)
+                                .put("offer_type", "google_play_subscription")
+                                .put("base_plan_id", eligible.basePlanId)
+                                .put("localized_price", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.formattedPrice)
+                                .put("price_amount", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.let { java.math.BigDecimal.valueOf(it.priceAmountMicros, 6).stripTrailingZeros().toPlainString() })
+                                .put("currency_code", eligible.pricingPhases.pricingPhaseList.firstOrNull()?.priceCurrencyCode)
+                                .put("renewal_price", eligible.pricingPhases.pricingPhaseList.lastOrNull { it.recurrenceMode == 1 }?.formattedPrice)
+                                .put("renewal_period", eligible.pricingPhases.pricingPhaseList.lastOrNull { it.recurrenceMode == 1 }?.billingPeriod)
+                                .put("eligible", true)
+                                .put("pricing_phases", phases))
+                        }
+                    product.put("eligible_store_offers", eligibleOffers)
                     val offer = native.subscriptionOfferDetails.orEmpty().firstOrNull { it.basePlanId == planId }
                     if (offer != null) {
                         product.put("offer_token", offer.offerToken)
@@ -314,7 +342,7 @@ public class PushifyPurchases(
     }
 
     /** Starts the native Google Play purchase sheet for the package selected from [offerings]. */
-    public fun purchase(activity: Activity, packageId: String, trialReminder: JSONObject? = null, completion: (Result<PurchaseOutcome>) -> Unit) {
+    public fun purchase(activity: Activity, packageId: String, trialReminder: JSONObject? = null, storeOfferId: String? = null, completion: (Result<PurchaseOutcome>) -> Unit) {
         if (pendingPurchaseCompletion != null) {
             completion(Result.failure(error("purchase_in_progress", "A purchase is already in progress.", false)))
             return
@@ -326,7 +354,11 @@ public class PushifyPurchases(
                 return@fold
             }
             queryDetails(storePackage) { detailResult -> detailResult.fold(onSuccess = { details ->
-                val offerToken = selectOfferToken(details, storePackage)
+                val offerToken = selectOfferToken(details, storePackage, storeOfferId)
+                if (storeOfferId != null && offerToken == null) {
+                    completion(Result.failure(error("offer_unavailable", "The selected Google Play subscription offer is no longer eligible.", false)))
+                    return@fold
+                }
                 if ((storePackage.type == "subscription" || storePackage.planId != null) && offerToken == null) {
                     completion(Result.failure(error("offer_unavailable", "The selected Google Play subscription plan is not available.", false)))
                     return@fold
@@ -578,12 +610,15 @@ public class PushifyPurchases(
         }
     }
 
-    private fun selectOfferToken(details: ProductDetails, item: StorePackage): String? {
+    private fun selectOfferToken(details: ProductDetails, item: StorePackage, selectedOfferId: String? = null): String? {
         val subscription = details.subscriptionOfferDetails.orEmpty()
         if (item.type == "subscription" || item.planId != null) {
-            val matched = subscription.firstOrNull { it.basePlanId == item.planId && (item.offerId == null || it.offerId == item.offerId) }
+            if (selectedOfferId != null && item.planId == null) return null
+            val requestedOfferId = selectedOfferId ?: item.offerId
+            val matched = subscription.firstOrNull { it.basePlanId == item.planId && (requestedOfferId == null || it.offerId == requestedOfferId) }
             return matched?.offerToken
         }
+        if (selectedOfferId != null) return null
         return details.oneTimePurchaseOfferDetailsList?.firstOrNull()?.offerToken
     }
 

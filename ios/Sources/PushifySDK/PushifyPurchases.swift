@@ -173,6 +173,7 @@ public struct PushifyOfferings: Codable, Sendable {
                 public let currencyCode: String?
                 public var duration: String? = nil
                 public var trialDuration: String? = nil
+                public var eligibleStoreOffers: [PushifyEligibleStoreOffer]? = nil
             }
             public let id: String
             public let product: StoreProduct
@@ -186,6 +187,21 @@ public struct PushifyOfferings: Codable, Sendable {
     public let currentOfferingId: String?
     public let offerings: [Offering]
     public var variableLocalizations: [String: [String: String]]? = nil
+}
+
+public struct PushifyEligibleStoreOffer: Codable, Sendable {
+    public let offerId: String
+    public let offerType: String
+    public let eligible: Bool
+    public let basePlanId: String?
+    public let localizedPrice: String?
+    public let priceAmount: String?
+    public let currencyCode: String?
+    public let paymentMode: String?
+    public let billingPeriod: String?
+    public let billingCycleCount: Int?
+    public let renewalPrice: String?
+    public let renewalPeriod: String?
 }
 
 public enum PushifyPurchaseResult: Sendable {
@@ -277,6 +293,33 @@ public actor PushifyPurchases {
         let identifiers = Array(Set(catalog.offerings.flatMap(\.packages).map(\.product.productId)))
         let storeProducts = try await Product.products(for: identifiers)
         let byIdentifier = Dictionary(uniqueKeysWithValues: storeProducts.map { ($0.id, $0) })
+        var eligibleOffersByProduct: [String: [PushifyEligibleStoreOffer]] = [:]
+        for native in storeProducts {
+            guard let subscription = native.subscription,
+                  let offer = subscription.introductoryOffer else { continue }
+            let eligible = await subscription.isEligibleForIntroOffer
+            let paymentMode: String
+            switch offer.paymentMode {
+            case .freeTrial: paymentMode = "free_trial"
+            case .payAsYouGo: paymentMode = "pay_as_you_go"
+            case .payUpFront: paymentMode = "pay_up_front"
+            default: paymentMode = "unknown"
+            }
+            eligibleOffersByProduct[native.id] = [PushifyEligibleStoreOffer(
+                offerId: "introductory",
+                offerType: "apple_introductory",
+                eligible: eligible,
+                basePlanId: nil,
+                localizedPrice: offer.displayPrice,
+                priceAmount: NSDecimalNumber(decimal: offer.price).stringValue,
+                currencyCode: native.priceFormatStyle.currencyCode,
+                paymentMode: paymentMode,
+                billingPeriod: Self.isoPeriod(offer.period, count: offer.periodCount),
+                billingCycleCount: offer.periodCount,
+                renewalPrice: native.displayPrice,
+                renewalPeriod: native.subscription.map { Self.isoPeriod($0.subscriptionPeriod) }
+            )]
+        }
         return PushifyOfferings(
             currentOfferingId: catalog.currentOfferingId,
             offerings: catalog.offerings.map { offering in
@@ -296,7 +339,8 @@ public actor PushifyPurchases {
                                 priceAmount: native.map { NSDecimalNumber(decimal: $0.price).stringValue },
                                 currencyCode: native?.priceFormatStyle.currencyCode,
                                 duration: native?.subscription.map { Self.isoPeriod($0.subscriptionPeriod) } ?? package.product.duration,
-                                trialDuration: native.flatMap(Self.trialPeriod) ?? package.product.trialDuration
+                                trialDuration: native.flatMap(Self.trialPeriod) ?? package.product.trialDuration,
+                                eligibleStoreOffers: eligibleOffersByProduct[package.product.productId]
                             )
                         )
                     },
@@ -423,11 +467,19 @@ public actor PushifyPurchases {
     }
 
     /// Uses StoreKit's native purchase sheet and grants access only after Pushify verifies the signed transaction.
-    public func purchase(packageID: String, trialReminder: PushifyPaywallTrialReminder? = nil, title: String? = nil, subtitle: String? = nil, body: String? = nil) async throws -> PushifyPurchaseResult {
+    public func purchase(packageID: String, trialReminder: PushifyPaywallTrialReminder? = nil, storeOfferId: String? = nil, title: String? = nil, subtitle: String? = nil, body: String? = nil) async throws -> PushifyPurchaseResult {
         let catalog = try await offerings()
         guard let package = catalog.offerings.flatMap(\.packages).first(where: { $0.id == packageID }) else { throw PushifyError.productUnavailable(packageID) }
         let products = try await Product.products(for: [package.product.productId])
         guard let product = products.first else { throw PushifyError.productUnavailable(package.product.productId) }
+        if let storeOfferId {
+            guard storeOfferId == "introductory",
+                  let subscription = product.subscription,
+                  subscription.introductoryOffer != nil,
+                  await subscription.isEligibleForIntroOffer else {
+                throw PushifyError.productUnavailable("eligible store offer \(storeOfferId)")
+            }
+        }
         switch try await product.purchase() {
         case .success(let verification):
             guard case .verified(let transaction) = verification else { throw PushifyError.unverifiedTransaction }

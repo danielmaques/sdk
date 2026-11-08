@@ -67,7 +67,7 @@ class _PaywallExperienceWebViewState extends State<_PaywallExperienceWebView> {
             viewType: 'app.pushify/paywall-web',
             creationParams: {'url': widget.url.toString()},
             creationParamsCodec: const StandardMessageCodec(),
-            layoutDirection: TextDirection.ltr,
+            layoutDirection: ui.TextDirection.ltr,
             onPlatformViewCreated: _onPlatformViewCreated,
           );
     return SizedBox(
