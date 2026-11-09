@@ -247,7 +247,7 @@ function WheelConfettiBurst(): React.ReactElement | null {
   useEffect(() => {
     if (reducedMotion) return;
     progress.setValue(0);
-    const animation = Animated.timing(progress, { toValue: 1, duration: 1500, useNativeDriver: true });
+    const animation = Animated.timing(progress, { toValue: 1, duration: 6000, useNativeDriver: true });
     animation.start();
     return () => animation.stop();
   }, [progress, reducedMotion]);
@@ -374,7 +374,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [discountWheelUsed, setDiscountWheelUsed] = useState<Record<string, boolean>>({});
   const [discountWheelSpinning, setDiscountWheelSpinning] = useState<Record<string, boolean>>({});
   const [discountWheelTurns, setDiscountWheelTurns] = useState<Record<string, number>>({});
-  const [discountWheelPrize, setDiscountWheelPrize] = useState<{ nodeID: string; packageID: string; offerID: string; label: string; offer: Record<string, unknown> } | null>(null);
+  const [discountWheelPrize, setDiscountWheelPrize] = useState<{ nodeID: string; packageID: string; offerID: string; wheelIndex: number; label: string; offer: Record<string, unknown> } | null>(null);
   const [now, setNow] = useState(Date.now());
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
   const relativeCountdownStarts = useRef<Record<string, number>>({});
@@ -919,42 +919,36 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     const offer = winner?.offer ?? {};
     const intro = [text(offer.localized_price), text(offer.billing_period)].filter(Boolean).join(' for ');
     const renewal = [text(offer.renewal_price), text(offer.renewal_period)].filter(Boolean).join(' / ');
-  const colors = ['#70d000', '#f5e663', '#ff9b35', '#b5eb32', '#4bbd28', '#f9c846', '#76dc67', '#ffb24c'];
+    const selectedIndex = winner?.wheelIndex ?? 0;
+    const colors = ['#fbf8e3', '#fffdf3', '#f8f5dc', '#fffdf3', '#fbf8e3', '#fffdf3', '#f8f5dc', '#fffdf3'];
+    const spin = () => {
+      if (discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) return;
+      const index = Math.floor(Math.random() * eligible.length);
+      const chosen = eligible[index]!;
+      setDiscountWheelUsed((current) => ({ ...current, [wheelID]: true }));
+      setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: true }));
+      setSelected(chosen.packageItem.id);
+      setDiscountWheelPrize({ nodeID: wheelID, packageID: chosen.packageItem.id, offerID: String(chosen.offer.offer_id), wheelIndex: index, label: chosen.label, offer: chosen.offer });
+      const degrees = (5 + (eligible.length - index - 0.5) / eligible.length) * 360;
+      const nextRotation = (discountWheelTurns[wheelID] ?? 0) + degrees;
+      setDiscountWheelTurns((current) => ({ ...current, [wheelID]: nextRotation }));
+      Animated.timing(rotation!, { toValue: nextRotation, duration: 8000, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: false })));
+    };
     return React.createElement(View, { key: wheelID, style: styles.discountWheel },
-      React.createElement(Text, { style: styles.wheelTitle }, 'Choose an eligible offer'),
       React.createElement(View, { style: styles.wheelStage },
         React.createElement(Animated.View, { style: [styles.wheelDisk, { transform: [{ rotate: rotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }] },
           ...eligible.map((item, index) => {
             const angle = (2 * Math.PI * index) / eligible.length - Math.PI / 2;
-            return React.createElement(View, { key: String(item.prize.id ?? index), style: [styles.wheelLabel, { backgroundColor: colors[index % colors.length], left: 100 + Math.cos(angle) * 57 - 34, top: 100 + Math.sin(angle) * 57 - 22 }] }, React.createElement(Text, { numberOfLines: 2, style: styles.wheelLabelText }, item.label));
+            return React.createElement(View, { key: String(item.prize.id ?? index), style: [styles.wheelLabel, { backgroundColor: index === selectedIndex ? '#ff873c' : colors[index % colors.length], left: 122 + Math.cos(angle) * 78 - 38, top: 122 + Math.sin(angle) * 78 - 22 }] }, React.createElement(Text, { numberOfLines: 2, style: styles.wheelLabelText }, item.label));
           }),
-          React.createElement(View, { style: styles.wheelHub }, React.createElement(Text, { style: styles.wheelHubText }, '✦')),
         ),
+        React.createElement(Pressable, { accessibilityRole: 'button', accessibilityLabel: 'Spin the wheel', accessibilityState: { disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) }, disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]), onPress: spin, style: styles.wheelHub }, React.createElement(Text, { style: styles.wheelHubText }, discountWheelSpinning[wheelID] ? '…' : winner ? '✓' : 'SPIN')),
         React.createElement(Text, { accessibilityElementsHidden: true, style: styles.wheelPointer }, '▼'),
         winner && !discountWheelSpinning[wheelID] ? React.createElement(WheelConfettiBurst) : null,
       ),
       winner
         ? React.createElement(Text, { accessibilityRole: 'text', style: styles.wheelResult }, `${winner.label}: ${[intro, renewal].filter(Boolean).join(', then ')}`)
-        : React.createElement(Pressable, {
-            accessibilityRole: 'button',
-            accessibilityState: { disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) },
-            disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]),
-            style: [styles.wheelButton, (discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) && styles.disabled],
-            onPress: () => {
-              if (discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) return;
-              const index = Math.floor(Math.random() * eligible.length);
-              const chosen = eligible[index]!;
-              setDiscountWheelUsed((current) => ({ ...current, [wheelID]: true }));
-              setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: true }));
-              setSelected(chosen.packageItem.id);
-              setDiscountWheelPrize({ nodeID: wheelID, packageID: chosen.packageItem.id, offerID: String(chosen.offer.offer_id), label: chosen.label, offer: chosen.offer });
-              const degrees = (5 + (eligible.length - index - 0.5) / eligible.length) * 360;
-              const nextRotation = (discountWheelTurns[wheelID] ?? 0) + degrees;
-              setDiscountWheelTurns((current) => ({ ...current, [wheelID]: nextRotation }));
-              Animated.timing(rotation!, { toValue: nextRotation, duration: 1800, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: false })));
-            },
-          }, React.createElement(Text, { style: styles.wheelButtonText }, discountWheelSpinning[wheelID] ? 'Spinning…' : 'Spin for an eligible offer')),
-      React.createElement(Text, { style: styles.wheelFootnote }, 'Continue below to purchase with the selected store offer.'),
+        : null,
     );
   }
 
@@ -1472,5 +1466,5 @@ const styles = StyleSheet.create({
   text: { textAlign: 'center', flexShrink: 1 }, inputWrap: { width: '100%', marginVertical: 6, gap: 5 }, inputLabel: { fontSize: 13, color: '#444444' }, input: { minHeight: 42, borderWidth: 1, borderColor: '#777777', borderRadius: 8, paddingHorizontal: 12, color: '#111111', backgroundColor: '#ffffff' }, package: { borderWidth: 1, borderColor: '#8b8b8b', borderRadius: 14, padding: 14, marginVertical: 5 }, packageActive: { borderWidth: 2, borderColor: '#315ee8' }, packageTitle: { fontSize: 16, fontWeight: '600' }, price: { marginLeft: 26, marginTop: 4 },
   cta: { backgroundColor: '#315ee8', borderRadius: 14, padding: 16, alignItems: 'center', minHeight: 52 }, disabled: { opacity: 0.55 }, ctaText: { color: '#ffffff', fontWeight: '700' }, quiet: { padding: 12, alignItems: 'center' }, image: { width: '100%', height: 180 }, message: { textAlign: 'center', padding: 8 },
   timelineRow: { flexDirection: 'row', minHeight: 54 }, timelineRail: { alignItems: 'center', width: 36 }, timelineIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#315ee8', alignItems: 'center', justifyContent: 'center' }, timelineGlyph: { color: '#ffffff', fontWeight: '700' }, timelineLine: { width: 2, flex: 1, backgroundColor: '#d4d4d4', marginVertical: 4 }, timelineCopy: { flex: 1, paddingBottom: 12 }, dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, padding: 8 }, dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#d4d4d4' }, dotActive: { width: 18, backgroundColor: '#315ee8' }, tabRow: { flexDirection: 'row', gap: 6, marginBottom: 10 }, tab: { flex: 1, alignItems: 'center', padding: 10, borderRadius: 9, backgroundColor: '#f1f1f1' }, tabActive: { backgroundColor: '#dce5ff' },
-  discountWheel: { alignItems: 'center', gap: 10, padding: 14, borderRadius: 16, backgroundColor: '#f3f3f3' }, wheelTitle: { fontSize: 16, fontWeight: '700', color: '#171717' }, wheelStage: { width: 220, height: 220, alignItems: 'center', justifyContent: 'center' }, wheelDisk: { width: 200, height: 200, borderRadius: 100, borderWidth: 2, borderColor: '#242424', backgroundColor: '#ffffff', overflow: 'hidden' }, wheelLabel: { position: 'absolute', width: 68, minHeight: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 1, borderColor: 'rgba(0,0,0,0.18)' }, wheelLabelText: { textAlign: 'center', fontSize: 9, lineHeight: 11, fontWeight: '700', color: '#17202a' }, wheelHub: { position: 'absolute', width: 42, height: 42, borderRadius: 21, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center', left: 79, top: 79 }, wheelHubText: { fontSize: 20, fontWeight: '700', color: '#5a533d' }, wheelPointer: { position: 'absolute', top: -2, alignSelf: 'center', zIndex: 2, color: '#171717', fontSize: 20 }, wheelButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, borderRadius: 22, backgroundColor: '#315ee8' }, wheelButtonText: { color: '#ffffff', fontWeight: '700' }, wheelResult: { textAlign: 'center', fontWeight: '700', color: '#171717' }, wheelFootnote: { textAlign: 'center', fontSize: 11, color: '#555555' }, wheelFallback: { padding: 12, borderRadius: 12, backgroundColor: '#f3f3f3' },
+  discountWheel: { alignItems: 'center', gap: 6, padding: 2 }, wheelTitle: { fontSize: 16, fontWeight: '700', color: '#171717' }, wheelStage: { width: 260, height: 260, alignItems: 'center', justifyContent: 'center' }, wheelDisk: { width: 244, height: 244, borderRadius: 122, borderWidth: 7, borderColor: '#20b45a', backgroundColor: '#fbf8e3', overflow: 'hidden' }, wheelLabel: { position: 'absolute', width: 76, minHeight: 34, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)' }, wheelLabelText: { textAlign: 'center', fontSize: 9, lineHeight: 11, fontWeight: '700', color: '#17202a' }, wheelHub: { position: 'absolute', width: 62, height: 62, borderRadius: 31, backgroundColor: '#20b45a', alignItems: 'center', justifyContent: 'center', left: 99, top: 99, borderWidth: 4, borderColor: '#ffffff' }, wheelHubText: { fontSize: 11, fontWeight: '900', color: '#ffffff' }, wheelPointer: { position: 'absolute', top: -2, alignSelf: 'center', zIndex: 2, color: '#ff873c', fontSize: 20 }, wheelButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, borderRadius: 22, backgroundColor: '#315ee8' }, wheelButtonText: { color: '#ffffff', fontWeight: '700' }, wheelResult: { textAlign: 'center', fontWeight: '700', color: '#171717' }, wheelFootnote: { textAlign: 'center', fontSize: 11, color: '#555555' }, wheelFallback: { padding: 12, borderRadius: 12, backgroundColor: '#f3f3f3' },
 });

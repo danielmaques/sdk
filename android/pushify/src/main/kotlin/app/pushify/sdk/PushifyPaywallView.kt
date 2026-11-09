@@ -1027,15 +1027,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = GradientDrawable().apply { setColor(if (isDarkTheme()) Color.rgb(35, 35, 35) else Color.rgb(247, 247, 247)); cornerRadius = dp(16).toFloat() }
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        val title = TextView(context).apply { text = "Choose an eligible offer"; textSize = 15f; setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(8)) }
-        root.addView(title, lp(MATCH, WRAP))
-        val size = dp(190)
+        val size = dp(244)
         val wheel = object : View(context) {
             private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            private val colors = intArrayOf(Color.rgb(112, 208, 0), Color.rgb(245, 230, 99), Color.rgb(255, 155, 53), Color.rgb(181, 235, 50), Color.rgb(75, 189, 40), Color.rgb(249, 200, 70), Color.rgb(118, 220, 103), Color.rgb(255, 178, 76))
             override fun onDraw(canvas: Canvas) {
                 super.onDraw(canvas)
                 val diameter = minOf(width, height).toFloat() - dp(8)
@@ -1044,8 +1040,13 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 val bounds = RectF(left, top, left + diameter, top + diameter)
                 val sweep = 360f / eligible.size
                 eligible.forEachIndexed { index, item ->
-                    paint.color = colors[index % colors.size]
+                    paint.color = if (index == (discountWheelPrize?.optInt("wheel_index") ?: 0)) Color.rgb(255, 135, 60) else Color.rgb(251, 248, 227)
                     canvas.drawArc(bounds, -90f + index * sweep, sweep, true, paint)
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = dp(2).toFloat()
+                    paint.color = Color.WHITE
+                    canvas.drawArc(bounds, -90f + index * sweep, sweep, true, paint)
+                    paint.style = Paint.Style.FILL
                     val label = localizedValue(item.prize.optString("label_lid"), screen)?.take(16) ?: "Offer ${index + 1}"
                     paint.color = Color.rgb(25, 29, 35)
                     paint.textSize = dp(9).toFloat()
@@ -1056,12 +1057,11 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     val y = (height / 2f + kotlin.math.sin(angle) * radius + paint.textSize / 3).toFloat()
                     canvas.drawText(label, x, y, paint)
                 }
-                paint.color = if (isDarkTheme()) Color.rgb(35, 35, 35) else Color.WHITE
-                canvas.drawCircle(width / 2f, height / 2f, dp(18).toFloat(), paint)
-                paint.color = Color.rgb(90, 83, 61)
-                paint.textSize = dp(17).toFloat()
-                paint.typeface = Typeface.DEFAULT_BOLD
-                canvas.drawText("✦", width / 2f - paint.measureText("✦") / 2, height / 2f + paint.textSize / 3, paint)
+                paint.color = Color.rgb(32, 180, 90)
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = dp(7).toFloat()
+                canvas.drawCircle(width / 2f, height / 2f, diameter / 2f, paint)
+                paint.style = Paint.Style.FILL
             }
         }.apply {
             rotation = discountWheelRotation
@@ -1069,12 +1069,15 @@ public class PushifyPaywallView @JvmOverloads constructor(
         }
         val wheelFrame = FrameLayout(context).apply {
             addView(wheel, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
-            addView(TextView(context).apply { text = "▼"; textSize = 18f; gravity = Gravity.CENTER; contentDescription = "Wheel pointer" }, FrameLayout.LayoutParams(dp(28), dp(24), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+            addView(TextView(context).apply { text = "▼"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(Color.rgb(255, 135, 60)); contentDescription = "Wheel pointer" }, FrameLayout.LayoutParams(dp(28), dp(24), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         }
         root.addView(wheelFrame, lp(size, size))
         val result = TextView(context).apply { gravity = Gravity.CENTER; textSize = 12f; setPadding(dp(4), dp(8), dp(4), dp(6)); contentDescription = "Discount wheel result" }
         val spin = Button(context).apply {
-            text = "Spin for an eligible offer"
+            text = if (discountWheelPrize == null) "SPIN" else "✓"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(32, 180, 90)); setStroke(dp(4), Color.WHITE) }
             contentDescription = "Spin once among the current eligible Google Play subscription offers"
             setOnClickListener {
                 if (discountWheelUsed || busy) return@setOnClickListener
@@ -1082,6 +1085,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 val selected = eligible[index]
                 val label = localizedValue(selected.prize.optString("label_lid"), screen)?.ifBlank { null } ?: "Selected offer"
                 discountWheelPrize = JSONObject().put("package_id", selected.packageItem.optString("id")).put("offer_id", selected.offer.optString("offer_id"))
+                    .put("wheel_index", index)
                     .put("label", label).put("intro_price", selected.offer.optString("localized_price"))
                     .put("intro_period", selected.offer.optString("billing_period")).put("renewal_price", selected.offer.optString("renewal_price"))
                     .put("renewal_period", selected.offer.optString("renewal_period"))
@@ -1092,7 +1096,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 text = "Spinning…"
                 val sweep = 360f / eligible.size
                 val target = discountWheelRotation + 360f * 5 + 360f - (index + .5f) * sweep
-                val duration = if (android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) 0L else 1800L
+                val duration = if (android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) 0L else 8000L
                 wheel.animate().rotation(target).setDuration(duration).withEndAction {
                     discountWheelRotation = target % 360f
                     busy = false
@@ -1105,7 +1109,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
         }
         root.addView(result, lp(MATCH, WRAP))
-        root.addView(spin, lp(MATCH, WRAP))
+        wheelFrame.addView(spin, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER))
         if (discountWheelPrize != null) {
             val prize = discountWheelPrize!!
             val intro = listOf(prize.optString("intro_price"), prize.optString("intro_period")).filter(String::isNotBlank).joinToString(" for ")
@@ -1130,7 +1134,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            val progress = ((SystemClock.uptimeMillis() - startedAt) / 1500f).coerceIn(0f, 1f)
+            val progress = ((SystemClock.uptimeMillis() - startedAt) / 6000f).coerceIn(0f, 1f)
             for (index in 0 until 42) {
                 val angle = index * 2.3999632
                 val spread = 18f + (index % 7) * 3f

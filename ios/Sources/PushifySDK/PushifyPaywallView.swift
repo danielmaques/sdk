@@ -16,6 +16,7 @@ private struct PresentedPaywallSurvey: Identifiable {
 private struct SelectedDiscountWheelPrize {
     let packageID: String
     let offerID: String
+    let wheelIndex: Int
     let label: String
     let introPrice: String?
     let introPeriod: String?
@@ -34,7 +35,7 @@ private struct PaywallWheelConfetti: View {
     var body: some View {
         if !reduceMotion {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                let progress = min(1, max(0, timeline.date.timeIntervalSince(started) / 1.5))
+                let progress = min(1, max(0, timeline.date.timeIntervalSince(started) / 6))
                 Canvas { context, size in
                     for index in 0..<42 {
                         let angle = Double(index) * 2.399963229728653
@@ -728,11 +729,12 @@ public struct PushifyPaywallView: View {
     private func renderDiscountWheel(_ node: PushifyPaywallNode, config: [String: PushifyJSONValue], screen: PushifyPaywallScreen) -> some View {
         let eligible = eligibleDiscountWheelPrizes(config)
         let wheelID = node.id ?? "discount-wheel"
-        let colors: [Color] = [.init(red: 0.44, green: 0.82, blue: 0), .init(red: 0.96, green: 0.90, blue: 0.39), .init(red: 1, green: 0.61, blue: 0.21), .init(red: 0.71, green: 0.92, blue: 0.20), .init(red: 0.29, green: 0.74, blue: 0.16), .init(red: 0.98, green: 0.78, blue: 0.27), .init(red: 0.46, green: 0.86, blue: 0.40), .init(red: 1, green: 0.70, blue: 0.30)]
+        let pale = Color(red: 0.99, green: 0.98, blue: 0.91)
+        let highlightedIndex = discountWheelPrize?.wheelIndex ?? 0
         let gradientStops = eligible.enumerated().flatMap { index, _ -> [Gradient.Stop] in
             let start = Double(index) / Double(eligible.count)
             let end = Double(index + 1) / Double(eligible.count)
-            let color = colors[index % colors.count]
+            let color = index == highlightedIndex ? Color(red: 1, green: 0.53, blue: 0.23) : pale
             return [Gradient.Stop(color: color, location: start), Gradient.Stop(color: color, location: end - 0.0001)]
         }
         let winnerText = discountWheelPrize.map { prize in
@@ -742,27 +744,52 @@ public struct PushifyPaywallView: View {
             let renewalPeriod = prize.renewalPeriod.map { " / \($0)" } ?? ""
             return "\(prize.label): \(price)\(cadence)\(renewal)\(renewalPeriod)"
         }
-        return VStack(spacing: 12) {
+        return VStack(spacing: 8) {
             if eligible.isEmpty {
                 if let fallback = nestedNode(node.properties["fallback"]) { render(fallback, screen: screen) }
                 else { Text("No introductory offers are currently available.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center) }
             } else {
                 ZStack {
-                    Circle()
-                        .fill(AngularGradient(gradient: Gradient(stops: gradientStops), center: .center, startAngle: .degrees(-90), endAngle: .degrees(270)))
-                    ForEach(Array(eligible.enumerated()), id: \.offset) { index, item in
-                        let angle = Double(index) * 360 / Double(eligible.count) + 180 / Double(eligible.count)
-                        Text(localizedValue(string(item.prize["label_lid"]) ?? "", screen: screen) ?? "Offer \(index + 1)")
-                            .font(.system(size: 9, weight: .semibold)).lineLimit(2).multilineTextAlignment(.center).frame(width: 66)
-                            .rotationEffect(.degrees(angle)).offset(y: -62).rotationEffect(.degrees(-angle))
+                    ZStack {
+                        Circle()
+                            .fill(AngularGradient(gradient: Gradient(stops: gradientStops), center: .center, startAngle: .degrees(-90), endAngle: .degrees(270)))
+                        ForEach(Array(eligible.enumerated()), id: \.offset) { index, item in
+                            let angle = Double(index) * 360 / Double(eligible.count) + 180 / Double(eligible.count)
+                            Text(localizedValue(string(item.prize["label_lid"]) ?? "", screen: screen) ?? "Offer \(index + 1)")
+                                .font(.system(size: 9, weight: .semibold)).lineLimit(2).multilineTextAlignment(.center).frame(width: 66)
+                                .rotationEffect(.degrees(angle)).offset(y: -82).rotationEffect(.degrees(-angle))
+                        }
+                        Circle().stroke(Color(red: 0.12, green: 0.71, blue: 0.35), lineWidth: 7)
                     }
-                    Circle().fill(Color(uiColor: .systemBackground)).frame(width: 38, height: 38).overlay(Image(systemName: "sparkles").font(.system(size: 15, weight: .bold)).foregroundStyle(.primary))
+                    .rotationEffect(.degrees(discountWheelRotation[wheelID] ?? 0))
+                    Button {
+                        guard !discountWheelUsed, !spinningDiscountWheels.contains(wheelID), let index = eligible.indices.randomElement() else { return }
+                        let selected = eligible[index]
+                        let label = localizedValue(string(selected.prize["label_lid"]) ?? "", screen: screen) ?? "Selected offer"
+                        let candidate = SelectedDiscountWheelPrize(packageID: selected.package.id, offerID: selected.offer.offerId, wheelIndex: index, label: label, introPrice: selected.offer.localizedPrice, introPeriod: selected.offer.billingPeriod, renewalPrice: selected.offer.renewalPrice, renewalPeriod: selected.offer.renewalPeriod)
+                        discountWheelUsed = true
+                        spinningDiscountWheels.insert(wheelID)
+                        selectedPackageID = candidate.packageID
+                        discountWheelPrize = candidate
+                        let current = discountWheelRotation[wheelID] ?? 0
+                        let stop = current + 360 * 5 + 360 - (Double(index) + 0.5) * 360 / Double(eligible.count)
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 8)) { discountWheelRotation[wheelID] = stop }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 8)) { spinningDiscountWheels.remove(wheelID) }
+                    } label: {
+                        Text(spinningDiscountWheels.contains(wheelID) ? "…" : discountWheelPrize == nil ? "SPIN" : "✓")
+                            .font(.system(size: 11, weight: .black))
+                            .foregroundStyle(.white)
+                            .frame(width: 58, height: 58)
+                            .background(Color(red: 0.12, green: 0.71, blue: 0.35), in: Circle())
+                            .overlay(Circle().stroke(.white, lineWidth: 4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(discountWheelUsed || spinningDiscountWheels.contains(wheelID))
+                    .accessibilityLabel("Spin the wheel")
                 }
-                .frame(width: 190, height: 190)
+                .frame(width: 244, height: 244)
                 .overlay(alignment: .top) { Image(systemName: "triangle.fill").font(.system(size: 16)).rotationEffect(.degrees(180)).offset(y: -6).foregroundStyle(.primary) }
-                .rotationEffect(.degrees(discountWheelRotation[wheelID] ?? 0))
                 .overlay { if discountWheelPrize != nil && !spinningDiscountWheels.contains(wheelID) { PaywallWheelConfetti() } }
-                .accessibilityHidden(true)
 
                 if let winnerText, !spinningDiscountWheels.contains(wheelID) {
                     VStack(spacing: 3) {
@@ -770,33 +797,10 @@ public struct PushifyPaywallView: View {
                         Text("The price and renewal terms come from the App Store.").font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .accessibilityElement(children: .combine).accessibilityAddTraits(.updatesFrequently)
-                } else {
-                    Button {
-                        guard !discountWheelUsed, !spinningDiscountWheels.contains(wheelID), let index = eligible.indices.randomElement() else { return }
-                        let selected = eligible[index]
-                        let label = localizedValue(string(selected.prize["label_lid"]) ?? "", screen: screen) ?? "Selected offer"
-                        let candidate = SelectedDiscountWheelPrize(packageID: selected.package.id, offerID: selected.offer.offerId, label: label, introPrice: selected.offer.localizedPrice, introPeriod: selected.offer.billingPeriod, renewalPrice: selected.offer.renewalPrice, renewalPeriod: selected.offer.renewalPeriod)
-                        discountWheelUsed = true
-                        spinningDiscountWheels.insert(wheelID)
-                        selectedPackageID = candidate.packageID
-                        discountWheelPrize = candidate
-                        let current = discountWheelRotation[wheelID] ?? 0
-                        let stop = current + 360 * 5 + 360 - (Double(index) + 0.5) * 360 / Double(eligible.count)
-                        withAnimation(reduceMotion ? nil : .easeOut(duration: 1.8)) { discountWheelRotation[wheelID] = stop }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 1.8)) { spinningDiscountWheels.remove(wheelID) }
-                    } label: {
-                        Text(spinningDiscountWheels.contains(wheelID) ? "Spinning…" : "Spin for an eligible offer")
-                            .frame(maxWidth: .infinity).padding(.vertical, 11)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(discountWheelUsed || spinningDiscountWheels.contains(wheelID))
-                    .accessibilityHint("Selects one offer reported eligible by the App Store. The purchase button below opens the native store sheet.")
                 }
             }
         }
-        .padding(12)
         .frame(maxWidth: .infinity)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func setTransactionState(completed: Bool) {

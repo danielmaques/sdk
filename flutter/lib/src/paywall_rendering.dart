@@ -192,71 +192,71 @@ extension _PaywallRendering on _PushifyPaywallState {
         .whereType<String>().where((value) => value.isNotEmpty).join(' / ');
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
-        : const Duration(milliseconds: 1800);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Choose an eligible offer', style: TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Stack(alignment: Alignment.topCenter, children: [
-            AnimatedRotation(
-              turns: _discountWheelTurns,
-              duration: duration,
-              curve: Curves.easeOutCubic,
-              child: CustomPaint(
-                size: const Size(190, 190),
-                painter: _DiscountWheelPainter(labels),
-              ),
+        : const Duration(milliseconds: 8000);
+    void spin() {
+      if (_discountWheelUsed || _discountWheelSpinning) return;
+      final index = math.Random().nextInt(eligible.length);
+      final selected = eligible[index];
+      final selectedPrize = _map(selected['prize']);
+      final selectedPackage = _map(selected['package']);
+      final selectedOffer = _map(selected['offer']);
+      final turns = 5 + (eligible.length - index - 0.5) / eligible.length;
+      final reduceMotion = MediaQuery.disableAnimationsOf(context);
+      _update(() {
+        _discountWheelUsed = true;
+        _discountWheelSpinning = !reduceMotion;
+        _selectedPackage = selectedPackage['id'] as String? ?? '';
+        _discountWheelPrize = {
+          'node_id': wheelId,
+          'wheel_index': index,
+          'label': labels[index],
+          'prize': selectedPrize,
+          'package': selectedPackage,
+          'offer': selectedOffer,
+        };
+        _discountWheelTurns += reduceMotion ? 0 : turns;
+      });
+      if (!reduceMotion) {
+        Future<void>.delayed(duration).then((_) {
+          if (mounted) _update(() => _discountWheelSpinning = false);
+        });
+      }
+    }
+    final selectedIndex = (matchingWinner?['wheel_index'] as int?) ?? 0;
+    return Padding(
+      padding: const EdgeInsets.all(4),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Stack(alignment: Alignment.center, children: [
+          AnimatedRotation(
+            turns: _discountWheelTurns,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+            child: CustomPaint(
+              size: const Size(244, 244),
+              painter: _DiscountWheelPainter(labels, selectedIndex: selectedIndex),
             ),
-            const Padding(padding: EdgeInsets.only(top: 0), child: Icon(Icons.arrow_drop_down, size: 30)),
-            if (matchingWinner != null && !_discountWheelSpinning)
-              _WheelConfetti(reducedMotion: MediaQuery.disableAnimationsOf(context)),
-          ]),
-          const SizedBox(height: 8),
-          if (matchingWinner != null) ...[
-            Text('$winnerLabel: ${[intro, renewal].where((value) => value.isNotEmpty).join(', then ')}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 3),
-            const Text('The price and renewal terms come from Google Play.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
-          ] else
-            FilledButton(
-              onPressed: _discountWheelUsed || _discountWheelSpinning ? null : () {
-                final index = math.Random().nextInt(eligible.length);
-                final selected = eligible[index];
-                final selectedPrize = _map(selected['prize']);
-                final selectedPackage = _map(selected['package']);
-                final selectedOffer = _map(selected['offer']);
-                final turns = 5 + (eligible.length - index - 0.5) / eligible.length;
-                final reduceMotion = MediaQuery.disableAnimationsOf(context);
-                _update(() {
-                  _discountWheelUsed = true;
-                  _discountWheelSpinning = !reduceMotion;
-                  _selectedPackage = selectedPackage['id'] as String? ?? '';
-                  _discountWheelPrize = {
-                    'node_id': wheelId,
-                    'label': labels[index],
-                    'prize': selectedPrize,
-                    'package': selectedPackage,
-                    'offer': selectedOffer,
-                  };
-                  _discountWheelTurns += reduceMotion ? 0 : turns;
-                });
-                if (!reduceMotion) {
-                  Future<void>.delayed(duration).then((_) {
-                    if (mounted) _update(() => _discountWheelSpinning = false);
-                  });
-                }
-              },
-              child: Text(_discountWheelSpinning ? 'Spinning…' : 'Spin for an eligible offer'),
+          ),
+          const Positioned(top: 0, child: Icon(Icons.arrow_drop_down, size: 30, color: Color(0xffff873c))),
+          GestureDetector(
+            onTap: spin,
+            child: Container(
+              width: 58,
+              height: 58,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: const Color(0xff20b45a), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 4)),
+              child: Text(_discountWheelSpinning ? '…' : matchingWinner == null ? 'SPIN' : '✓', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900)),
             ),
-          const SizedBox(height: 3),
-          Text('Continue below to purchase with Google Play.', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
+          ),
+          if (matchingWinner != null && !_discountWheelSpinning)
+            _WheelConfetti(reducedMotion: MediaQuery.disableAnimationsOf(context)),
         ]),
-      ),
+        if (matchingWinner != null && !_discountWheelSpinning) ...[
+          const SizedBox(height: 6),
+          Text('$winnerLabel: ${[intro, renewal].where((value) => value.isNotEmpty).join(', then ')}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 3),
+          const Text('The price and renewal terms come from Google Play.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+        ],
+      ]),
     );
   }
 
@@ -1264,7 +1264,7 @@ class _WheelConfettiState extends State<_WheelConfetti>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 6000),
     );
     if (!widget.reducedMotion) _controller.forward();
   }
@@ -1337,14 +1337,10 @@ class _WheelConfettiPainter extends CustomPainter {
 }
 
 class _DiscountWheelPainter extends CustomPainter {
-  _DiscountWheelPainter(this.labels);
+  _DiscountWheelPainter(this.labels, {required this.selectedIndex});
 
   final List<String> labels;
-  static const _colors = <Color>[
-    Color(0xff70d000), Color(0xfff5e663), Color(0xffff9b35),
-    Color(0xffb5eb32), Color(0xff4bbd28), Color(0xfff9c846),
-    Color(0xff76dc67), Color(0xffffb24c),
-  ];
+  final int selectedIndex;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1355,12 +1351,20 @@ class _DiscountWheelPainter extends CustomPainter {
     final sweep = 2 * math.pi / labels.length;
     final paint = Paint()..style = PaintingStyle.fill;
     for (var index = 0; index < labels.length; index++) {
-      paint.color = _colors[index % _colors.length];
+      paint.color = index == selectedIndex
+          ? const Color(0xffff873c)
+          : const Color(0xfffbf8e3);
       final path = Path()
         ..moveTo(center.dx, center.dy)
         ..arcTo(bounds, -math.pi / 2 + index * sweep, sweep, false)
         ..close();
       canvas.drawPath(path, paint);
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white;
+      canvas.drawArc(bounds, -math.pi / 2 + index * sweep, sweep, false, paint);
+      paint.style = PaintingStyle.fill;
       final text = labels[index].length > 14 ? '${labels[index].substring(0, 13)}…' : labels[index];
       final painter = TextPainter(
         text: TextSpan(text: text, style: const TextStyle(color: Color(0xff17202a), fontSize: 9, fontWeight: FontWeight.w700)),
@@ -1369,17 +1373,13 @@ class _DiscountWheelPainter extends CustomPainter {
         textAlign: TextAlign.center,
       )..layout(maxWidth: radius * .56);
       final angle = -math.pi / 2 + (index + .5) * sweep;
-      final labelCenter = Offset(center.dx + math.cos(angle) * radius * .57, center.dy + math.sin(angle) * radius * .57);
+      final labelCenter = Offset(center.dx + math.cos(angle) * radius * .64, center.dy + math.sin(angle) * radius * .64);
       painter.paint(canvas, labelCenter - Offset(painter.width / 2, painter.height / 2));
     }
-    canvas.drawCircle(center, radius * .19, Paint()..color = Colors.white);
-    final hub = TextPainter(
-      text: const TextSpan(text: '✦', style: TextStyle(color: Color(0xff5a533d), fontSize: 17, fontWeight: FontWeight.bold)),
-      textDirection: ui.TextDirection.ltr,
-    )..layout();
-    hub.paint(canvas, center - Offset(hub.width / 2, hub.height / 2));
+    canvas.drawCircle(center, radius, Paint()..style = PaintingStyle.stroke..strokeWidth = 7..color = const Color(0xff20b45a));
   }
 
   @override
-  bool shouldRepaint(covariant _DiscountWheelPainter oldDelegate) => labels != oldDelegate.labels;
+  bool shouldRepaint(covariant _DiscountWheelPainter oldDelegate) =>
+      labels != oldDelegate.labels || selectedIndex != oldDelegate.selectedIndex;
 }
