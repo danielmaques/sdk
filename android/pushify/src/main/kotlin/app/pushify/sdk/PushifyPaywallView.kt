@@ -87,6 +87,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val callbackData = JSONObject()
     private val transactionProducts = mutableMapOf<String, JSONObject>()
     private val carouselPages = mutableMapOf<String, Int>()
+    private val countdownStartedAtMs = mutableMapOf<String, Long>()
     private var screens = JSONArray()
     private var showingExitOffer = false
     private var dismissing = false
@@ -669,19 +670,41 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 for (index in 0 until tabs.length()) { val tab = tabs.optJSONObject(index) ?: continue; val id = tab.optString("id"); tabRow.addView(Button(context).apply { text = tab.optString("name"); tag = id; contentDescription = "${tab.optString("name")} tab"; setOnClickListener { showTab(id) } }, lp(0, WRAP, 1f)) }
                 addView(tabRow, lp(MATCH, WRAP)); addView(content, lp(MATCH, WRAP)); showTab(selected)
             }
-            "countdown" -> TextView(context).apply {
-                val date = properties.optJSONObject("style")?.optString("date")
+            "countdown" -> FrameLayout(context).apply {
+                val duration = properties.optLong("duration_seconds", 0L)
+                val id = node.optString("id", "countdown")
+                val endMillis = if (duration > 0) {
+                    countdownStartedAtMs.getOrPut(id) { System.currentTimeMillis() } + duration * 1000
+                } else {
+                    val date = properties.optJSONObject("style")?.optString("date")
+                    runCatching { java.time.Instant.parse(date).toEpochMilli() }.getOrNull()
+                }
                 val template = findNodeText(properties.optJSONObject("countdown_stack"))
                 val endedText = findNodeText(properties.optJSONObject("end_stack"))
-                val endMillis = runCatching { java.time.Instant.parse(date).toEpochMilli() }.getOrNull()
+                val timerText = TextView(context).apply {
+                    gravity = Gravity.CENTER
+                    textSize = 16f
+                    setTypeface(typeface, Typeface.BOLD)
+                    contentDescription = "Offer countdown"
+                }
                 if (endMillis != null && endMillis > System.currentTimeMillis()) {
                     val timer = object : android.os.CountDownTimer(endMillis - System.currentTimeMillis(), 1000) {
-                        override fun onTick(millis: Long) { text = countdownText(millis, template) }
-                        override fun onFinish() { text = endedText ?: "Offer ended" }
+                        override fun onTick(millis: Long) { timerText.text = countdownText(millis, template) }
+                        override fun onFinish() {
+                            removeAllViews()
+                            val ended = nestedNode(properties.optJSONObject("end_stack"))?.let { renderNode(it, screen) }
+                            if (ended != null) addView(ended, lp(MATCH, WRAP))
+                            else { timerText.text = endedText ?: "Offer ended"; addView(timerText, lp(MATCH, WRAP)) }
+                        }
                     }
+                    timerText.text = countdownText(endMillis - System.currentTimeMillis(), template)
+                    addView(timerText, lp(MATCH, WRAP))
                     timer.start(); addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener { override fun onViewAttachedToWindow(view: View) = Unit; override fun onViewDetachedFromWindow(view: View) { timer.cancel() } })
-                } else text = "Offer ended"
-                gravity = Gravity.CENTER; textSize = 16f; setTypeface(typeface, Typeface.BOLD); contentDescription = "Offer countdown"
+                } else {
+                    val ended = nestedNode(properties.optJSONObject("end_stack"))?.let { renderNode(it, screen) }
+                    if (ended != null) addView(ended, lp(MATCH, WRAP))
+                    else { timerText.text = endedText ?: "Offer ended"; addView(timerText, lp(MATCH, WRAP)) }
+                }
             }
             "web_view" -> {
                 val wheel = properties.optJSONObject("pushify_discount_wheel")

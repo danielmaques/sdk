@@ -164,6 +164,8 @@ Pass the same app user ID used by your Pushify customer identity when it is know
 
 ## Current limitations
 
+Relative paywall countdowns in `pushify.paywall/v2` use `duration_seconds`, start on first display, continue while the app is backgrounded, and render `end_stack` when they expire. Existing absolute-date countdowns remain supported.
+
 - The native renderer covers text, package selection, purchase, restore, image, icon, timeline, carousel, tabs, countdown, screen navigation and video. Carousel timing and editor styling/localization details need parity work; native web view is not implemented. Video device playback remains unverified.
 
 - The app must forward Universal Links / custom URL callbacks to the SDK helper. Automatic lifecycle capture and pending-link storage are not implemented.

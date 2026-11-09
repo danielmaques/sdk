@@ -85,6 +85,7 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   final Map<String, Timer> _carouselAutoAdvanceTimers = {};
   final Map<String, String> _carouselAutoAdvanceSignatures = {};
   final Map<String, String> _selectedTabs = {};
+  final Map<String, DateTime> _countdownStartedAt = {};
   final Map<String, TextEditingController> _inputControllers = {};
   final Map<String, Object?> _variables = {};
   final Map<String, Map<String, Object?>> _callbackData = {};

@@ -377,6 +377,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [discountWheelPrize, setDiscountWheelPrize] = useState<{ nodeID: string; packageID: string; offerID: string; label: string; offer: Record<string, unknown> } | null>(null);
   const [now, setNow] = useState(Date.now());
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
+  const relativeCountdownStarts = useRef<Record<string, number>>({});
   const [variables, setVariables] = useState<Record<string, string | number | boolean | string[]>>(() => {
     const custom = props.document.custom_variables ?? {};
     return {
@@ -1196,7 +1197,15 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
         return React.createElement(View, { key: id }, React.createElement(View, { style: styles.tabRow }, ...tabs.map((tab) => React.createElement(Pressable, { key: text(tab.id), accessibilityRole: 'tab', accessibilityState: { selected: tab.id === chosen }, onPress: () => setSelectedTabs((current) => ({ ...current, [id]: text(tab.id) ?? '' })), style: [styles.tab, tab.id === chosen && styles.tabActive] }, React.createElement(Text, null, text(tab.name) ?? '')))), renderNode(nestedNode(active.stack) ?? { id: null, kind: 'stack', properties: {}, children: [] }));
       }
       case 'countdown': {
-        const date = Date.parse(text(record(node.properties.style).date) ?? ''); const remaining = Number.isFinite(date) ? Math.max(0, Math.floor((date - now) / 1000)) : 0;
+        const duration = number(node.properties.duration_seconds);
+        const id = node.id ?? 'countdown';
+        let end: number;
+        if (duration != null && duration > 0) {
+          const start = relativeCountdownStarts.current[id] ?? now;
+          relativeCountdownStarts.current[id] = start;
+          end = start + duration * 1000;
+        } else end = Date.parse(text(record(node.properties.style).date) ?? '');
+        const remaining = Number.isFinite(end) ? Math.max(0, Math.floor((end - now) / 1000)) : 0;
         const template = remaining > 0 ? record(node.properties.countdown_stack) : record(node.properties.end_stack);
         const replaced = replaceCountdown(template, Math.floor(remaining / 86400), twoDigits(Math.floor(remaining / 3600) % 24), twoDigits(Math.floor(remaining / 60) % 60), twoDigits(remaining % 60));
         const nested = nestedNode(replaced); return nested ? renderNode(nested) : null;

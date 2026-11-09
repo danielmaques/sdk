@@ -164,6 +164,8 @@ The optional `appUserId` should match the ID used by your Pushify identity integ
 
 ## Current limitations
 
+Relative paywall countdowns in `pushify.paywall/v2` use `duration_seconds`, start on first display, continue while the app is backgrounded, and render `end_stack` when they expire. Existing absolute-date countdowns remain supported.
+
 - `PushifyPaywallView` renders core text, image, product, purchase, restore and navigation components, session State variables, button Shrink/Grow/Fade animations, and vibration feedback. `PushifyCustomerCenterView` renders the configured active/no-active screen, restore, subscription/order links, custom actions, and support form. Advanced editor components and less common account actions are not yet rendered.
 - Android's library manifest adds the `VIBRATE` permission for configured button feedback. React Native uses platform vibration durations as the closest available mapping; devices and operating systems may adjust or ignore them.
 - iOS/Android sandbox purchase journeys and React Native host-app builds remain unverified, so do not ship this package for production purchase processing yet.

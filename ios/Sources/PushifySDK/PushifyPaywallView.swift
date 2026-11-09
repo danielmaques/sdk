@@ -86,6 +86,7 @@ public struct PushifyPaywallView: View {
     @State private var inAppBrowserLink: PushifyBrowserLink?
     @State private var selectedTabs: [String: String] = [:]
     @State private var carouselPages: [String: Int] = [:]
+    @State private var countdownStartedAt: [String: Date] = [:]
     @State private var failedExperienceIDs: Set<String> = []
     @State private var variables: [String: PushifyJSONValue]
     @State private var callbackData: [String: [String: PushifyJSONValue]] = [:]
@@ -649,7 +650,23 @@ public struct PushifyPaywallView: View {
                 }
             }
         case "countdown":
-            if let style = object(node.properties["style"]), let rawDate = string(style["date"]), let date = ISO8601DateFormatter().date(from: rawDate), date > .now {
+            if let duration = number(node.properties["duration_seconds"]), duration > 0, let id = string(node.id) {
+                let initialStart = countdownStartedAt[id] ?? .now
+                let template = nestedNode(node.properties["countdown_stack"]).map { firstText($0, screen: screen) } ?? "{{ count_days_without_zero }}d {{ count_hours_with_zero }}:{{ count_minutes_with_zero }}:{{ count_seconds_with_zero }}"
+                AnyView(TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let start = countdownStartedAt[id] ?? initialStart
+                    let date = start.addingTimeInterval(duration)
+                    if date > context.date {
+                        Text(countdownLabel(from: context.date, to: date, template: template)).monospacedDigit().accessibilityLabel("Offer countdown")
+                    } else if let end = nestedNode(node.properties["end_stack"]) {
+                        render(end, screen: screen)
+                    } else {
+                        EmptyView()
+                    }
+                }.task {
+                    if countdownStartedAt[id] == nil { countdownStartedAt[id] = .now }
+                })
+            } else if let style = object(node.properties["style"]), let rawDate = string(style["date"]), let date = ISO8601DateFormatter().date(from: rawDate), date > .now {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let template = nestedNode(node.properties["countdown_stack"]).map { firstText($0, screen: screen) } ?? "{{ count_days_without_zero }}d {{ count_hours_with_zero }}:{{ count_minutes_with_zero }}:{{ count_seconds_with_zero }}"
                     Text(countdownLabel(from: context.date, to: date, template: template)).monospacedDigit().accessibilityLabel("Offer countdown")

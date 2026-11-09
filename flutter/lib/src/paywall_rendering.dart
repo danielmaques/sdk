@@ -896,10 +896,16 @@ extension _PaywallRendering on _PushifyPaywallState {
           ],
         );
       case 'countdown':
-        final rawDate = _map(properties['style'])['date'] as String?;
-        final date = rawDate == null
-            ? null
-            : DateTime.tryParse(rawDate)?.toLocal();
+        final duration = _number(properties['duration_seconds']);
+        final id = node['id'] as String? ?? 'countdown';
+        late final DateTime? date;
+        if (duration != null && duration > 0) {
+          final start = _countdownStartedAt.putIfAbsent(id, () => _now);
+          date = start.add(Duration(seconds: duration.toInt()));
+        } else {
+          final rawDate = _map(properties['style'])['date'] as String?;
+          date = rawDate == null ? null : DateTime.tryParse(rawDate)?.toLocal();
+        }
         final left = date == null ? Duration.zero : date.difference(_now);
         final active = left.isNegative || date == null
             ? _map(properties['end_stack'])

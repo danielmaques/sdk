@@ -216,6 +216,8 @@ Pass `appUserId` only when you have the actual app user ID. The parameter is opt
 
 ## Current limitations
 
+Relative paywall countdowns in `pushify.paywall/v2` use `duration_seconds`, start on first display, continue while the app is backgrounded, and render `end_stack` when they expire. Existing absolute-date countdowns remain supported.
+
 - The library does not configure Android App Links or navigate to screens; the host Activity forwards its incoming URLs to `resolveUrl`.
 - Deferred-token retrieval uses Google Play Install Referrer. Other stores may require a different supported handoff.
 - Core and several advanced paywall components render in `PushifyPaywallView`; editor-level parity and web view are outstanding. Video support is wired, with device runtime QA pending. Customer Center store-management actions remain partial. Localized price data is hydrated from Google Play for returned offerings.
