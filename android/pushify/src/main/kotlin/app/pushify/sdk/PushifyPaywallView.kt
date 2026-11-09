@@ -20,6 +20,7 @@ import android.text.TextWatcher
 import android.os.Handler
 import android.os.Looper
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.HapticFeedbackConstants
@@ -964,7 +965,37 @@ public class PushifyPaywallView @JvmOverloads constructor(
             spin.isEnabled = false
             spin.text = "Offer selected"
         }
-        return root
+        if (discountWheelPrize == null || android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) return root
+        return FrameLayout(context).apply {
+            addView(root, FrameLayout.LayoutParams(MATCH, WRAP))
+            addView(DiscountWheelConfetti(context), FrameLayout.LayoutParams(MATCH, MATCH))
+        }
+    }
+
+    private inner class DiscountWheelConfetti(context: Context) : View(context) {
+        private val startedAt = SystemClock.uptimeMillis()
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val colors = intArrayOf(Color.rgb(112, 208, 0), Color.rgb(245, 230, 99), Color.rgb(255, 155, 53), Color.rgb(181, 235, 50), Color.WHITE)
+
+        init { isClickable = false; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO; postInvalidateOnAnimation() }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val progress = ((SystemClock.uptimeMillis() - startedAt) / 1500f).coerceIn(0f, 1f)
+            for (index in 0 until 42) {
+                val angle = index * 2.3999632
+                val spread = 18f + (index % 7) * 3f
+                val x = width * .5f + kotlin.math.cos(angle).toFloat() * (spread + progress * 105f)
+                val y = height * .46f + kotlin.math.sin(angle).toFloat() * spread - (index % 4) * progress * 42f + progress * progress * 380f
+                paint.color = colors[index % colors.size]
+                paint.alpha = ((1f - progress) * 255).toInt().coerceIn(0, 255)
+                canvas.save()
+                canvas.rotate((angle * 180 / Math.PI + progress * 460).toFloat(), x, y)
+                canvas.drawRect(x - dp(2), y - dp(4), x + dp(2), y + dp(4), paint)
+                canvas.restore()
+            }
+            if (progress < 1f) postInvalidateOnAnimation()
+        }
     }
 
     private fun purchaseSelected(packageId: String? = null, action: JSONObject = JSONObject(), screen: JSONObject? = null) {

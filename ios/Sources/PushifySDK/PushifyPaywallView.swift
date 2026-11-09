@@ -23,6 +23,38 @@ private struct SelectedDiscountWheelPrize {
     let renewalPeriod: String?
 }
 
+private struct PaywallWheelConfetti: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let started = Date()
+    private let colors: [Color] = [
+        Color(red: 0.44, green: 0.82, blue: 0), Color(red: 0.96, green: 0.90, blue: 0.39),
+        Color(red: 1, green: 0.61, blue: 0.21), Color(red: 0.71, green: 0.92, blue: 0.20), .white,
+    ]
+
+    var body: some View {
+        if !reduceMotion {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                let progress = min(1, max(0, timeline.date.timeIntervalSince(started) / 1.5))
+                Canvas { context, size in
+                    for index in 0..<42 {
+                        let angle = Double(index) * 2.399963229728653
+                        let spread = 18.0 + Double(index % 7) * 3
+                        let x = size.width * 0.5 + cos(angle) * (spread + progress * 105)
+                        let y = size.height * 0.46 + sin(angle) * spread - Double(index % 4) * progress * 42 + progress * progress * 380
+                        context.translateBy(x: x, y: y)
+                        context.rotate(by: .degrees(angle * 180 / .pi + progress * 460))
+                        context.fill(Path( CGRect(x: -2.5, y: -4.5, width: 5, height: 9)), with: .color(colors[index % colors.count].opacity(1 - progress)))
+                        context.rotate(by: .degrees(-(angle * 180 / .pi + progress * 460)))
+                        context.translateBy(x: -x, y: -y)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 @MainActor private final class TapActionRun {
     let id = UUID()
     var waiting = false
@@ -667,6 +699,7 @@ public struct PushifyPaywallView: View {
                 .frame(width: 190, height: 190)
                 .overlay(alignment: .top) { Image(systemName: "triangle.fill").font(.system(size: 16)).rotationEffect(.degrees(180)).offset(y: -6).foregroundStyle(.primary) }
                 .rotationEffect(.degrees(discountWheelRotation[wheelID] ?? 0))
+                .overlay { if discountWheelPrize != nil && !spinningDiscountWheels.contains(wheelID) { PaywallWheelConfetti() } }
                 .accessibilityHidden(true)
 
                 if let winnerText, !spinningDiscountWheels.contains(wheelID) {

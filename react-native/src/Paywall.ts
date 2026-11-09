@@ -187,6 +187,48 @@ function MotionNode({ children, motion, accessibility }: { children: React.React
   }, children);
 }
 
+function WheelConfettiBurst(): React.ReactElement | null {
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    let mounted = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => { if (mounted) setReducedMotion(enabled); }).catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
+    return () => { mounted = false; subscription.remove(); progress.stopAnimation(); };
+  }, [progress]);
+  useEffect(() => {
+    if (reducedMotion) return;
+    progress.setValue(0);
+    const animation = Animated.timing(progress, { toValue: 1, duration: 1500, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [progress, reducedMotion]);
+  if (reducedMotion) return null;
+  const colors = ['#70d000', '#f5e663', '#ff9b35', '#b5eb32', '#ffffff'];
+  return React.createElement(View, { pointerEvents: 'none', accessible: false, style: { ...StyleSheet.absoluteFillObject, zIndex: 5 } },
+    ...Array.from({ length: 42 }, (_, index) => {
+      const angle = index * 2.399963229728653;
+      const spread = 18 + (index % 7) * 3;
+      const x = Math.cos(angle) * spread;
+      const driftX = Math.cos(angle) * 105;
+      const driftY = Math.sin(angle) * spread - (index % 4) * 42 + 380;
+      return React.createElement(Animated.View, {
+        key: index,
+        style: {
+          position: 'absolute', left: '50%', top: '46%', width: 5, height: 9,
+          backgroundColor: colors[index % colors.length],
+          opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+          transform: [
+            { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [x, x + driftX] }) },
+            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, driftY] }) },
+            { rotate: progress.interpolate({ inputRange: [0, 1], outputRange: [`${angle}rad`, `${angle + 8}rad`] }) },
+          ],
+        },
+      });
+    }),
+  );
+}
+
 /** Accessible renderer for the core Pushify paywall document components. */
 export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactElement {
   const [exitOffering, setExitOffering] = useState<PushifyOfferings['offerings'][number] | null>(null);
@@ -803,6 +845,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           React.createElement(View, { style: styles.wheelHub }, React.createElement(Text, { style: styles.wheelHubText }, '✦')),
         ),
         React.createElement(Text, { accessibilityElementsHidden: true, style: styles.wheelPointer }, '▼'),
+        winner && !discountWheelSpinning[wheelID] ? React.createElement(WheelConfettiBurst) : null,
       ),
       winner
         ? React.createElement(Text, { accessibilityRole: 'text', style: styles.wheelResult }, `${winner.label}: ${[intro, renewal].filter(Boolean).join(', then ')}`)

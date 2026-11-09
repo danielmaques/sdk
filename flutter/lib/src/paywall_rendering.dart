@@ -214,6 +214,8 @@ extension _PaywallRendering on _PushifyPaywallState {
               ),
             ),
             const Padding(padding: EdgeInsets.only(top: 0), child: Icon(Icons.arrow_drop_down, size: 30)),
+            if (matchingWinner != null && !_discountWheelSpinning)
+              _WheelConfetti(reducedMotion: MediaQuery.disableAnimationsOf(context)),
           ]),
           const SizedBox(height: 8),
           if (matchingWinner != null) ...[
@@ -1090,6 +1092,96 @@ extension _PaywallRendering on _PushifyPaywallState {
           : 0xff000000 | parsed,
     );
   }
+}
+
+class _WheelConfetti extends StatefulWidget {
+  const _WheelConfetti({required this.reducedMotion});
+
+  final bool reducedMotion;
+
+  @override
+  State<_WheelConfetti> createState() => _WheelConfettiState();
+}
+
+class _WheelConfettiState extends State<_WheelConfetti>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+    if (!widget.reducedMotion) _controller.forward();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WheelConfetti oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.reducedMotion && !oldWidget.reducedMotion) {
+      _controller.stop();
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.reducedMotion) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: SizedBox(
+        width: 220,
+        height: 220,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) => CustomPaint(
+            painter: _WheelConfettiPainter(_controller.value),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WheelConfettiPainter extends CustomPainter {
+  _WheelConfettiPainter(this.progress);
+
+  final double progress;
+  static const _colors = [
+    Color(0xff70d000),
+    Color(0xfff5e663),
+    Color(0xffff9b35),
+    Color(0xffb5eb32),
+    Color(0xffffffff),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (var i = 0; i < 42; i++) {
+      final seed = i * 2.399963229728653;
+      final spread = 18 + (i % 7) * 3.0;
+      final x = size.width * .5 + math.cos(seed) * spread + math.cos(seed) * progress * 105;
+      final y = size.height * .46 + math.sin(seed) * spread - (i % 4) * progress * 42 + progress * progress * 380;
+      paint.color = _colors[i % _colors.length].withOpacity((1 - progress).clamp(0, 1));
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate(seed + progress * 8);
+      canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: 5, height: 9), paint);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WheelConfettiPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class _DiscountWheelPainter extends CustomPainter {
