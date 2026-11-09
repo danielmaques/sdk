@@ -86,6 +86,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
     private val variables = JSONObject()
     private val callbackData = JSONObject()
     private val transactionProducts = mutableMapOf<String, JSONObject>()
+    private val carouselPages = mutableMapOf<String, Int>()
     private var screens = JSONArray()
     private var showingExitOffer = false
     private var dismissing = false
@@ -566,15 +567,93 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     row.addView(copy, lp(0, WRAP, 1f)); addView(row, lp(MATCH, WRAP))
                 }
             }
-            "carousel" -> HorizontalScrollView(context).apply {
-                isHorizontalScrollBarEnabled = false
+            "carousel" -> LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
                 val pages = properties.optJSONArray("pages") ?: JSONArray()
-                val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-                for (i in 0 until pages.length()) nestedNode(pages.optJSONObject(i))?.let { page ->
-                    val width = resources.displayMetrics.widthPixels - dp(32)
-                    row.addView(renderNode(page, screen), LinearLayout.LayoutParams(width, WRAP).apply { rightMargin = dp(properties.optInt("page_spacing", 12)) })
+                val pageNodes = (0 until pages.length()).mapNotNull { pages.optJSONObject(it)?.let(::nestedNode) }
+                val carouselId = node.optString("id").ifBlank { "carousel" }
+                val spacing = dp(properties.optInt("page_spacing", 12).coerceIn(0, 80))
+                val pageWidth = (resources.displayMetrics.widthPixels - dp(32)).coerceAtLeast(dp(1))
+                val pageControl = properties.optJSONObject("page_control")
+                val defaultStyle = pageControl?.optJSONObject("default")
+                val activeStyle = pageControl?.optJSONObject("active")
+                val dots = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(pageControl?.optJSONObject("padding")?.optInt("leading") ?: 0), dp(pageControl?.optJSONObject("padding")?.optInt("top") ?: 8), dp(pageControl?.optJSONObject("padding")?.optInt("trailing") ?: 0), dp(pageControl?.optJSONObject("padding")?.optInt("bottom") ?: 8))
                 }
-                addView(row)
+                val dotViews = pageNodes.indices.map { index ->
+                    View(context).also { dot ->
+                        val style = if (index == (carouselPages[carouselId] ?: properties.optInt("initial_page_index", 0))) activeStyle else defaultStyle
+                        dot.background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(colorValue(style?.optJSONObject("color"), if (index == 0) Color.DKGRAY else Color.LTGRAY, isDarkTheme()))
+                        }
+                        val dotWidth = dp((style?.optInt("width") ?: 6).coerceIn(2, 32))
+                        val dotHeight = dp((style?.optInt("height") ?: 6).coerceIn(2, 32))
+                        dots.addView(dot, LinearLayout.LayoutParams(dotWidth, dotHeight).apply {
+                            marginStart = dp(pageControl?.optInt("spacing", 6)?.coerceIn(0, 32) ?: 6)
+                            marginEnd = dp(pageControl?.optInt("spacing", 6)?.coerceIn(0, 32) ?: 6)
+                        })
+                    }
+                }
+                fun updateDots(selected: Int) {
+                    dotViews.forEachIndexed { index, dot ->
+                        val style = if (index == selected) activeStyle else defaultStyle
+                        val width = dp((style?.optInt("width") ?: if (index == selected) 18 else 6).coerceIn(2, 32))
+                        val height = dp((style?.optInt("height") ?: 6).coerceIn(2, 32))
+                        dot.layoutParams = (dot.layoutParams as LinearLayout.LayoutParams).apply { this.width = width; this.height = height }
+                        dot.background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(colorValue(style?.optJSONObject("color"), if (index == selected) Color.DKGRAY else Color.LTGRAY, isDarkTheme()))
+                        }
+                    }
+                }
+                val auto = properties.optJSONObject("auto_advance")
+                val interval = auto?.optInt("ms_time_per_page", 0)?.coerceIn(1000, 60000) ?: 0
+                val animationScale = android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+                val reducedMotion = animationScale <= 0f || (android.os.Build.VERSION.SDK_INT >= 26 && !android.animation.ValueAnimator.areAnimatorsEnabled())
+                val scroll = object : HorizontalScrollView(context) {
+                    private val advance = object : Runnable {
+                        override fun run() {
+                            if (pageNodes.size < 2 || interval == 0 || reducedMotion) return
+                            val width = getChildAt(0)?.width?.coerceAtLeast(1) ?: pageWidth
+                            val current = (carouselPages[carouselId] ?: properties.optInt("initial_page_index", 0)).coerceIn(0, pageNodes.lastIndex)
+                            if (current == pageNodes.lastIndex && !properties.optBoolean("loop", false)) return
+                            val next = if (current == pageNodes.lastIndex) 0 else current + 1
+                            carouselPages[carouselId] = next
+                            updateDots(next)
+                            smoothScrollTo(next * (width + spacing), 0)
+                            postDelayed(this, interval.toLong())
+                        }
+                    }
+                    override fun onAttachedToWindow() {
+                        super.onAttachedToWindow()
+                        val selected = (carouselPages[carouselId] ?: properties.optInt("initial_page_index", 0)).coerceIn(0, (pageNodes.size - 1).coerceAtLeast(0))
+                        post { scrollTo(selected * (pageWidth + spacing), 0) }
+                        if (pageNodes.size > 1 && interval > 0 && !reducedMotion) postDelayed(advance, interval.toLong())
+                    }
+                    override fun onDetachedFromWindow() {
+                        removeCallbacks(advance)
+                        super.onDetachedFromWindow()
+                    }
+                }.apply {
+                    isHorizontalScrollBarEnabled = false
+                    clipToPadding = false
+                    for (page in pageNodes) addView(renderNode(page, screen), LinearLayout.LayoutParams(pageWidth, WRAP).apply { rightMargin = spacing })
+                    setOnScrollChangeListener { _, scrollX, _, _, _ ->
+                        val stride = (pageWidth + spacing).coerceAtLeast(1)
+                        val selected = (scrollX + stride / 2) / stride
+                        if (pageNodes.isNotEmpty()) {
+                            val bounded = selected.coerceIn(0, pageNodes.lastIndex)
+                            carouselPages[carouselId] = bounded
+                            updateDots(bounded)
+                        }
+                    }
+                }
+                addView(scroll, lp(MATCH, WRAP))
+                if (pageNodes.size > 1 && pageControl != null) addView(dots, lp(MATCH, WRAP))
+                updateDots((carouselPages[carouselId] ?: properties.optInt("initial_page_index", 0)).coerceIn(0, (pageNodes.size - 1).coerceAtLeast(0)))
             }
             "tabs" -> LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL

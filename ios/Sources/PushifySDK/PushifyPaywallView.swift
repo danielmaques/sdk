@@ -611,11 +611,28 @@ public struct PushifyPaywallView: View {
             let pages = array(node.properties["pages"]).compactMap(nestedNode)
             if !pages.isEmpty {
                 let carouselID = node.id ?? "carousel"
-                let selected = min(carouselPages[carouselID] ?? Int(number(node.properties["initial_page_index"]) ?? 0), pages.count - 1)
+                let initial = Int(number(node.properties["initial_page_index"]) ?? 0)
+                let selected = min(carouselPages[carouselID] ?? initial, pages.count - 1)
+                let autoAdvance = object(node.properties["auto_advance"])
+                let requestedInterval = number(autoAdvance?["ms_time_per_page"])
+                let interval = max(1000, Int(requestedInterval ?? 0))
+                let shouldAutoAdvance = requestedInterval != nil && pages.count > 1 && !reduceMotion
+                let loops = Self.bool(node.properties["loop"])
                 VStack(spacing: 8) {
                     TabView(selection: Binding(get: { selected }, set: { carouselPages[carouselID] = $0 })) {
                         ForEach(Array(pages.enumerated()), id: \.offset) { index, page in AnyView(render(page, screen: screen)).tag(index) }
                     }.tabViewStyle(.page(indexDisplayMode: .automatic))
+                }
+                .task(id: "carousel-\(carouselID)-\(screenID)-\(shouldAutoAdvance)-\(interval)") {
+                    guard shouldAutoAdvance else { return }
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(nanoseconds: UInt64(interval) * 1_000_000) }
+                        catch { return }
+                        guard !Task.isCancelled, !reduceMotion else { return }
+                        let current = min(carouselPages[carouselID] ?? initial, pages.count - 1)
+                        if current == pages.count - 1 && !loops { return }
+                        carouselPages[carouselID] = current == pages.count - 1 ? 0 : current + 1
+                    }
                 }
             }
         case "tabs":

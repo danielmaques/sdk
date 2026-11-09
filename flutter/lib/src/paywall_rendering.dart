@@ -815,6 +815,7 @@ extension _PaywallRendering on _PushifyPaywallState {
         final pages = _maps(properties['pages']);
         if (pages.isEmpty) return const SizedBox.shrink();
         final id = node['id'] as String? ?? 'carousel';
+        _syncCarouselAutoAdvance(id, properties, pages.length);
         final page =
             (_carouselPages[id] ??
                     (_number(properties['initial_page_index']) ?? 0).toInt())
@@ -985,6 +986,70 @@ extension _PaywallRendering on _PushifyPaywallState {
       margin: _edgeInsets(properties['margin']),
       decoration: decoration,
       child: child,
+    );
+  }
+
+  void _syncCarouselAutoAdvance(
+    String id,
+    Map<String, Object?> properties,
+    int pageCount,
+  ) {
+    final autoAdvance = _map(properties['auto_advance']);
+    final interval = (_number(autoAdvance['ms_time_per_page']) ?? 0)
+        .toInt()
+        .clamp(1000, 60000);
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    final enabled = pageCount > 1 &&
+        autoAdvance.isNotEmpty &&
+        _number(autoAdvance['ms_time_per_page']) != null &&
+        !reducedMotion;
+    if (!enabled) {
+      _carouselAutoAdvanceTimers.remove(id)?.cancel();
+      _carouselAutoAdvanceSignatures.remove(id);
+      return;
+    }
+
+    final loop = properties['loop'] == true;
+    final transition = ((_number(autoAdvance['ms_transition_time']) ?? 400)
+            .toInt())
+        .clamp(0, 5000);
+    final signature = '$interval:$pageCount:$loop:$transition';
+    if (_carouselAutoAdvanceSignatures[id] == signature) return;
+    _carouselAutoAdvanceTimers.remove(id)?.cancel();
+    _carouselAutoAdvanceSignatures[id] = signature;
+    _carouselAutoAdvanceTimers[id] = Timer.periodic(
+      Duration(milliseconds: interval),
+      (timer) {
+        if (!mounted || MediaQuery.disableAnimationsOf(context)) {
+          timer.cancel();
+          _carouselAutoAdvanceTimers.remove(id);
+          _carouselAutoAdvanceSignatures.remove(id);
+          return;
+        }
+        final current = (_carouselPages[id] ??
+                (_number(properties['initial_page_index']) ?? 0).toInt())
+            .clamp(0, pageCount - 1);
+        if (current == pageCount - 1 && !loop) {
+          timer.cancel();
+          _carouselAutoAdvanceTimers.remove(id);
+          _carouselAutoAdvanceSignatures.remove(id);
+          return;
+        }
+        final next = current == pageCount - 1 ? 0 : current + 1;
+        _update(() => _carouselPages[id] = next);
+        final controller = _carouselControllers[id];
+        if (controller?.hasClients == true) {
+          if (transition == 0) {
+            controller!.jumpToPage(next);
+          } else {
+            controller!.animateToPage(
+              next,
+              duration: Duration(milliseconds: transition),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        }
+      },
     );
   }
 

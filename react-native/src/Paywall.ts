@@ -187,6 +187,54 @@ function MotionNode({ children, motion, accessibility }: { children: React.React
   }, children);
 }
 
+function PaywallCarousel({ id, pages, initialPage, loop, intervalMs, transitionMs, reducedMotion, renderPage }: {
+  id: string;
+  pages: PushifyPaywallNode[];
+  initialPage: number;
+  loop: boolean;
+  intervalMs: number;
+  transitionMs: number;
+  reducedMotion: boolean;
+  renderPage: (page: PushifyPaywallNode) => React.ReactNode;
+}): React.ReactElement {
+  const [page, setPage] = useState(Math.max(0, Math.min(initialPage, pages.length - 1)));
+  const list = useRef<FlatList<PushifyPaywallNode>>(null);
+  const width = useRef(0);
+  useEffect(() => {
+    if (reducedMotion || intervalMs < 1000 || pages.length < 2) return;
+    const timer = setInterval(() => {
+      setPage((current) => {
+        if (current >= pages.length - 1 && !loop) {
+          clearInterval(timer);
+          return current;
+        }
+        const next = current >= pages.length - 1 ? 0 : current + 1;
+        requestAnimationFrame(() => list.current?.scrollToOffset({ offset: next * width.current, animated: transitionMs > 0 }));
+        return next;
+      });
+    }, Math.max(1000, Math.min(60000, intervalMs)));
+    return () => clearInterval(timer);
+  }, [id, intervalMs, loop, pages.length, reducedMotion, transitionMs]);
+
+  return React.createElement(View, { key: id, onLayout: (event: { nativeEvent: { layout: { width: number } } }) => { width.current = event.nativeEvent.layout.width; } },
+    React.createElement(FlatList<PushifyPaywallNode>, {
+      ref: list,
+      horizontal: true,
+      pagingEnabled: true,
+      data: pages,
+      initialScrollIndex: page,
+      keyExtractor: (_, index) => `${id}-${index}`,
+      showsHorizontalScrollIndicator: false,
+      onMomentumScrollEnd: (event: { nativeEvent: { layoutMeasurement: { width: number }; contentOffset: { x: number } } }) => {
+        const viewport = event.nativeEvent.layoutMeasurement.width;
+        if (viewport > 0) setPage(Math.max(0, Math.min(pages.length - 1, Math.round(event.nativeEvent.contentOffset.x / viewport))));
+      },
+      renderItem: ({ item }) => React.createElement(View, { style: { width: '100%' } }, renderPage(item)),
+    }),
+    React.createElement(View, { style: styles.dots }, ...pages.map((_, index) => React.createElement(View, { key: index, style: [styles.dot, page === index && styles.dotActive] }))),
+  );
+}
+
 function WheelConfettiBurst(): React.ReactElement | null {
   const [reducedMotion, setReducedMotion] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
@@ -317,6 +365,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const firstScreen = props.document.screens.find((candidate) => candidate.id === props.document.initial_screen_id) ?? props.document.screens[0];
   const packages = props.offering.packages;
   const colorScheme = useColorScheme();
+  const [reducedMotion, setReducedMotion] = useState(false);
   const defaultPackage = useMemo(() => findPackage(firstScreen?.content, true), [firstScreen]);
   const [selected, setSelected] = useState(defaultPackage ?? packages[0]?.id ?? '');
   const [screenID, setScreenID] = useState(firstScreen?.id ?? '');
@@ -327,7 +376,6 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const [discountWheelTurns, setDiscountWheelTurns] = useState<Record<string, number>>({});
   const [discountWheelPrize, setDiscountWheelPrize] = useState<{ nodeID: string; packageID: string; offerID: string; label: string; offer: Record<string, unknown> } | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [carouselPages, setCarouselPages] = useState<Record<string, number>>({});
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
   const [variables, setVariables] = useState<Record<string, string | number | boolean | string[]>>(() => {
     const custom = props.document.custom_variables ?? {};
@@ -347,6 +395,12 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
   const mounted = useRef(true);
   const presentationActive = useRef(true);
   const screen = props.document.screens.find((candidate) => candidate.id === screenID) ?? firstScreen;
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => { if (active) setReducedMotion(enabled); }).catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
+    return () => { active = false; subscription.remove(); };
+  }, []);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
     mounted.current = true;
@@ -1121,8 +1175,19 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       case 'carousel': {
         const pages = array(node.properties.pages).map(nestedNode).filter((page): page is PushifyPaywallNode => page !== null);
         if (!pages.length) return null;
-        const id = node.id ?? 'carousel'; const page = Math.min(carouselPages[id] ?? number(node.properties.initial_page_index) ?? 0, pages.length - 1);
-        return React.createElement(View, { key: id }, React.createElement(FlatList<PushifyPaywallNode>, { horizontal: true, pagingEnabled: true, data: pages, initialScrollIndex: page, keyExtractor: (_, index) => `${id}-${index}`, showsHorizontalScrollIndicator: false, onMomentumScrollEnd: (event) => { const width = event.nativeEvent.layoutMeasurement.width; if (width > 0) setCarouselPages((current) => ({ ...current, [id]: Math.round(event.nativeEvent.contentOffset.x / width) })); }, renderItem: ({ item }) => React.createElement(View, { style: { width: '100%', paddingHorizontal: number(node.properties.page_spacing) ?? 0 } }, renderNode(item)) }), React.createElement(View, { style: styles.dots }, ...pages.map((_: PushifyPaywallNode, index: number) => React.createElement(View, { key: index, style: [styles.dot, page === index && styles.dotActive] }))));
+        const id = node.id ?? 'carousel';
+        const autoAdvance = record(node.properties.auto_advance);
+        return React.createElement(PaywallCarousel, {
+          key: id,
+          id,
+          pages,
+          initialPage: number(node.properties.initial_page_index) ?? 0,
+          loop: node.properties.loop === true,
+          intervalMs: number(autoAdvance.ms_time_per_page) ?? 0,
+          transitionMs: number(autoAdvance.ms_transition_time) ?? 400,
+          reducedMotion,
+          renderPage: (page: PushifyPaywallNode) => renderNode(page),
+        });
       }
       case 'tabs': {
         const tabs = array(node.properties.tabs).map(record); if (!tabs.length) return null;

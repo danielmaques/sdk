@@ -82,6 +82,8 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
   DateTime _now = DateTime.now();
   final Map<String, int> _carouselPages = {};
   final Map<String, PageController> _carouselControllers = {};
+  final Map<String, Timer> _carouselAutoAdvanceTimers = {};
+  final Map<String, String> _carouselAutoAdvanceSignatures = {};
   final Map<String, String> _selectedTabs = {};
   final Map<String, TextEditingController> _inputControllers = {};
   final Map<String, Object?> _variables = {};
@@ -147,6 +149,11 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
     for (final controller in _carouselControllers.values) {
       controller.dispose();
     }
+    for (final timer in _carouselAutoAdvanceTimers.values) {
+      timer.cancel();
+    }
+    _carouselAutoAdvanceTimers.clear();
+    _carouselAutoAdvanceSignatures.clear();
     for (final controller in _inputControllers.values) {
       controller.dispose();
     }
