@@ -182,37 +182,45 @@ class _PushifyPaywallState extends State<PushifyPaywall> {
       backgroundColor: _background(
         _map(screen['background']),
         Theme.of(context).colorScheme.surface,
+        dark: Theme.of(context).brightness == Brightness.dark,
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              if (widget.onClose case final _?)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    onPressed: _dismissManually,
-                    tooltip: 'Close paywall',
-                    icon: const Icon(Icons.close),
+      body: DecoratedBox(
+        decoration: _backgroundDecoration(
+          _map(screen['background']),
+          Theme.of(context).colorScheme.surface,
+          dark: Theme.of(context).brightness == Brightness.dark,
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                if (widget.onClose case final _?)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      onPressed: _dismissManually,
+                      tooltip: 'Close paywall',
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: widget.document['scroll_enabled'] == false
+                        ? const NeverScrollableScrollPhysics()
+                        : null,
+                    child: _render(_map(screen['content']), screen),
                   ),
                 ),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: widget.document['scroll_enabled'] == false
-                      ? const NeverScrollableScrollPhysics()
-                      : null,
-                  child: _render(_map(screen['content']), screen),
-                ),
-              ),
-              if (screen['footer'] != null)
-                _render(_map(screen['footer']), screen),
-              if (_message case final message?)
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Semantics(liveRegion: true, child: Text(message)),
-                ),
-            ],
+                if (screen['footer'] != null)
+                  _render(_map(screen['footer']), screen),
+                if (_message case final message?)
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Semantics(liveRegion: true, child: Text(message)),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

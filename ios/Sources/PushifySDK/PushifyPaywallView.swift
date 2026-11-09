@@ -171,7 +171,7 @@ public struct PushifyPaywallView: View {
                     if let message { Text(message).font(.footnote).foregroundStyle(.secondary).padding(.horizontal) }
                 }
                 .padding()
-                .background(backgroundColor(screen.background).ignoresSafeArea())
+                .background(paywallBackground(screen.background).ignoresSafeArea())
                 .accessibilityElement(children: .contain)
             } else {
                 VStack(spacing: 8) { Image(systemName: "exclamationmark.triangle"); Text("Paywall unavailable") }
@@ -292,13 +292,41 @@ public struct PushifyPaywallView: View {
     @ViewBuilder private func renderContent(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> some View {
         switch node.kind {
         case "stack":
-            VStack(alignment: .center, spacing: CGFloat(number(node.properties["spacing"]) ?? 12)) {
+            let padding = object(node.properties["padding"]) ?? [:]
+            let margin = object(node.properties["margin"]) ?? [:]
+            let radius = stackCornerRadius(node.properties["shape"])
+            let border = object(node.properties["border"])
+            let borderWidth = CGFloat(min(12, max(0, number(border?["width"]) ?? 0)))
+            VStack(alignment: .center, spacing: CGFloat(number(node.properties["spacing"]) ?? 0)) {
                 ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) }
             }.frame(maxWidth: .infinity)
+                .padding(EdgeInsets(top: CGFloat(number(padding["top"]) ?? 0), leading: CGFloat(number(padding["leading"]) ?? 0), bottom: CGFloat(number(padding["bottom"]) ?? 0), trailing: CGFloat(number(padding["trailing"]) ?? 0)))
+                .background { if hasBackground(node.properties["background"]) { paywallBackground(node.properties["background"]) } }
+                .clipShape(RoundedRectangle(cornerRadius: radius))
+                .overlay {
+                    if borderWidth > 0, let color = colorString(border?["color"], dark: colorScheme == .dark) {
+                        RoundedRectangle(cornerRadius: radius).stroke(Color(hex: color), lineWidth: borderWidth)
+                    }
+                }
+                .padding(EdgeInsets(top: CGFloat(number(margin["top"]) ?? 0), leading: CGFloat(number(margin["leading"]) ?? 0), bottom: CGFloat(number(margin["bottom"]) ?? 0), trailing: CGFloat(number(margin["trailing"]) ?? 0)))
         case "hstack":
-            HStack(spacing: CGFloat(number(node.properties["spacing"]) ?? 12)) {
+            let padding = object(node.properties["padding"]) ?? [:]
+            let margin = object(node.properties["margin"]) ?? [:]
+            let radius = stackCornerRadius(node.properties["shape"])
+            let border = object(node.properties["border"])
+            let borderWidth = CGFloat(min(12, max(0, number(border?["width"]) ?? 0)))
+            HStack(spacing: CGFloat(number(node.properties["spacing"]) ?? 0)) {
                 ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) }
             }.frame(maxWidth: .infinity)
+                .padding(EdgeInsets(top: CGFloat(number(padding["top"]) ?? 0), leading: CGFloat(number(padding["leading"]) ?? 0), bottom: CGFloat(number(padding["bottom"]) ?? 0), trailing: CGFloat(number(padding["trailing"]) ?? 0)))
+                .background { if hasBackground(node.properties["background"]) { paywallBackground(node.properties["background"]) } }
+                .clipShape(RoundedRectangle(cornerRadius: radius))
+                .overlay {
+                    if borderWidth > 0, let color = colorString(border?["color"], dark: colorScheme == .dark) {
+                        RoundedRectangle(cornerRadius: radius).stroke(Color(hex: color), lineWidth: borderWidth)
+                    }
+                }
+                .padding(EdgeInsets(top: CGFloat(number(margin["top"]) ?? 0), leading: CGFloat(number(margin["leading"]) ?? 0), bottom: CGFloat(number(margin["bottom"]) ?? 0), trailing: CGFloat(number(margin["trailing"]) ?? 0)))
         case "text", "title":
             Text(localized(node, screen: screen)).font(.system(size: CGFloat(number(node.properties["font_size"]) ?? 20), weight: fontWeight(node.properties["font_weight"]), design: .default))
                 .foregroundStyle(colorString(node.properties["color"], dark: colorScheme == .dark).map { Color(hex: $0) } ?? Color.primary)
@@ -1318,10 +1346,42 @@ public struct PushifyPaywallView: View {
         }
     }
 
-    private func backgroundColor(_ value: PushifyJSONValue?) -> Color {
-        guard case .object(let root)? = value, case .object(let valueRoot)? = root["value"],
-              case .object(let light)? = valueRoot["light"], case .string(let hex)? = light["value"] else { return Color(uiColor: .systemBackground) }
-        return Color(hex: hex)
+    @ViewBuilder private func paywallBackground(_ value: PushifyJSONValue?) -> some View {
+        let colors = object(object(value)?["value"])
+        let selected = object((colorScheme == .dark ? colors?["dark"] : nil) ?? colors?["light"])
+        let points = array(selected?["points"])
+        if string(selected?["type"]) == "linear", !points.isEmpty {
+            let stops = points.compactMap { point -> Gradient.Stop? in
+                guard let hex = string(point["color"]) else { return nil }
+                return Gradient.Stop(color: Color(hex: hex), location: CGFloat((number(point["percent"]) ?? 0) / 100))
+            }
+            let degrees = (number(selected?["degrees"]) ?? 180) * .pi / 180
+            let dx = sin(degrees) * 0.5
+            let dy = -cos(degrees) * 0.5
+            LinearGradient(
+                gradient: Gradient(stops: stops),
+                startPoint: UnitPoint(x: CGFloat(0.5 - dx), y: CGFloat(0.5 - dy)),
+                endPoint: UnitPoint(x: CGFloat(0.5 + dx), y: CGFloat(0.5 + dy))
+            )
+        } else if let hex = string(selected?["value"]) {
+            Color(hex: hex)
+        } else {
+            Color(uiColor: .systemBackground)
+        }
+    }
+
+    private func stackCornerRadius(_ value: PushifyJSONValue?) -> CGFloat {
+        let shape = object(value)
+        if string(shape?["type"]) == "pill" { return 999 }
+        let corners = object(shape?["corners"]) ?? [:]
+        let values = ["top_leading", "top_trailing", "bottom_leading", "bottom_trailing"].map { number(corners[$0]) ?? 0 }
+        return CGFloat(min(100, max(0, values.max() ?? 0)))
+    }
+
+    private func hasBackground(_ value: PushifyJSONValue?) -> Bool {
+        guard let value else { return false }
+        if case .null = value { return false }
+        return true
     }
 
     private func mediaURL(_ properties: [String: PushifyJSONValue], key: String = "source", dark: Bool = false) -> URL? {

@@ -280,8 +280,14 @@ extension _PaywallLocalization on _PushifyPaywallState {
     return null;
   }
 
-  Color _background(Map<String, Object?> background, Color fallback) {
-    final hex = _map(_map(background['value'])['light'])['value'];
+  Color _background(
+    Map<String, Object?> background,
+    Color fallback, {
+    bool dark = false,
+  }) {
+    final values = _map(background['value']);
+    final variant = _map((dark ? values['dark'] : null) ?? values['light']);
+    final hex = variant['value'] ?? _maps(variant['points']).firstOrNull?['color'];
     if (hex is! String) return fallback;
     final normalized = hex.replaceAll('#', '');
     final parsed = int.tryParse(normalized, radix: 16);
@@ -290,6 +296,41 @@ extension _PaywallLocalization on _PushifyPaywallState {
         ? ((parsed & 0xff) << 24) | (parsed >> 8)
         : 0xff000000 | parsed;
     return Color(argb);
+  }
+
+  BoxDecoration _backgroundDecoration(
+    Map<String, Object?> background,
+    Color fallback, {
+    bool dark = false,
+  }
+  ) {
+    final values = _map(background['value']);
+    final variant = _map((dark ? values['dark'] : null) ?? values['light']);
+    final points = _maps(variant['points']);
+    if (variant['type'] != 'linear' || points.isEmpty) {
+      return BoxDecoration(color: _background(background, fallback, dark: dark));
+    }
+    final colors = points.map((point) {
+      final hex = point['color'];
+      if (hex is! String) return fallback;
+      final value = hex.replaceFirst('#', '');
+      final parsed = int.tryParse(value, radix: 16);
+      if (parsed == null) return fallback;
+      return Color(value.length == 8
+          ? ((parsed & 0xff) << 24) | (parsed >> 8)
+          : 0xff000000 | parsed);
+    }).toList();
+    final angle = ((_number(variant['degrees']) ?? 180) * math.pi / 180);
+    final dx = math.sin(angle);
+    final dy = -math.cos(angle);
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment(-dx, -dy),
+        end: Alignment(dx, dy),
+        colors: colors,
+        stops: points.map((point) => (_number(point['percent']) ?? 0).clamp(0, 100) / 100).toList(),
+      ),
+    );
   }
 
   FontWeight _fontWeight(Object? value) => switch (value) {

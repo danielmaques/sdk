@@ -372,31 +372,38 @@ extension _PaywallRendering on _PushifyPaywallState {
     final children = _maps(node['children']);
     switch (kind) {
       case 'stack':
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children
-              .map(
-                (child) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: _render(child, screen),
-                ),
-              )
-              .toList(),
+        final dimension = _map(properties['dimension']);
+        final spacing = (_number(properties['spacing']) ?? 0).clamp(0, 80).toDouble();
+        return _decorateStack(
+          properties,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: _mainAxisAlignment(dimension['distribution']),
+            crossAxisAlignment: _crossAxisAlignment(dimension['alignment']),
+            children: [
+              for (var index = 0; index < children.length; index++) ...[
+                if (index > 0) SizedBox(height: spacing),
+                _render(children[index], screen),
+              ],
+            ],
+          ),
         );
       case 'hstack':
-        return Row(
-          mainAxisSize: MainAxisSize.max,
-          children: children
-              .map(
-                (child) => Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: _render(child, screen),
-                  ),
-                ),
-              )
-              .toList(),
+        final dimension = _map(properties['dimension']);
+        final spacing = (_number(properties['spacing']) ?? 0).clamp(0, 80).toDouble();
+        return _decorateStack(
+          properties,
+          Row(
+            mainAxisSize: MainAxisSize.max,
+            mainAxisAlignment: _mainAxisAlignment(dimension['distribution']),
+            crossAxisAlignment: _rowCrossAxisAlignment(dimension['alignment']),
+            children: [
+              for (var index = 0; index < children.length; index++) ...[
+                if (index > 0) SizedBox(width: spacing),
+                Flexible(child: _render(children[index], screen)),
+              ],
+            ],
+          ),
         );
       case 'text':
       case 'title':
@@ -938,6 +945,80 @@ extension _PaywallRendering on _PushifyPaywallState {
       'id': raw['id'],
     }, screen);
   }
+
+  Widget _decorateStack(Map<String, Object?> properties, Widget child) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final background = _map(properties['background']);
+    final shape = _map(properties['shape']);
+    final corners = _map(shape['corners']);
+    final border = _map(properties['border']);
+    final borderWidth = (_number(border['width']) ?? 0).clamp(0, 12).toDouble();
+    final borderColor = _map(border['color']);
+    final radius = shape['type'] == 'pill'
+        ? 999.0
+        : (_number(corners['top_leading']) ??
+              _number(corners['top_trailing']) ??
+              _number(corners['bottom_leading']) ??
+              0);
+    final base = background.isEmpty
+        ? const BoxDecoration()
+        : _backgroundDecoration(
+            background,
+            Theme.of(context).colorScheme.surface,
+            dark: dark,
+          );
+    final decoration = base.copyWith(
+      borderRadius: radius > 0 ? BorderRadius.circular(radius) : null,
+      border: borderWidth > 0
+          ? Border.all(
+              width: borderWidth,
+              color: _color(
+                borderColor,
+                Theme.of(context).colorScheme.outline,
+                dark: dark,
+              ),
+            )
+          : null,
+    );
+    return Container(
+      padding: _edgeInsets(properties['padding']),
+      margin: _edgeInsets(properties['margin']),
+      decoration: decoration,
+      child: child,
+    );
+  }
+
+  EdgeInsets _edgeInsets(Object? raw) {
+    final box = _map(raw);
+    return EdgeInsets.fromLTRB(
+      (_number(box['leading']) ?? 0).clamp(0, 120).toDouble(),
+      (_number(box['top']) ?? 0).clamp(0, 120).toDouble(),
+      (_number(box['trailing']) ?? 0).clamp(0, 120).toDouble(),
+      (_number(box['bottom']) ?? 0).clamp(0, 120).toDouble(),
+    );
+  }
+
+  MainAxisAlignment _mainAxisAlignment(Object? value) => switch (value) {
+    'center' => MainAxisAlignment.center,
+    'end' => MainAxisAlignment.end,
+    'space_between' => MainAxisAlignment.spaceBetween,
+    'space_around' => MainAxisAlignment.spaceAround,
+    'space_evenly' => MainAxisAlignment.spaceEvenly,
+    _ => MainAxisAlignment.start,
+  };
+
+  CrossAxisAlignment _crossAxisAlignment(Object? value) => switch (value) {
+    'leading' => CrossAxisAlignment.start,
+    'trailing' => CrossAxisAlignment.end,
+    'center' => CrossAxisAlignment.center,
+    _ => CrossAxisAlignment.stretch,
+  };
+
+  CrossAxisAlignment _rowCrossAxisAlignment(Object? value) => switch (value) {
+    'top' => CrossAxisAlignment.start,
+    'bottom' => CrossAxisAlignment.end,
+    _ => CrossAxisAlignment.center,
+  };
 
   Widget _timelineItem(
     Map<String, Object?> item,

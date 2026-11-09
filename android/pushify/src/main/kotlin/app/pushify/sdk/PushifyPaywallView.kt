@@ -12,6 +12,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.ColorDrawable
 import android.content.res.Configuration
 import android.text.Editable
 import android.text.InputFilter
@@ -147,7 +149,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(16))
             gravity = Gravity.CENTER_HORIZONTAL
-            setBackgroundColor(backgroundColor(screen.optJSONObject("background")))
+            background = paywallBackground(screen.optJSONObject("background"))
         }
         onDismiss?.let {
             val row = LinearLayout(context).apply { gravity = Gravity.END }
@@ -293,8 +295,53 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val rendered = when (kind) {
             "stack", "hstack" -> LinearLayout(context).apply {
                 orientation = if (kind == "hstack") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-                gravity = if (kind == "hstack") Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
-                for (i in 0 until children.length()) children.optJSONObject(i)?.let { child -> addView(renderNode(child, screen), lp(if (kind == "hstack") 0 else MATCH, WRAP, if (kind == "hstack") 1f else 0f)) }
+                val dimension = properties.optJSONObject("dimension") ?: JSONObject()
+                gravity = if (kind == "hstack") {
+                    when (dimension.optString("alignment")) {
+                        "top" -> Gravity.TOP
+                        "bottom" -> Gravity.BOTTOM
+                        else -> Gravity.CENTER_VERTICAL
+                    }
+                } else {
+                    when (dimension.optString("alignment")) {
+                        "leading" -> Gravity.START
+                        "trailing" -> Gravity.END
+                        else -> Gravity.CENTER_HORIZONTAL
+                    }
+                }
+                val padding = properties.optJSONObject("padding") ?: JSONObject()
+                setPadding(dp(padding.optInt("leading")), dp(padding.optInt("top")), dp(padding.optInt("trailing")), dp(padding.optInt("bottom")))
+                val shape = properties.optJSONObject("shape") ?: JSONObject()
+                val corners = shape.optJSONObject("corners") ?: JSONObject()
+                val radius = if (shape.optString("type") == "pill") 999 else listOf("top_leading", "top_trailing", "bottom_leading", "bottom_trailing").maxOfOrNull { corners.optDouble(it, 0.0) }?.toInt() ?: 0
+                val border = properties.optJSONObject("border")
+                val backgroundSpec = properties.optJSONObject("background")
+                if (backgroundSpec != null || border?.optDouble("width", 0.0)?.let { it > 0 } == true) {
+                    val base = backgroundSpec?.let(::paywallBackground) ?: ColorDrawable(Color.TRANSPARENT)
+                    val drawable = when (base) {
+                        is GradientDrawable -> base
+                        is ColorDrawable -> GradientDrawable().apply { setColor(base.color) }
+                        else -> GradientDrawable()
+                    }
+                    drawable.cornerRadius = dp(radius).toFloat()
+                    if (border != null && border.optDouble("width", 0.0) > 0) {
+                        drawable.setStroke(dp(border.optDouble("width").toInt().coerceIn(1, 12)), colorValue(border.optJSONObject("color"), Color.TRANSPARENT))
+                    }
+                    background = drawable
+                }
+                val spacing = dp(properties.optDouble("spacing", 0.0).toInt().coerceIn(0, 80))
+                for (i in 0 until children.length()) children.optJSONObject(i)?.let { child ->
+                    if (i > 0 && spacing > 0) addView(View(context), if (kind == "hstack") LinearLayout.LayoutParams(spacing, 1) else LinearLayout.LayoutParams(1, spacing))
+                    val childView = renderNode(child, screen)
+                    val childMargin = child.optJSONObject("properties")?.optJSONObject("margin") ?: JSONObject()
+                    val params = lp(if (kind == "hstack") 0 else MATCH, WRAP, if (kind == "hstack") 1f else 0f).apply {
+                        leftMargin = dp(childMargin.optInt("leading"))
+                        topMargin = dp(childMargin.optInt("top"))
+                        rightMargin = dp(childMargin.optInt("trailing"))
+                        bottomMargin = dp(childMargin.optInt("bottom"))
+                    }
+                    addView(childView, params)
+                }
             }
             "text", "title" -> TextView(context).apply {
                 text = localized(node, screen)
@@ -1600,8 +1647,37 @@ public class PushifyPaywallView @JvmOverloads constructor(
     }
 
     private fun backgroundColor(background: JSONObject?): Int {
-        val hex = background?.optJSONObject("value")?.optJSONObject("light")?.optString("value") ?: return Color.WHITE
+        val values = background?.optJSONObject("value") ?: return Color.WHITE
+        val selected = (if (isDarkTheme()) values.optJSONObject("dark") else null) ?: values.optJSONObject("light") ?: return Color.WHITE
+        val hex = selected.optString("value").takeIf(String::isNotBlank)
+            ?: selected.optJSONArray("points")?.optJSONObject(0)?.optString("color")
+            ?: return Color.WHITE
         return runCatching { Color.parseColor(hex.takeIf { it.length == 9 }?.let { "#${it.substring(7)}${it.substring(1, 7)}" } ?: hex) }.getOrDefault(Color.WHITE)
+    }
+
+    private fun paywallBackground(background: JSONObject?): Drawable {
+        val values = background?.optJSONObject("value") ?: return ColorDrawable(Color.WHITE)
+        val selected = (if (isDarkTheme()) values.optJSONObject("dark") else null)
+            ?: values.optJSONObject("light") ?: return ColorDrawable(Color.WHITE)
+        if (selected.optString("type") != "linear") return ColorDrawable(backgroundColor(background))
+        val points = selected.optJSONArray("points") ?: return ColorDrawable(backgroundColor(background))
+        val colors = (0 until points.length()).mapNotNull { index ->
+            points.optJSONObject(index)?.optString("color")?.takeIf(String::isNotBlank)
+                ?.let { raw -> runCatching { Color.parseColor(if (raw.length == 9) "#${raw.substring(7)}${raw.substring(1, 7)}" else raw) }.getOrNull() }
+        }.toIntArray()
+        if (colors.size < 2) return ColorDrawable(colors.firstOrNull() ?: backgroundColor(background))
+        val degrees = ((selected.optInt("degrees", 180) % 360) + 360) % 360
+        val orientation = when (degrees) {
+            in 23..67 -> GradientDrawable.Orientation.BL_TR
+            in 68..112 -> GradientDrawable.Orientation.LEFT_RIGHT
+            in 113..157 -> GradientDrawable.Orientation.TL_BR
+            in 158..202 -> GradientDrawable.Orientation.TOP_BOTTOM
+            in 203..247 -> GradientDrawable.Orientation.TR_BL
+            in 248..292 -> GradientDrawable.Orientation.RIGHT_LEFT
+            in 293..337 -> GradientDrawable.Orientation.BR_TL
+            else -> GradientDrawable.Orientation.BOTTOM_TOP
+        }
+        return GradientDrawable(orientation, colors)
     }
 
     private fun findDefault(node: JSONObject?): String? {

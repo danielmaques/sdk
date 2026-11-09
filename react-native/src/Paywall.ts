@@ -229,6 +229,37 @@ function WheelConfettiBurst(): React.ReactElement | null {
   );
 }
 
+function paywallGradientBackground(colorInfo: Record<string, unknown>): React.ReactElement | null {
+  if (colorInfo.type !== 'linear' || !Array.isArray(colorInfo.points)) return null;
+  const points = colorInfo.points.map((point) => {
+    const item = record(point);
+    const raw = text(item.color) ?? '#000000';
+    const value = raw.replace('#', '').slice(0, 6).padEnd(6, '0');
+    const hex = Number.parseInt(value, 16);
+    return { at: Math.max(0, Math.min(1, (number(item.percent) ?? 0) / 100)), r: (hex >> 16) & 255, g: (hex >> 8) & 255, b: hex & 255 };
+  }).sort((a, b) => a.at - b.at);
+  if (points.length < 2) return null;
+  const bands = 96;
+  const angle = ((number(colorInfo.degrees) ?? 180) - 180);
+  return React.createElement(View, { pointerEvents: 'none', accessible: false, style: [StyleSheet.absoluteFillObject, { overflow: 'hidden' }] },
+    React.createElement(View, { style: { position: 'absolute', width: '300%', height: '300%', left: '-100%', top: '-100%', transform: [{ rotate: `${angle}deg` }] } },
+      ...Array.from({ length: bands }, (_, index) => {
+      const position = (index + 0.5) / bands;
+      let right = points.findIndex((point) => point.at >= position);
+      if (right < 0) right = points.length - 1;
+      const left = Math.max(0, right - 1);
+      const start = points[left]!;
+      const end = points[right]!;
+      const span = Math.max(0.0001, end.at - start.at);
+      const mix = Math.max(0, Math.min(1, (position - start.at) / span));
+      const channel = (a: number, b: number) => Math.round(a + (b - a) * mix).toString(16).padStart(2, '0');
+      const backgroundColor = `#${channel(start.r, end.r)}${channel(start.g, end.g)}${channel(start.b, end.b)}`;
+        return React.createElement(View, { key: index, style: { position: 'absolute', left: 0, right: 0, top: `${index * 100 / bands}%`, height: `${101 / bands}%`, backgroundColor } });
+      }),
+    ),
+  );
+}
+
 /** Accessible renderer for the core Pushify paywall document components. */
 export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactElement {
   const [exitOffering, setExitOffering] = useState<PushifyOfferings['offerings'][number] | null>(null);
@@ -882,11 +913,42 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return React.createElement(MotionNode, { key: `motion-${node.id ?? node.kind}`, motion, accessibility: accessibility as AccessibilityValues, children: content });
   }
 
+  function renderStack(node: PushifyPaywallNode, children: React.ReactNode[], horizontal: boolean): React.ReactElement {
+    const properties = node.properties;
+    const rawBackground = record(properties.background);
+    const variants = record(rawBackground.value);
+    const light = record(variants.light);
+    const selected = colorScheme === 'dark' && Object.keys(record(variants.dark)).length ? record(variants.dark) : light;
+    const points = Array.isArray(selected.points) ? selected.points : [];
+    const firstColor = text(selected.value) ?? text(record(points[0]).color);
+    const shape = record(properties.shape);
+    const corners = record(shape.corners);
+    const radius = shape.type === 'pill' ? 999 : Math.max(0, ...['top_leading', 'top_trailing', 'bottom_leading', 'bottom_trailing'].map((key) => number(corners[key]) ?? 0));
+    const border = record(properties.border);
+    const borderWidth = Math.max(0, Math.min(12, number(border.width) ?? 0));
+    const padding = record(properties.padding);
+    const margin = record(properties.margin);
+    return React.createElement(View, {
+      key: node.id ?? undefined,
+      style: [horizontal ? styles.row : styles.stack, {
+        position: 'relative',
+        gap: Math.max(0, Math.min(80, number(properties.spacing) ?? 0)),
+        paddingTop: number(padding.top) ?? 0, paddingBottom: number(padding.bottom) ?? 0,
+        paddingLeft: number(padding.leading) ?? 0, paddingRight: number(padding.trailing) ?? 0,
+        marginTop: number(margin.top) ?? 0, marginBottom: number(margin.bottom) ?? 0,
+        marginLeft: number(margin.leading) ?? 0, marginRight: number(margin.trailing) ?? 0,
+        ...(firstColor ? { backgroundColor: firstColor } : {}),
+        ...(radius > 0 ? { borderRadius: radius, overflow: 'hidden' as const } : {}),
+        ...(borderWidth > 0 ? { borderWidth, borderColor: color(border.color, colorScheme === 'dark' ? '#4b4b4b' : '#d4d4d8', colorScheme === 'dark') } : {}),
+      }],
+    }, paywallGradientBackground(selected), ...(horizontal ? children.map((child) => React.createElement(View, { key: React.isValidElement(child) ? String(child.key) : undefined, style: styles.rowChild }, child)) : children));
+  }
+
   function renderNodeContent(node: PushifyPaywallNode): React.ReactNode {
     const children = node.children.map((child) => renderNode(child));
     switch (node.kind) {
-      case 'stack': return React.createElement(View, { key: node.id ?? undefined, style: styles.stack }, ...children);
-      case 'hstack': return React.createElement(View, { key: node.id ?? undefined, style: styles.row }, ...children.map((child) => React.createElement(View, { style: styles.rowChild }, child)));
+      case 'stack': return renderStack(node, children, false);
+      case 'hstack': return renderStack(node, children, true);
       case 'text':
       case 'title': return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight), ...(node.properties.color != null ? { color: color(node.properties.color, colorScheme === 'dark' ? '#f5f5f5' : '#171717', colorScheme === 'dark') } : {}) }] }, localized(node));
       case 'input': {
@@ -1103,9 +1165,13 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
 
   if (!screen) return React.createElement(View, { style: styles.root }, React.createElement(Text, null, 'Paywall unavailable'));
   const background = record(screen.background);
-  const light = record(record(background.value).light);
-  const backgroundColor = text(light.value) ?? '#ffffff';
+  const variants = record(background.value);
+  const light = record(variants.light);
+  const selectedBackground = colorScheme === 'dark' && Object.keys(record(variants.dark)).length ? record(variants.dark) : light;
+  const gradientPoints = Array.isArray(selectedBackground.points) ? selectedBackground.points : [];
+  const backgroundColor = text(selectedBackground.value) ?? text(record(gradientPoints[0]).color) ?? '#ffffff';
   return React.createElement(View, { style: [styles.root, { backgroundColor }] },
+    paywallGradientBackground(selectedBackground),
     props.onClose ? React.createElement(View, { style: styles.closeRow }, React.createElement(Pressable, { onPress: () => { void closeWithSurvey(screen); }, accessibilityRole: 'button', accessibilityLabel: 'Close paywall', hitSlop: 12 }, React.createElement(Text, { style: styles.close }, '×'))) : null,
     React.createElement(ScrollView, { contentContainerStyle: styles.content, scrollEnabled: props.document.scroll_enabled !== false }, screen.content ? renderNode(screen.content) : null),
     screen.footer ? renderNode(screen.footer) : null,
