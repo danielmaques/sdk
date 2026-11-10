@@ -916,6 +916,19 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return condition.mode === 'all' ? results.every(Boolean) : results.some(Boolean);
   }
 
+  function discountWheelLabel(prize: Record<string, unknown>, packageItem: (typeof packages)[number], offer: Record<string, unknown>): string {
+    const labelKey = text(prize.label_lid);
+    const fallback = labelKey ? localizedValue(labelKey) ?? 'Eligible offer' : 'Eligible offer';
+    const product = packageItem.product;
+    const samePeriod = text(product.duration)?.trim().toUpperCase() === text(offer.billing_period)?.trim().toUpperCase();
+    const sameCurrency = text(product.currency_code)?.trim().toUpperCase() === text(offer.currency_code)?.trim().toUpperCase();
+    const regular = Number(product.price_amount);
+    const introductory = Number(offer.price_amount);
+    if (!samePeriod || !sameCurrency || !Number.isFinite(regular) || !Number.isFinite(introductory) || regular <= 0 || introductory <= 0 || introductory >= regular) return fallback;
+    const percent = Math.round((1 - introductory / regular) * 100);
+    return percent > 0 && percent < 100 ? `${percent}%` : fallback;
+  }
+
   function eligibleDiscountWheelPrizes(config: Record<string, unknown>): Array<{ prize: Record<string, unknown>; packageItem: (typeof packages)[number]; offer: Record<string, unknown>; label: string }> {
     const prizes = array(config.prizes).map(record);
     const eligible: Array<{ prize: Record<string, unknown>; packageItem: (typeof packages)[number]; offer: Record<string, unknown>; label: string }> = [];
@@ -932,8 +945,7 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           : candidate.offer_type === 'google_play_subscription' && candidate.offer_id === androidOfferId && (!packageItem.product.plan_id || candidate.base_plan_id === packageItem.product.plan_id)),
       );
       if (!offer) continue;
-      const labelKey = text(prize.label_lid);
-      const label = labelKey ? localizedValue(labelKey) ?? 'Eligible offer' : 'Eligible offer';
+      const label = discountWheelLabel(prize, packageItem, offer as unknown as Record<string, unknown>);
       eligible.push({ prize, packageItem, offer: offer as unknown as Record<string, unknown>, label });
     }
     return eligible;
@@ -965,14 +977,14 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: true }));
       setSelected(chosen.packageItem.id);
       setDiscountWheelPrize({ nodeID: wheelID, packageID: chosen.packageItem.id, offerID: String(chosen.offer.offer_id), wheelIndex, label: chosen.label, offer: chosen.offer });
-      const degrees = (5 + (8 - wheelIndex - 0.5) / 8) * 360;
+      const degrees = (5 + (8 - wheelIndex - 0.5) / 8 + 0.0625) * 360;
       const nextRotation = (discountWheelTurns[wheelID] ?? 0) + degrees;
       setDiscountWheelTurns((current) => ({ ...current, [wheelID]: nextRotation }));
       Animated.timing(rotation!, { toValue: nextRotation, duration: 8000, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: false })));
     };
     return React.createElement(View, { key: wheelID, style: styles.discountWheel },
       React.createElement(View, { style: styles.wheelStage },
-        React.createElement(Animated.View, { style: [styles.wheelDisk, { transform: [{ rotate: rotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }] },
+          React.createElement(Animated.View, { style: [styles.wheelDisk, { transform: [{ rotate: rotation.interpolate({ inputRange: [0, 1], outputRange: ['-22.5deg', '337.5deg'] }) }] }] },
           React.createElement(Svg, { width: 300, height: 300, viewBox: '0 0 300 300', style: StyleSheet.absoluteFill, accessible: false },
             ...wheelSectors.map((eligibleIndex, index) => React.createElement(SvgPath, {
               key: `wheel-sector-${index}`,
@@ -984,8 +996,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           ),
           ...wheelSectors.map((eligibleIndex, index) => {
             const item = eligible[eligibleIndex]!;
-            const angle = (2 * Math.PI * index) / wheelSectors.length - Math.PI / 2;
-            return React.createElement(View, { key: `wheel-label-${index}`, style: [styles.wheelLabel, { left: 150 + Math.cos(angle) * 92 - 42, top: 150 + Math.sin(angle) * 92 - 20 }] }, React.createElement(Text, { numberOfLines: 2, style: styles.wheelLabelText }, item.label));
+            const angle = (2 * Math.PI * (index + .5)) / wheelSectors.length - Math.PI / 2;
+            return React.createElement(View, { key: `wheel-label-${index}`, style: [styles.wheelLabel, { left: 150 + Math.cos(angle) * 92 - 42, top: 150 + Math.sin(angle) * 92 - 20, transform: [{ rotate: `${(index + .5) * 45}deg` }] }] }, React.createElement(Text, { numberOfLines: 2, style: styles.wheelLabelText }, item.label));
           }),
           React.createElement(View, { pointerEvents: 'none', style: styles.wheelRing }),
         ),

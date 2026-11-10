@@ -726,6 +726,23 @@ public struct PushifyPaywallView: View {
         }
     }
 
+    private func discountWheelLabel(prize: [String: PushifyJSONValue], package: PushifyOfferings.Offering.Package, offer: PushifyEligibleStoreOffer, screen: PushifyPaywallScreen) -> String {
+        let fallback = localizedValue(string(prize["label_lid"]) ?? "", screen: screen) ?? "Offer"
+        let product = package.product
+        guard let period = product.duration, let offerPeriod = offer.billingPeriod,
+              period.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == offerPeriod.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+              let currency = product.currencyCode, let offerCurrency = offer.currencyCode,
+              currency.uppercased() == offerCurrency.uppercased(),
+              let regular = product.priceAmount.flatMap({ Decimal(string: $0, locale: Locale(identifier: "en_US_POSIX")) }),
+              let introductory = offer.priceAmount.flatMap({ Decimal(string: $0, locale: Locale(identifier: "en_US_POSIX")) }),
+              regular > 0, introductory > 0, introductory < regular else { return fallback }
+        var raw = (regular - introductory) * 100 / regular
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &raw, 0, .plain)
+        let percent = NSDecimalNumber(decimal: rounded).intValue
+        return (1...99).contains(percent) ? "\(percent)%" : fallback
+    }
+
     private func renderDiscountWheel(_ node: PushifyPaywallNode, config: [String: PushifyJSONValue], screen: PushifyPaywallScreen) -> some View {
         let eligible = eligibleDiscountWheelPrizes(config)
         let wheelID = node.id ?? "discount-wheel"
@@ -757,9 +774,9 @@ public struct PushifyPaywallView: View {
                         ForEach(Array(wheelSectors.enumerated()), id: \.offset) { index, eligibleIndex in
                             let item = eligible[eligibleIndex]
                             let angle = Double(index) * 360 / Double(wheelSectors.count) + 180 / Double(wheelSectors.count)
-                            Text(localizedValue(string(item.prize["label_lid"]) ?? "", screen: screen) ?? "Offer \(index + 1)")
+                            Text(discountWheelLabel(prize: item.prize, package: item.package, offer: item.offer, screen: screen))
                                 .font(.system(size: 12, weight: .semibold)).lineLimit(2).multilineTextAlignment(.center).frame(width: 84)
-                                .rotationEffect(.degrees(angle)).offset(y: -101).rotationEffect(.degrees(-angle))
+                                .rotationEffect(.degrees(angle)).offset(y: -101)
                         }
                         Canvas { context, size in
                             let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -774,20 +791,20 @@ public struct PushifyPaywallView: View {
                         .frame(width: 300, height: 300)
                         Circle().stroke(Color(red: 0.12, green: 0.71, blue: 0.35), lineWidth: 7)
                     }
-                    .rotationEffect(.degrees(discountWheelRotation[wheelID] ?? 0))
+                    .rotationEffect(.degrees((discountWheelRotation[wheelID] ?? 0) - 22.5))
                     Button {
                         guard !discountWheelUsed, !spinningDiscountWheels.contains(wheelID), let prizeIndex = eligible.indices.randomElement() else { return }
                         let selected = eligible[prizeIndex]
                         let matchingSectors = wheelSectors.indices.filter { wheelSectors[$0] == prizeIndex }
                         let wheelIndex = matchingSectors.randomElement() ?? 0
-                        let label = localizedValue(string(selected.prize["label_lid"]) ?? "", screen: screen) ?? "Selected offer"
+                        let label = discountWheelLabel(prize: selected.prize, package: selected.package, offer: selected.offer, screen: screen)
                         let candidate = SelectedDiscountWheelPrize(packageID: selected.package.id, offerID: selected.offer.offerId, wheelIndex: wheelIndex, label: label, introPrice: selected.offer.localizedPrice, introPeriod: selected.offer.billingPeriod, renewalPrice: selected.offer.renewalPrice, renewalPeriod: selected.offer.renewalPeriod)
                         discountWheelUsed = true
                         spinningDiscountWheels.insert(wheelID)
                         selectedPackageID = candidate.packageID
                         discountWheelPrize = candidate
                         let current = discountWheelRotation[wheelID] ?? 0
-                        let stop = current + 360 * 5 + 360 - (Double(wheelIndex) + 0.5) * 360 / Double(wheelSectors.count)
+                        let stop = current + 360 * 5 + 360 - (Double(wheelIndex) + 0.5) * 360 / Double(wheelSectors.count) + 22.5
                         withAnimation(reduceMotion ? nil : .easeOut(duration: 8)) { discountWheelRotation[wheelID] = stop }
                         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 8)) { spinningDiscountWheels.remove(wheelID) }
                     } label: {

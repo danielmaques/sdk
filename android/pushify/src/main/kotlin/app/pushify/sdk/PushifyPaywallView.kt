@@ -1025,6 +1025,22 @@ public class PushifyPaywallView @JvmOverloads constructor(
         return result
     }
 
+    private fun discountWheelLabel(item: EligibleDiscountWheelPrize, screen: JSONObject): String {
+        val prize = item.prize
+        val fallback = localizedValue(prize.optString("label_lid"), screen)?.take(16)?.ifBlank { null } ?: "Offer"
+        val product = item.packageItem.optJSONObject("product") ?: return fallback
+        val offer = item.offer
+        val samePeriod = product.optString("duration").trim().uppercase() == offer.optString("billing_period").trim().uppercase()
+        val sameCurrency = product.optString("currency_code").trim().uppercase() == offer.optString("currency_code").trim().uppercase()
+        if (!samePeriod || !sameCurrency) return fallback
+        val regular = product.optString("price_amount").toBigDecimalOrNull() ?: return fallback
+        val introductory = offer.optString("price_amount").toBigDecimalOrNull() ?: return fallback
+        if (regular <= java.math.BigDecimal.ZERO || introductory <= java.math.BigDecimal.ZERO || introductory >= regular) return fallback
+        val percent = regular.subtract(introductory).multiply(java.math.BigDecimal(100))
+            .divide(regular, 0, java.math.RoundingMode.HALF_UP).toInt()
+        return if (percent in 1..99) "$percent%" else fallback
+    }
+
     private fun renderDiscountWheel(node: JSONObject, config: JSONObject, screen: JSONObject): View {
         val eligible = eligibleDiscountWheelPrizes(config)
         if (eligible.isEmpty()) return nestedNode(node.optJSONObject("fallback"))?.let { renderNode(it, screen) }
@@ -1054,7 +1070,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     paint.color = Color.WHITE
                     canvas.drawArc(bounds, -90f + index * sweep, sweep, true, paint)
                     paint.style = Paint.Style.FILL
-                    val label = localizedValue(item.prize.optString("label_lid"), screen)?.take(16) ?: "Offer ${index + 1}"
+                    val label = discountWheelLabel(item, screen)
                     paint.color = Color.rgb(25, 29, 35)
                     paint.textSize = dp(12).toFloat()
                     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -1062,7 +1078,10 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     val radius = diameter * .34f
                     val x = (width / 2f + kotlin.math.cos(angle) * radius - paint.measureText(label) / 2).toFloat()
                     val y = (height / 2f + kotlin.math.sin(angle) * radius + paint.textSize / 3).toFloat()
+                    canvas.save()
+                    canvas.rotate(index * sweep + sweep / 2, x + paint.measureText(label) / 2f, y - paint.textSize / 3)
                     canvas.drawText(label, x, y, paint)
+                    canvas.restore()
                 }
                 paint.color = Color.rgb(32, 180, 90)
                 paint.style = Paint.Style.STROKE
@@ -1071,7 +1090,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 paint.style = Paint.Style.FILL
             }
         }.apply {
-            rotation = discountWheelRotation
+            rotation = discountWheelRotation - 22.5f
             contentDescription = "Eight-sector wheel with ${eligible.size} eligible Google Play offers"
         }
         val wheelFrame = FrameLayout(context).apply {
@@ -1092,7 +1111,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 val selected = eligible[prizeIndex]
                 val matchingSectors = wheelSectors.indices.filter { wheelSectors[it] == prizeIndex }
                 val wheelIndex = matchingSectors.randomOrNull() ?: 0
-                val label = localizedValue(selected.prize.optString("label_lid"), screen)?.ifBlank { null } ?: "Selected offer"
+                val label = discountWheelLabel(selected, screen)
                 discountWheelPrize = JSONObject().put("package_id", selected.packageItem.optString("id")).put("offer_id", selected.offer.optString("offer_id"))
                     .put("wheel_index", wheelIndex)
                     .put("label", label).put("intro_price", selected.offer.optString("localized_price"))
@@ -1103,7 +1122,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 busy = true
                 isEnabled = false
                 text = "Spinning…"
-                val target = discountWheelRotation + 360f * 5 + 360f - (wheelIndex + .5f) * (360f / wheelSectors.size)
+                val target = discountWheelRotation + 360f * 5 + 360f - (wheelIndex + .5f) * (360f / wheelSectors.size) + 22.5f
                 val duration = if (android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) 0L else 8000L
                 wheel.animate().rotation(target).setDuration(duration).withEndAction {
                     discountWheelRotation = target % 360f

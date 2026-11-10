@@ -141,6 +141,7 @@ extension _PaywallRendering on _PushifyPaywallState {
 
   List<Map<String, Object?>> _eligibleDiscountWheelPrizes(
     Map<String, Object?> config,
+    Map<String, Object?> screen,
   ) {
     final rawPrizes = _maps(config['prizes']);
     final eligible = <Map<String, Object?>>[];
@@ -159,9 +160,29 @@ extension _PaywallRendering on _PushifyPaywallState {
             item['eligible'] == true &&
             (planId == null || planId.isEmpty || item['base_plan_id'] == planId);
       }).toList();
-      if (matchingOffers.isNotEmpty) eligible.add({'prize': prize, 'package': package, 'offer': matchingOffers.first});
+      if (matchingOffers.isNotEmpty) {
+        final offer = matchingOffers.first;
+        eligible.add({'prize': prize, 'package': package, 'offer': offer, 'label': _discountWheelLabel(prize, package, offer, screen)});
+      }
     }
     return eligible;
+  }
+
+  String _discountWheelLabel(
+    Map<String, Object?> prize,
+    Map<String, Object?> package,
+    Map<String, Object?> offer,
+    Map<String, Object?> screen,
+  ) {
+    final fallback = _localizedValue(prize['label_lid'] as String? ?? '', screen) ?? 'Offer';
+    final product = _map(package['product']);
+    final samePeriod = product['duration']?.toString().trim().toUpperCase() == offer['billing_period']?.toString().trim().toUpperCase();
+    final sameCurrency = product['currency_code']?.toString().trim().toUpperCase() == offer['currency_code']?.toString().trim().toUpperCase();
+    final regular = _number(product['price_amount']);
+    final introductory = _number(offer['price_amount']);
+    if (!samePeriod || !sameCurrency || regular == null || introductory == null || regular <= 0 || introductory <= 0 || introductory >= regular) return fallback;
+    final percent = ((1 - introductory / regular) * 100).round();
+    return percent > 0 && percent < 100 ? '$percent%' : fallback;
   }
 
   Widget _discountWheel(
@@ -170,7 +191,7 @@ extension _PaywallRendering on _PushifyPaywallState {
     Map<String, Object?> screen,
   ) {
     final config = _map(properties['pushify_discount_wheel']);
-    final eligible = _eligibleDiscountWheelPrizes(config);
+    final eligible = _eligibleDiscountWheelPrizes(config, screen);
     if (eligible.isEmpty) {
       final fallback = _map(properties['fallback']);
       return fallback.isEmpty
@@ -178,10 +199,7 @@ extension _PaywallRendering on _PushifyPaywallState {
           : _render(fallback, screen);
     }
     final wheelId = node['id'] as String? ?? 'discount-wheel';
-    final labels = eligible.map((item) {
-      final prize = _map(item['prize']);
-      return _localizedValue(prize['label_lid'] as String? ?? '', screen) ?? 'Offer';
-    }).toList();
+    final labels = eligible.map((item) => item['label'] as String? ?? 'Offer').toList();
     final wheelSectors = List<int>.generate(8, (index) => math.min(eligible.length - 1, index * eligible.length ~/ 8).toInt());
     final sectorLabels = wheelSectors.map((eligibleIndex) => labels[eligibleIndex]).toList();
     final winner = _discountWheelPrize;
@@ -217,7 +235,7 @@ extension _PaywallRendering on _PushifyPaywallState {
           'package': selectedPackage,
           'offer': selectedOffer,
         };
-        _discountWheelTurns += reduceMotion ? 0 : (5 + (8 - wheelIndex - 0.5) / 8);
+        _discountWheelTurns += reduceMotion ? 0 : (5 + (8 - wheelIndex - 0.5) / 8 + 0.0625);
       });
       if (!reduceMotion) {
         Future<void>.delayed(duration).then((_) {
@@ -231,7 +249,7 @@ extension _PaywallRendering on _PushifyPaywallState {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Stack(alignment: Alignment.center, children: [
           AnimatedRotation(
-            turns: _discountWheelTurns,
+            turns: _discountWheelTurns - 0.0625,
             duration: duration,
             curve: Curves.easeOutCubic,
             child: CustomPaint(
@@ -1377,7 +1395,11 @@ class _DiscountWheelPainter extends CustomPainter {
       )..layout(maxWidth: radius * .56);
       final angle = -math.pi / 2 + (index + .5) * sweep;
       final labelCenter = Offset(center.dx + math.cos(angle) * radius * .64, center.dy + math.sin(angle) * radius * .64);
-      painter.paint(canvas, labelCenter - Offset(painter.width / 2, painter.height / 2));
+      canvas.save();
+      canvas.translate(labelCenter.dx, labelCenter.dy);
+      canvas.rotate((index + .5) * sweep);
+      painter.paint(canvas, Offset(-painter.width / 2, -painter.height / 2));
+      canvas.restore();
     }
     canvas.drawCircle(center, radius, Paint()..style = PaintingStyle.stroke..strokeWidth = 7..color = const Color(0xff20b45a));
   }
