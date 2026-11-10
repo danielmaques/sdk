@@ -1885,12 +1885,7 @@ private class PushifyRadialGradientDrawable(
     private fun updateShader(bounds: Rect) {
         val focalX = bounds.left + bounds.width() * centerX
         val focalY = bounds.top + bounds.height() * centerY
-        val radius = listOf(
-            kotlin.math.hypot((focalX - bounds.left).toDouble(), (focalY - bounds.top).toDouble()),
-            kotlin.math.hypot((bounds.right - focalX).toDouble(), (focalY - bounds.top).toDouble()),
-            kotlin.math.hypot((focalX - bounds.left).toDouble(), (bounds.bottom - focalY).toDouble()),
-            kotlin.math.hypot((bounds.right - focalX).toDouble(), (bounds.bottom - focalY).toDouble()),
-        ).max().toFloat()
+        val radius = bounds.height() * 0.36f
         if (radius <= 0f || colors.size < 2) return
         paint.shader = RadialGradient(focalX, focalY, radius, colors, stops, Shader.TileMode.CLAMP)
     }

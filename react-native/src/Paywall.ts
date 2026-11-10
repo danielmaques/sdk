@@ -301,7 +301,7 @@ function paywallGradientBackground(colorInfo: Record<string, unknown>): React.Re
     const cy = Math.max(0, Math.min(1, number(focalPoint.y) ?? 0.5)) * 100;
     return React.createElement(Svg, { width: '100%', height: '100%', viewBox: '0 0 100 100', preserveAspectRatio: 'none', style: StyleSheet.absoluteFill },
       React.createElement(SvgDefs, null,
-        React.createElement(SvgRadialGradient, { id: 'pushify-paywall-root-radial', cx: `${cx}%`, cy: `${cy}%`, r: '100%' },
+        React.createElement(SvgRadialGradient, { id: 'pushify-paywall-root-radial', cx: `${cx}%`, cy: `${cy}%`, r: '36%' },
           ...points.map((point, index) => {
             const raw = text(point.color) ?? '#000000';
             const alpha = raw.length === 9 ? Number.parseInt(raw.slice(7, 9), 16) / 255 : 1;

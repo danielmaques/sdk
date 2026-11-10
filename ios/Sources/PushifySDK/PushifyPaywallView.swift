@@ -1412,13 +1412,8 @@ public struct PushifyPaywallView: View {
                 return Gradient.Stop(color: Color(hex: hex), location: CGFloat((number(point["percent"]) ?? 0) / 100))
             }
             GeometryReader { geometry in
-                let width = geometry.size.width
                 let height = geometry.size.height
-                let focal = CGPoint(x: width * centerX, y: height * centerY)
-                let radius = [
-                    hypot(focal.x, focal.y), hypot(width - focal.x, focal.y),
-                    hypot(focal.x, height - focal.y), hypot(width - focal.x, height - focal.y),
-                ].max() ?? max(width, height) / 2
+                let radius = height * 0.36
                 RadialGradient(
                     gradient: Gradient(stops: stops),
                     center: UnitPoint(x: centerX, y: centerY),

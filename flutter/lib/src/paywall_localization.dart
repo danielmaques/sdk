@@ -332,7 +332,7 @@ extension _PaywallLocalization on _PushifyPaywallState {
           colors: colors,
           stops: stops,
           center: Alignment(centerX, centerY),
-          radius: 1.6,
+          radius: 0.76,
           tileMode: TileMode.clamp,
         ),
       );
