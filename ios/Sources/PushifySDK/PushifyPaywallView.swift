@@ -758,8 +758,8 @@ public struct PushifyPaywallView: View {
                             let item = eligible[eligibleIndex]
                             let angle = Double(index) * 360 / Double(wheelSectors.count) + 180 / Double(wheelSectors.count)
                             Text(localizedValue(string(item.prize["label_lid"]) ?? "", screen: screen) ?? "Offer \(index + 1)")
-                                .font(.system(size: 9, weight: .semibold)).lineLimit(2).multilineTextAlignment(.center).frame(width: 66)
-                                .rotationEffect(.degrees(angle)).offset(y: -82).rotationEffect(.degrees(-angle))
+                                .font(.system(size: 12, weight: .semibold)).lineLimit(2).multilineTextAlignment(.center).frame(width: 84)
+                                .rotationEffect(.degrees(angle)).offset(y: -101).rotationEffect(.degrees(-angle))
                         }
                         Canvas { context, size in
                             let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -771,7 +771,7 @@ public struct PushifyPaywallView: View {
                                 context.stroke(divider, with: .color(.white), lineWidth: 2)
                             }
                         }
-                        .frame(width: 244, height: 244)
+                        .frame(width: 300, height: 300)
                         Circle().stroke(Color(red: 0.12, green: 0.71, blue: 0.35), lineWidth: 7)
                     }
                     .rotationEffect(.degrees(discountWheelRotation[wheelID] ?? 0))
@@ -802,7 +802,7 @@ public struct PushifyPaywallView: View {
                     .disabled(discountWheelUsed || spinningDiscountWheels.contains(wheelID))
                     .accessibilityLabel("Spin the wheel")
                 }
-                .frame(width: 244, height: 244)
+                .frame(width: 300, height: 300)
                 .overlay(alignment: .top) { Image(systemName: "triangle.fill").font(.system(size: 16)).rotationEffect(.degrees(180)).offset(y: -6).foregroundStyle(.primary) }
                 .overlay { if discountWheelPrize != nil && !spinningDiscountWheels.contains(wheelID) { PaywallWheelConfetti() } }
 

@@ -1035,7 +1035,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        val size = dp(244)
+        val size = dp(300)
         val wheel = object : View(context) {
             private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
             override fun onDraw(canvas: Canvas) {
@@ -1056,7 +1056,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     paint.style = Paint.Style.FILL
                     val label = localizedValue(item.prize.optString("label_lid"), screen)?.take(16) ?: "Offer ${index + 1}"
                     paint.color = Color.rgb(25, 29, 35)
-                    paint.textSize = dp(9).toFloat()
+                    paint.textSize = dp(12).toFloat()
                     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     val angle = Math.toRadians((-90f + index * sweep + sweep / 2).toDouble())
                     val radius = diameter * .34f

@@ -235,7 +235,7 @@ extension _PaywallRendering on _PushifyPaywallState {
             duration: duration,
             curve: Curves.easeOutCubic,
             child: CustomPaint(
-              size: const Size(244, 244),
+              size: const Size(300, 300),
               painter: _DiscountWheelPainter(sectorLabels, selectedIndex: selectedIndex),
             ),
           ),
@@ -1370,7 +1370,7 @@ class _DiscountWheelPainter extends CustomPainter {
       paint.style = PaintingStyle.fill;
       final text = labels[index].length > 14 ? '${labels[index].substring(0, 13)}…' : labels[index];
       final painter = TextPainter(
-        text: TextSpan(text: text, style: const TextStyle(color: Color(0xff17202a), fontSize: 9, fontWeight: FontWeight.w700)),
+        text: TextSpan(text: text, style: const TextStyle(color: Color(0xff17202a), fontSize: 12, fontWeight: FontWeight.w700)),
         textDirection: ui.TextDirection.ltr,
         maxLines: 2,
         textAlign: TextAlign.center,
