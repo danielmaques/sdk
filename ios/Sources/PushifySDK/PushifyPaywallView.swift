@@ -651,7 +651,7 @@ public struct PushifyPaywallView: View {
                 }
             }
         case "countdown":
-            if let duration = number(node.properties["duration_seconds"]), duration > 0, let id = string(node.id) {
+            if let duration = number(node.properties["duration_seconds"]), duration > 0, let id = node.id {
                 let initialStart = countdownStartedAt[id] ?? .now
                 let template = nestedNode(node.properties["countdown_stack"]).map { firstText($0, screen: screen) } ?? "{{ count_days_without_zero }}d {{ count_hours_with_zero }}:{{ count_minutes_with_zero }}:{{ count_seconds_with_zero }}"
                 AnyView(TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -730,10 +730,11 @@ public struct PushifyPaywallView: View {
         let eligible = eligibleDiscountWheelPrizes(config)
         let wheelID = node.id ?? "discount-wheel"
         let pale = Color(red: 0.99, green: 0.98, blue: 0.91)
-        let highlightedIndex = discountWheelPrize?.wheelIndex ?? 0
-        let gradientStops = eligible.enumerated().flatMap { index, _ -> [Gradient.Stop] in
-            let start = Double(index) / Double(eligible.count)
-            let end = Double(index + 1) / Double(eligible.count)
+        let wheelSectors = eligible.isEmpty ? [] : (0..<8).map { min(eligible.count - 1, $0 * eligible.count / 8) }
+        let highlightedIndex = discountWheelPrize?.wheelIndex ?? -1
+        let gradientStops = wheelSectors.enumerated().flatMap { index, _ -> [Gradient.Stop] in
+            let start = Double(index) / Double(wheelSectors.count)
+            let end = Double(index + 1) / Double(wheelSectors.count)
             let color = index == highlightedIndex ? Color(red: 1, green: 0.53, blue: 0.23) : pale
             return [Gradient.Stop(color: color, location: start), Gradient.Stop(color: color, location: end - 0.0001)]
         }
@@ -753,26 +754,40 @@ public struct PushifyPaywallView: View {
                     ZStack {
                         Circle()
                             .fill(AngularGradient(gradient: Gradient(stops: gradientStops), center: .center, startAngle: .degrees(-90), endAngle: .degrees(270)))
-                        ForEach(Array(eligible.enumerated()), id: \.offset) { index, item in
-                            let angle = Double(index) * 360 / Double(eligible.count) + 180 / Double(eligible.count)
+                        ForEach(Array(wheelSectors.enumerated()), id: \.offset) { index, eligibleIndex in
+                            let item = eligible[eligibleIndex]
+                            let angle = Double(index) * 360 / Double(wheelSectors.count) + 180 / Double(wheelSectors.count)
                             Text(localizedValue(string(item.prize["label_lid"]) ?? "", screen: screen) ?? "Offer \(index + 1)")
                                 .font(.system(size: 9, weight: .semibold)).lineLimit(2).multilineTextAlignment(.center).frame(width: 66)
                                 .rotationEffect(.degrees(angle)).offset(y: -82).rotationEffect(.degrees(-angle))
                         }
+                        Canvas { context, size in
+                            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                            for index in 0..<wheelSectors.count {
+                                let angle = (-90 + Double(index) * 360 / Double(wheelSectors.count)) * .pi / 180
+                                var divider = Path()
+                                divider.move(to: center)
+                                divider.addLine(to: CGPoint(x: center.x + cos(angle) * size.width / 2, y: center.y + sin(angle) * size.height / 2))
+                                context.stroke(divider, with: .color(.white), lineWidth: 2)
+                            }
+                        }
+                        .frame(width: 244, height: 244)
                         Circle().stroke(Color(red: 0.12, green: 0.71, blue: 0.35), lineWidth: 7)
                     }
                     .rotationEffect(.degrees(discountWheelRotation[wheelID] ?? 0))
                     Button {
-                        guard !discountWheelUsed, !spinningDiscountWheels.contains(wheelID), let index = eligible.indices.randomElement() else { return }
-                        let selected = eligible[index]
+                        guard !discountWheelUsed, !spinningDiscountWheels.contains(wheelID), let prizeIndex = eligible.indices.randomElement() else { return }
+                        let selected = eligible[prizeIndex]
+                        let matchingSectors = wheelSectors.indices.filter { wheelSectors[$0] == prizeIndex }
+                        let wheelIndex = matchingSectors.randomElement() ?? 0
                         let label = localizedValue(string(selected.prize["label_lid"]) ?? "", screen: screen) ?? "Selected offer"
-                        let candidate = SelectedDiscountWheelPrize(packageID: selected.package.id, offerID: selected.offer.offerId, wheelIndex: index, label: label, introPrice: selected.offer.localizedPrice, introPeriod: selected.offer.billingPeriod, renewalPrice: selected.offer.renewalPrice, renewalPeriod: selected.offer.renewalPeriod)
+                        let candidate = SelectedDiscountWheelPrize(packageID: selected.package.id, offerID: selected.offer.offerId, wheelIndex: wheelIndex, label: label, introPrice: selected.offer.localizedPrice, introPeriod: selected.offer.billingPeriod, renewalPrice: selected.offer.renewalPrice, renewalPeriod: selected.offer.renewalPeriod)
                         discountWheelUsed = true
                         spinningDiscountWheels.insert(wheelID)
                         selectedPackageID = candidate.packageID
                         discountWheelPrize = candidate
                         let current = discountWheelRotation[wheelID] ?? 0
-                        let stop = current + 360 * 5 + 360 - (Double(index) + 0.5) * 360 / Double(eligible.count)
+                        let stop = current + 360 * 5 + 360 - (Double(wheelIndex) + 0.5) * 360 / Double(wheelSectors.count)
                         withAnimation(reduceMotion ? nil : .easeOut(duration: 8)) { discountWheelRotation[wheelID] = stop }
                         DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 8)) { spinningDiscountWheels.remove(wheelID) }
                     } label: {

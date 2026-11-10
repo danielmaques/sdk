@@ -1024,6 +1024,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val eligible = eligibleDiscountWheelPrizes(config)
         if (eligible.isEmpty()) return nestedNode(node.optJSONObject("fallback"))?.let { renderNode(it, screen) }
             ?: TextView(context).apply { text = "No Google Play introductory offers are currently eligible."; gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), dp(12)); contentDescription = text }
+        val wheelSectors = (0 until 8).map { sectorIndex -> minOf(eligible.size - 1, sectorIndex * eligible.size / 8) }
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -1038,9 +1039,10 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 val left = (width - diameter) / 2f
                 val top = (height - diameter) / 2f
                 val bounds = RectF(left, top, left + diameter, top + diameter)
-                val sweep = 360f / eligible.size
-                eligible.forEachIndexed { index, item ->
-                    paint.color = if (index == (discountWheelPrize?.optInt("wheel_index") ?: 0)) Color.rgb(255, 135, 60) else Color.rgb(251, 248, 227)
+                val sweep = 360f / wheelSectors.size
+                wheelSectors.forEachIndexed { index, eligibleIndex ->
+                    val item = eligible[eligibleIndex]
+                    paint.color = if (index == (discountWheelPrize?.optInt("wheel_index") ?: -1)) Color.rgb(255, 135, 60) else Color.rgb(251, 248, 227)
                     canvas.drawArc(bounds, -90f + index * sweep, sweep, true, paint)
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = dp(2).toFloat()
@@ -1065,7 +1067,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
             }
         }.apply {
             rotation = discountWheelRotation
-            contentDescription = "Wheel with ${eligible.size} Google Play offers that are eligible for this account"
+            contentDescription = "Eight-sector wheel with ${eligible.size} eligible Google Play offers"
         }
         val wheelFrame = FrameLayout(context).apply {
             addView(wheel, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
@@ -1081,11 +1083,13 @@ public class PushifyPaywallView @JvmOverloads constructor(
             contentDescription = "Spin once among the current eligible Google Play subscription offers"
             setOnClickListener {
                 if (discountWheelUsed || busy) return@setOnClickListener
-                val index = eligible.indices.random()
-                val selected = eligible[index]
+                val prizeIndex = eligible.indices.random()
+                val selected = eligible[prizeIndex]
+                val matchingSectors = wheelSectors.indices.filter { wheelSectors[it] == prizeIndex }
+                val wheelIndex = matchingSectors.randomOrNull() ?: 0
                 val label = localizedValue(selected.prize.optString("label_lid"), screen)?.ifBlank { null } ?: "Selected offer"
                 discountWheelPrize = JSONObject().put("package_id", selected.packageItem.optString("id")).put("offer_id", selected.offer.optString("offer_id"))
-                    .put("wheel_index", index)
+                    .put("wheel_index", wheelIndex)
                     .put("label", label).put("intro_price", selected.offer.optString("localized_price"))
                     .put("intro_period", selected.offer.optString("billing_period")).put("renewal_price", selected.offer.optString("renewal_price"))
                     .put("renewal_period", selected.offer.optString("renewal_period"))
@@ -1094,8 +1098,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 busy = true
                 isEnabled = false
                 text = "Spinning…"
-                val sweep = 360f / eligible.size
-                val target = discountWheelRotation + 360f * 5 + 360f - (index + .5f) * sweep
+                val target = discountWheelRotation + 360f * 5 + 360f - (wheelIndex + .5f) * (360f / wheelSectors.size)
                 val duration = if (android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) 0L else 8000L
                 wheel.animate().rotation(target).setDuration(duration).withEndAction {
                     discountWheelRotation = target % 360f

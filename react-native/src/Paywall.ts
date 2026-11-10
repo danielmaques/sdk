@@ -4,6 +4,7 @@ import { AccessibilityInfo, ActivityIndicator, Alert, Animated, Easing, Image, M
 import type { StyleProp, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import LottieView from 'lottie-react-native';
+import Svg, { Path as SvgPath } from 'react-native-svg';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -97,6 +98,19 @@ function PaywallChoice({ options, mode, randomize, id, selected, label, onSelect
       style: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingVertical: 8, paddingHorizontal: 12, marginVertical: 4, borderWidth: checked ? 2 : 1, borderColor: checked ? '#315ee8' : '#a1a1aa', borderRadius: 10, backgroundColor: checked ? '#eff4ff' : 'transparent' },
     }, React.createElement(Text, { style: { width: 22, marginRight: 10, color: checked ? '#315ee8' : '#52525b' } }, checked ? multiple ? '☑' : '⦿' : multiple ? '□' : '◯'), React.createElement(Text, { style: { flex: 1 } }, option.label));
   }));
+}
+
+function discountWheelWedgePath(index: number, count: number, radius = 122): string {
+  const center = radius;
+  if (count === 1) return `M ${center} ${center} L ${center} 0 A ${radius} ${radius} 0 1 1 ${center} ${radius * 2} A ${radius} ${radius} 0 1 1 ${center} 0 Z`;
+  const step = 360 / count;
+  const start = (-90 + index * step) * Math.PI / 180;
+  const end = start + step * Math.PI / 180;
+  const startX = center + Math.cos(start) * radius;
+  const startY = center + Math.sin(start) * radius;
+  const endX = center + Math.cos(end) * radius;
+  const endY = center + Math.sin(end) * radius;
+  return `M ${center} ${center} L ${startX} ${startY} A ${radius} ${radius} 0 ${step > 180 ? 1 : 0} 1 ${endX} ${endY} Z`;
 }
 
 function PaywallPicker({ options, selected, label, onSelect }: { options: Array<{ id: string; value: string; label: string }>; selected: string; label: string; onSelect: (value: string) => void }) {
@@ -919,17 +933,20 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     const offer = winner?.offer ?? {};
     const intro = [text(offer.localized_price), text(offer.billing_period)].filter(Boolean).join(' for ');
     const renewal = [text(offer.renewal_price), text(offer.renewal_period)].filter(Boolean).join(' / ');
-    const selectedIndex = winner?.wheelIndex ?? 0;
+    const selectedIndex = winner?.wheelIndex ?? -1;
     const colors = ['#fbf8e3', '#fffdf3', '#f8f5dc', '#fffdf3', '#fbf8e3', '#fffdf3', '#f8f5dc', '#fffdf3'];
+    const wheelSectors = Array.from({ length: 8 }, (_, index) => Math.min(eligible.length - 1, Math.floor(index * eligible.length / 8)));
     const spin = () => {
       if (discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) return;
       const index = Math.floor(Math.random() * eligible.length);
       const chosen = eligible[index]!;
+      const matchingSectors = wheelSectors.flatMap((eligibleIndex, sectorIndex) => eligibleIndex === index ? [sectorIndex] : []);
+      const wheelIndex = matchingSectors[Math.floor(Math.random() * matchingSectors.length)] ?? 0;
       setDiscountWheelUsed((current) => ({ ...current, [wheelID]: true }));
       setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: true }));
       setSelected(chosen.packageItem.id);
-      setDiscountWheelPrize({ nodeID: wheelID, packageID: chosen.packageItem.id, offerID: String(chosen.offer.offer_id), wheelIndex: index, label: chosen.label, offer: chosen.offer });
-      const degrees = (5 + (eligible.length - index - 0.5) / eligible.length) * 360;
+      setDiscountWheelPrize({ nodeID: wheelID, packageID: chosen.packageItem.id, offerID: String(chosen.offer.offer_id), wheelIndex, label: chosen.label, offer: chosen.offer });
+      const degrees = (5 + (8 - wheelIndex - 0.5) / 8) * 360;
       const nextRotation = (discountWheelTurns[wheelID] ?? 0) + degrees;
       setDiscountWheelTurns((current) => ({ ...current, [wheelID]: nextRotation }));
       Animated.timing(rotation!, { toValue: nextRotation, duration: 8000, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => setDiscountWheelSpinning((current) => ({ ...current, [wheelID]: false })));
@@ -937,10 +954,21 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
     return React.createElement(View, { key: wheelID, style: styles.discountWheel },
       React.createElement(View, { style: styles.wheelStage },
         React.createElement(Animated.View, { style: [styles.wheelDisk, { transform: [{ rotate: rotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }] },
-          ...eligible.map((item, index) => {
-            const angle = (2 * Math.PI * index) / eligible.length - Math.PI / 2;
-            return React.createElement(View, { key: String(item.prize.id ?? index), style: [styles.wheelLabel, { backgroundColor: index === selectedIndex ? '#ff873c' : colors[index % colors.length], left: 122 + Math.cos(angle) * 78 - 38, top: 122 + Math.sin(angle) * 78 - 22 }] }, React.createElement(Text, { numberOfLines: 2, style: styles.wheelLabelText }, item.label));
+          React.createElement(Svg, { width: 244, height: 244, viewBox: '0 0 244 244', style: StyleSheet.absoluteFill, accessible: false },
+            ...wheelSectors.map((eligibleIndex, index) => React.createElement(SvgPath, {
+              key: `wheel-sector-${index}`,
+              d: discountWheelWedgePath(index, wheelSectors.length),
+              fill: index === selectedIndex ? '#ff873c' : colors[index % colors.length],
+              stroke: '#ffffff',
+              strokeWidth: 2,
+            })),
+          ),
+          ...wheelSectors.map((eligibleIndex, index) => {
+            const item = eligible[eligibleIndex]!;
+            const angle = (2 * Math.PI * index) / wheelSectors.length - Math.PI / 2;
+            return React.createElement(View, { key: `wheel-label-${index}`, style: [styles.wheelLabel, { left: 122 + Math.cos(angle) * 72 - 38, top: 122 + Math.sin(angle) * 72 - 17 }] }, React.createElement(Text, { numberOfLines: 2, style: styles.wheelLabelText }, item.label));
           }),
+          React.createElement(View, { pointerEvents: 'none', style: styles.wheelRing }),
         ),
         React.createElement(Pressable, { accessibilityRole: 'button', accessibilityLabel: 'Spin the wheel', accessibilityState: { disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]) }, disabled: Boolean(discountWheelUsed[wheelID] || discountWheelSpinning[wheelID]), onPress: spin, style: styles.wheelHub }, React.createElement(Text, { style: styles.wheelHubText }, discountWheelSpinning[wheelID] ? '…' : winner ? '✓' : 'SPIN')),
         React.createElement(Text, { accessibilityElementsHidden: true, style: styles.wheelPointer }, '▼'),
@@ -1466,5 +1494,5 @@ const styles = StyleSheet.create({
   text: { textAlign: 'center', flexShrink: 1 }, inputWrap: { width: '100%', marginVertical: 6, gap: 5 }, inputLabel: { fontSize: 13, color: '#444444' }, input: { minHeight: 42, borderWidth: 1, borderColor: '#777777', borderRadius: 8, paddingHorizontal: 12, color: '#111111', backgroundColor: '#ffffff' }, package: { borderWidth: 1, borderColor: '#8b8b8b', borderRadius: 14, padding: 14, marginVertical: 5 }, packageActive: { borderWidth: 2, borderColor: '#315ee8' }, packageTitle: { fontSize: 16, fontWeight: '600' }, price: { marginLeft: 26, marginTop: 4 },
   cta: { backgroundColor: '#315ee8', borderRadius: 14, padding: 16, alignItems: 'center', minHeight: 52 }, disabled: { opacity: 0.55 }, ctaText: { color: '#ffffff', fontWeight: '700' }, quiet: { padding: 12, alignItems: 'center' }, image: { width: '100%', height: 180 }, message: { textAlign: 'center', padding: 8 },
   timelineRow: { flexDirection: 'row', minHeight: 54 }, timelineRail: { alignItems: 'center', width: 36 }, timelineIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#315ee8', alignItems: 'center', justifyContent: 'center' }, timelineGlyph: { color: '#ffffff', fontWeight: '700' }, timelineLine: { width: 2, flex: 1, backgroundColor: '#d4d4d4', marginVertical: 4 }, timelineCopy: { flex: 1, paddingBottom: 12 }, dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, padding: 8 }, dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#d4d4d4' }, dotActive: { width: 18, backgroundColor: '#315ee8' }, tabRow: { flexDirection: 'row', gap: 6, marginBottom: 10 }, tab: { flex: 1, alignItems: 'center', padding: 10, borderRadius: 9, backgroundColor: '#f1f1f1' }, tabActive: { backgroundColor: '#dce5ff' },
-  discountWheel: { alignItems: 'center', gap: 6, padding: 2 }, wheelTitle: { fontSize: 16, fontWeight: '700', color: '#171717' }, wheelStage: { width: 260, height: 260, alignItems: 'center', justifyContent: 'center' }, wheelDisk: { width: 244, height: 244, borderRadius: 122, borderWidth: 7, borderColor: '#20b45a', backgroundColor: '#fbf8e3', overflow: 'hidden' }, wheelLabel: { position: 'absolute', width: 76, minHeight: 34, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)' }, wheelLabelText: { textAlign: 'center', fontSize: 9, lineHeight: 11, fontWeight: '700', color: '#17202a' }, wheelHub: { position: 'absolute', width: 62, height: 62, borderRadius: 31, backgroundColor: '#20b45a', alignItems: 'center', justifyContent: 'center', left: 99, top: 99, borderWidth: 4, borderColor: '#ffffff' }, wheelHubText: { fontSize: 11, fontWeight: '900', color: '#ffffff' }, wheelPointer: { position: 'absolute', top: -2, alignSelf: 'center', zIndex: 2, color: '#ff873c', fontSize: 20 }, wheelButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, borderRadius: 22, backgroundColor: '#315ee8' }, wheelButtonText: { color: '#ffffff', fontWeight: '700' }, wheelResult: { textAlign: 'center', fontWeight: '700', color: '#171717' }, wheelFootnote: { textAlign: 'center', fontSize: 11, color: '#555555' }, wheelFallback: { padding: 12, borderRadius: 12, backgroundColor: '#f3f3f3' },
+  discountWheel: { alignItems: 'center', gap: 6, padding: 2 }, wheelTitle: { fontSize: 16, fontWeight: '700', color: '#171717' }, wheelStage: { width: 260, height: 260, alignItems: 'center', justifyContent: 'center' }, wheelDisk: { width: 244, height: 244, borderRadius: 122, backgroundColor: '#fbf8e3', overflow: 'hidden' }, wheelRing: { ...StyleSheet.absoluteFillObject, borderRadius: 122, borderWidth: 7, borderColor: '#20b45a' }, wheelLabel: { position: 'absolute', width: 76, minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }, wheelLabelText: { textAlign: 'center', fontSize: 9, lineHeight: 11, fontWeight: '700', color: '#17202a' }, wheelHub: { position: 'absolute', width: 62, height: 62, borderRadius: 31, backgroundColor: '#20b45a', alignItems: 'center', justifyContent: 'center', left: 99, top: 99, borderWidth: 4, borderColor: '#ffffff' }, wheelHubText: { fontSize: 11, fontWeight: '900', color: '#ffffff' }, wheelPointer: { position: 'absolute', top: -2, alignSelf: 'center', zIndex: 2, color: '#ff873c', fontSize: 20 }, wheelButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, borderRadius: 22, backgroundColor: '#315ee8' }, wheelButtonText: { color: '#ffffff', fontWeight: '700' }, wheelResult: { textAlign: 'center', fontWeight: '700', color: '#171717' }, wheelFootnote: { textAlign: 'center', fontSize: 11, color: '#555555' }, wheelFallback: { padding: 12, borderRadius: 12, backgroundColor: '#f3f3f3' },
 });

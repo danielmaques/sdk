@@ -8,6 +8,7 @@ The React Native package exposes native StoreKit 2 and Google Play Billing throu
 
 - React 18 or newer.
 - React Native 0.74 or newer.
+- `react-native-svg` 15.8 or newer for native wedge rendering in the interactive paywall wheel.
 - `lottie-react-native` 7.3.4 (required when a paywall contains Lottie animations).
 - iOS 15 or newer / Android API 23 or newer for the included native module.
 - A Pushify **public app key**.
@@ -28,6 +29,8 @@ The npm package is not released yet. During development, add the local package t
 Install dependencies, run CocoaPods installation for iOS (for example, `npx pod-install`), and rebuild the native app. The package includes a React Native native module for reading deferred tokens. If your React Native setup does not autolink this local package, register `PushifyPurchasesPackage` in your Android host application according to your app's native package-registration pattern.
 
 For Lottie paywalls, install `lottie-react-native@7.3.4` in the host app as well. Autolinking adds its iOS and Android runtime dependencies; run CocoaPods and rebuild both native targets after installing it.
+
+For paywalls with the interactive discount wheel, install `react-native-svg@>=15.8.0 <15.13.0` in the host app. React Native autolinks the native module; run CocoaPods and rebuild iOS and Android after installing it.
 
 The host app is responsible for OS link association files, entitlements, intent filters and route handling.
 

@@ -182,6 +182,8 @@ extension _PaywallRendering on _PushifyPaywallState {
       final prize = _map(item['prize']);
       return _localizedValue(prize['label_lid'] as String? ?? '', screen) ?? 'Offer';
     }).toList();
+    final wheelSectors = List<int>.generate(8, (index) => math.min(eligible.length - 1, index * eligible.length ~/ 8).toInt());
+    final sectorLabels = wheelSectors.map((eligibleIndex) => labels[eligibleIndex]).toList();
     final winner = _discountWheelPrize;
     final matchingWinner = winner?['node_id'] == wheelId ? winner : null;
     final offer = _map(matchingWinner?['offer']);
@@ -195,12 +197,13 @@ extension _PaywallRendering on _PushifyPaywallState {
         : const Duration(milliseconds: 8000);
     void spin() {
       if (_discountWheelUsed || _discountWheelSpinning) return;
-      final index = math.Random().nextInt(eligible.length);
-      final selected = eligible[index];
+      final prizeIndex = math.Random().nextInt(eligible.length);
+      final selected = eligible[prizeIndex];
+      final matchingSectors = wheelSectors.indexed.where((entry) => entry.$2 == prizeIndex).map((entry) => entry.$1).toList();
+      final wheelIndex = matchingSectors[math.Random().nextInt(matchingSectors.length)];
       final selectedPrize = _map(selected['prize']);
       final selectedPackage = _map(selected['package']);
       final selectedOffer = _map(selected['offer']);
-      final turns = 5 + (eligible.length - index - 0.5) / eligible.length;
       final reduceMotion = MediaQuery.disableAnimationsOf(context);
       _update(() {
         _discountWheelUsed = true;
@@ -208,13 +211,13 @@ extension _PaywallRendering on _PushifyPaywallState {
         _selectedPackage = selectedPackage['id'] as String? ?? '';
         _discountWheelPrize = {
           'node_id': wheelId,
-          'wheel_index': index,
-          'label': labels[index],
+          'wheel_index': wheelIndex,
+          'label': labels[prizeIndex],
           'prize': selectedPrize,
           'package': selectedPackage,
           'offer': selectedOffer,
         };
-        _discountWheelTurns += reduceMotion ? 0 : turns;
+        _discountWheelTurns += reduceMotion ? 0 : (5 + (8 - wheelIndex - 0.5) / 8);
       });
       if (!reduceMotion) {
         Future<void>.delayed(duration).then((_) {
@@ -222,7 +225,7 @@ extension _PaywallRendering on _PushifyPaywallState {
         });
       }
     }
-    final selectedIndex = (matchingWinner?['wheel_index'] as int?) ?? 0;
+    final selectedIndex = (matchingWinner?['wheel_index'] as int?) ?? -1;
     return Padding(
       padding: const EdgeInsets.all(4),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -233,7 +236,7 @@ extension _PaywallRendering on _PushifyPaywallState {
             curve: Curves.easeOutCubic,
             child: CustomPaint(
               size: const Size(244, 244),
-              painter: _DiscountWheelPainter(labels, selectedIndex: selectedIndex),
+              painter: _DiscountWheelPainter(sectorLabels, selectedIndex: selectedIndex),
             ),
           ),
           const Positioned(top: 0, child: Icon(Icons.arrow_drop_down, size: 30, color: Color(0xffff873c))),
