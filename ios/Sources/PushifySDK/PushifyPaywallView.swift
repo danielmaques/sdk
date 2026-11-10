@@ -1403,7 +1403,30 @@ public struct PushifyPaywallView: View {
         let colors = object(object(value)?["value"])
         let selected = object((colorScheme == .dark ? colors?["dark"] : nil) ?? colors?["light"])
         let points = array(selected?["points"])
-        if string(selected?["type"]) == "linear", !points.isEmpty {
+        if string(selected?["type"]) == "radial", !points.isEmpty {
+            let focalPoint = object(selected?["pushify_center"])
+            let centerX = min(1, max(0, number(focalPoint?["x"]) ?? 0.5))
+            let centerY = min(1, max(0, number(focalPoint?["y"]) ?? 0.5))
+            let stops = points.compactMap { point -> Gradient.Stop? in
+                guard let hex = string(point["color"]) else { return nil }
+                return Gradient.Stop(color: Color(hex: hex), location: CGFloat((number(point["percent"]) ?? 0) / 100))
+            }
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let height = geometry.size.height
+                let focal = CGPoint(x: width * centerX, y: height * centerY)
+                let radius = [
+                    hypot(focal.x, focal.y), hypot(width - focal.x, focal.y),
+                    hypot(focal.x, height - focal.y), hypot(width - focal.x, height - focal.y),
+                ].max() ?? max(width, height) / 2
+                RadialGradient(
+                    gradient: Gradient(stops: stops),
+                    center: UnitPoint(x: centerX, y: centerY),
+                    startRadius: 0,
+                    endRadius: radius
+                )
+            }
+        } else if string(selected?["type"]) == "linear", !points.isEmpty {
             let stops = points.compactMap { point -> Gradient.Stop? in
                 guard let hex = string(point["color"]) else { return nil }
                 return Gradient.Stop(color: Color(hex: hex), location: CGFloat((number(point["percent"]) ?? 0) / 100))

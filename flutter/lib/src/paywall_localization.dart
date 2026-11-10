@@ -307,7 +307,7 @@ extension _PaywallLocalization on _PushifyPaywallState {
     final values = _map(background['value']);
     final variant = _map((dark ? values['dark'] : null) ?? values['light']);
     final points = _maps(variant['points']);
-    if (variant['type'] != 'linear' || points.isEmpty) {
+    if ((variant['type'] != 'linear' && variant['type'] != 'radial') || points.isEmpty) {
       return BoxDecoration(color: _background(background, fallback, dark: dark));
     }
     final colors = points.map((point) {
@@ -320,6 +320,23 @@ extension _PaywallLocalization on _PushifyPaywallState {
           ? ((parsed & 0xff) << 24) | (parsed >> 8)
           : 0xff000000 | parsed);
     }).toList();
+    final stops = points
+        .map((point) => (_number(point['percent']) ?? 0).clamp(0, 100) / 100)
+        .toList();
+    if (variant['type'] == 'radial') {
+      final focalPoint = _map(variant['pushify_center']);
+      final centerX = ((_number(focalPoint['x']) ?? 0.5).clamp(0, 1) * 2) - 1;
+      final centerY = ((_number(focalPoint['y']) ?? 0.5).clamp(0, 1) * 2) - 1;
+      return BoxDecoration(
+        gradient: RadialGradient(
+          colors: colors,
+          stops: stops,
+          center: Alignment(centerX, centerY),
+          radius: 1.6,
+          tileMode: TileMode.clamp,
+        ),
+      );
+    }
     final angle = ((_number(variant['degrees']) ?? 180) * math.pi / 180);
     final dx = math.sin(angle);
     final dy = -math.cos(angle);
@@ -328,7 +345,7 @@ extension _PaywallLocalization on _PushifyPaywallState {
         begin: Alignment(-dx, -dy),
         end: Alignment(dx, dy),
         colors: colors,
-        stops: points.map((point) => (_number(point['percent']) ?? 0).clamp(0, 100) / 100).toList(),
+        stops: stops,
       ),
     );
   }

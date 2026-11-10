@@ -4,7 +4,7 @@ import { AccessibilityInfo, ActivityIndicator, Alert, Animated, Easing, Image, M
 import type { StyleProp, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import LottieView from 'lottie-react-native';
-import Svg, { Path as SvgPath } from 'react-native-svg';
+import Svg, { Defs as SvgDefs, Path as SvgPath, RadialGradient as SvgRadialGradient, Rect as SvgRect, Stop as SvgStop } from 'react-native-svg';
 import type { PushifyOfferings, PushifyPaywallNode, PushifyPaywallV1, PushifyPurchases } from './purchases';
 
 export type PushifyPaywallProps = {
@@ -292,7 +292,26 @@ function WheelConfettiBurst(): React.ReactElement | null {
 }
 
 function paywallGradientBackground(colorInfo: Record<string, unknown>): React.ReactElement | null {
-  if (colorInfo.type !== 'linear' || !Array.isArray(colorInfo.points)) return null;
+  if ((colorInfo.type !== 'linear' && colorInfo.type !== 'radial') || !Array.isArray(colorInfo.points)) return null;
+  if (colorInfo.type === 'radial') {
+    const points = colorInfo.points.map((point) => record(point)).filter((point) => typeof point.color === 'string');
+    if (points.length < 2) return null;
+    const focalPoint = record(colorInfo.pushify_center);
+    const cx = Math.max(0, Math.min(1, number(focalPoint.x) ?? 0.5)) * 100;
+    const cy = Math.max(0, Math.min(1, number(focalPoint.y) ?? 0.5)) * 100;
+    return React.createElement(Svg, { width: '100%', height: '100%', viewBox: '0 0 100 100', preserveAspectRatio: 'none', style: StyleSheet.absoluteFill },
+      React.createElement(SvgDefs, null,
+        React.createElement(SvgRadialGradient, { id: 'pushify-paywall-root-radial', cx: `${cx}%`, cy: `${cy}%`, r: '100%' },
+          ...points.map((point, index) => {
+            const raw = text(point.color) ?? '#000000';
+            const alpha = raw.length === 9 ? Number.parseInt(raw.slice(7, 9), 16) / 255 : 1;
+            return React.createElement(SvgStop, { key: index, offset: `${Math.max(0, Math.min(100, number(point.percent) ?? 0))}%`, stopColor: raw.length === 9 ? raw.slice(0, 7) : raw, stopOpacity: alpha });
+          }),
+        ),
+      ),
+      React.createElement(SvgRect, { x: 0, y: 0, width: 100, height: 100, fill: 'url(#pushify-paywall-root-radial)' }),
+    );
+  }
   const points = colorInfo.points.map((point) => {
     const item = record(point);
     const raw = text(item.color) ?? '#000000';

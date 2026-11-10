@@ -9,7 +9,12 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.ColorFilter
+import android.graphics.PixelFormat
+import android.graphics.RadialGradient
 import android.graphics.RectF
+import android.graphics.Rect
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.Drawable
@@ -1768,6 +1773,21 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val values = background?.optJSONObject("value") ?: return ColorDrawable(Color.WHITE)
         val selected = (if (isDarkTheme()) values.optJSONObject("dark") else null)
             ?: values.optJSONObject("light") ?: return ColorDrawable(Color.WHITE)
+        if (selected.optString("type") == "radial") {
+            val points = selected.optJSONArray("points") ?: return ColorDrawable(backgroundColor(background))
+            val stops = (0 until points.length()).mapNotNull { index ->
+                val point = points.optJSONObject(index) ?: return@mapNotNull null
+                val color = point.optString("color").takeIf(String::isNotBlank)
+                    ?.let { raw -> runCatching { Color.parseColor(if (raw.length == 9) "#${raw.substring(7)}${raw.substring(1, 7)}" else raw) }.getOrNull() }
+                    ?: return@mapNotNull null
+                color to (point.optDouble("percent", index * 100.0 / (points.length() - 1).coerceAtLeast(1)).toFloat() / 100f).coerceIn(0f, 1f)
+            }.sortedBy { it.second }
+            if (stops.size < 2) return ColorDrawable(stops.firstOrNull()?.first ?: backgroundColor(background))
+            val focalPoint = selected.optJSONObject("pushify_center")
+            val centerX = (focalPoint?.optDouble("x", 0.5) ?: 0.5).toFloat().coerceIn(0f, 1f)
+            val centerY = (focalPoint?.optDouble("y", 0.5) ?: 0.5).toFloat().coerceIn(0f, 1f)
+            return PushifyRadialGradientDrawable(stops.map { it.first }.toIntArray(), stops.map { it.second }.toFloatArray(), centerX, centerY)
+        }
         if (selected.optString("type") != "linear") return ColorDrawable(backgroundColor(background))
         val points = selected.optJSONArray("points") ?: return ColorDrawable(backgroundColor(background))
         val colors = (0 until points.length()).mapNotNull { index ->
@@ -1841,6 +1861,44 @@ public class PushifyPaywallView @JvmOverloads constructor(
         const val WRAP = LayoutParams.WRAP_CONTENT
         const val MAX_IMAGE_BYTES = 8 * 1024 * 1024
     }
+}
+
+private class PushifyRadialGradientDrawable(
+    private val colors: IntArray,
+    private val stops: FloatArray,
+    private val centerX: Float,
+    private val centerY: Float,
+) : Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun draw(canvas: Canvas) {
+        val bounds = bounds
+        if (bounds.isEmpty) return
+        if (paint.shader == null) updateShader(bounds)
+        canvas.drawRect(bounds, paint)
+    }
+
+    override fun onBoundsChange(bounds: Rect) {
+        updateShader(bounds)
+    }
+
+    private fun updateShader(bounds: Rect) {
+        val focalX = bounds.left + bounds.width() * centerX
+        val focalY = bounds.top + bounds.height() * centerY
+        val radius = listOf(
+            kotlin.math.hypot((focalX - bounds.left).toDouble(), (focalY - bounds.top).toDouble()),
+            kotlin.math.hypot((bounds.right - focalX).toDouble(), (focalY - bounds.top).toDouble()),
+            kotlin.math.hypot((focalX - bounds.left).toDouble(), (bounds.bottom - focalY).toDouble()),
+            kotlin.math.hypot((bounds.right - focalX).toDouble(), (bounds.bottom - focalY).toDouble()),
+        ).max().toFloat()
+        if (radius <= 0f || colors.size < 2) return
+        paint.shader = RadialGradient(focalX, focalY, radius, colors, stops, Shader.TileMode.CLAMP)
+    }
+
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha; invalidateSelf() }
+    override fun setColorFilter(colorFilter: ColorFilter?) { paint.colorFilter = colorFilter; invalidateSelf() }
+    @Deprecated("Deprecated in Android")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
 private fun sameHttpsOrigin(candidate: Uri, origin: Uri): Boolean {
