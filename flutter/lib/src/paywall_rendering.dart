@@ -842,12 +842,16 @@ extension _PaywallRendering on _PushifyPaywallState {
                     (_number(properties['initial_page_index']) ?? 0).toInt())
                 .clamp(0, pages.length - 1);
         final control = _map(properties['page_control']);
+        final vertical = properties['pushify_axis'] == 'vertical';
+        final pageHeight =
+            _number(_map(_map(properties['size'])['height'])['value']) ?? 220;
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              height: _number(_map(properties['size'])['height']) ?? 220,
+              height: pageHeight,
               child: PageView.builder(
+                scrollDirection: vertical ? Axis.vertical : Axis.horizontal,
                 controller: _carouselControllers.putIfAbsent(
                   id,
                   () => PageController(initialPage: page),

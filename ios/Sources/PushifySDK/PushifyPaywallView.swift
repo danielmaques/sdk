@@ -620,10 +620,30 @@ public struct PushifyPaywallView: View {
                 let interval = max(1000, Int(requestedInterval ?? 0))
                 let shouldAutoAdvance = requestedInterval != nil && pages.count > 1 && !reduceMotion
                 let loops = Self.bool(node.properties["loop"])
+                let vertical = string(node.properties["pushify_axis"]) == "vertical"
+                let authoredHeight = CGFloat(number(object(object(node.properties["size"])?["height"])?["value"]) ?? 432)
                 VStack(spacing: 8) {
-                    TabView(selection: Binding(get: { selected }, set: { carouselPages[carouselID] = $0 })) {
-                        ForEach(Array(pages.enumerated()), id: \.offset) { index, page in AnyView(render(page, screen: screen)).tag(index) }
-                    }.tabViewStyle(.page(indexDisplayMode: .automatic))
+                    if vertical {
+                        GeometryReader { proxy in
+                            TabView(selection: Binding(get: { selected }, set: { carouselPages[carouselID] = $0 })) {
+                                ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
+                                    AnyView(render(page, screen: screen))
+                                        .rotationEffect(.degrees(-90))
+                                        .frame(width: proxy.size.width, height: proxy.size.height)
+                                        .tag(index)
+                                }
+                            }
+                            .frame(width: proxy.size.height, height: proxy.size.width)
+                            .rotationEffect(.degrees(90))
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .tabViewStyle(.page(indexDisplayMode: .never))
+                        }
+                        .frame(height: authoredHeight)
+                    } else {
+                        TabView(selection: Binding(get: { selected }, set: { carouselPages[carouselID] = $0 })) {
+                            ForEach(Array(pages.enumerated()), id: \.offset) { index, page in AnyView(render(page, screen: screen)).tag(index) }
+                        }.tabViewStyle(.page(indexDisplayMode: .automatic))
+                    }
                 }
                 .task(id: "carousel-\(carouselID)-\(screenID)-\(shouldAutoAdvance)-\(interval)") {
                     guard shouldAutoAdvance else { return }

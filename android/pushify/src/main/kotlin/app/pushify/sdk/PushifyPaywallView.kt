@@ -619,6 +619,46 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 val interval = auto?.optInt("ms_time_per_page", 0)?.coerceIn(1000, 60000) ?: 0
                 val animationScale = android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
                 val reducedMotion = animationScale <= 0f || (android.os.Build.VERSION.SDK_INT >= 26 && !android.animation.ValueAnimator.areAnimatorsEnabled())
+                if (properties.optString("pushify_axis") == "vertical") {
+                    val pageHeight = dp(properties.optJSONObject("size")?.optJSONObject("height")?.optInt("value") ?: 432).coerceAtLeast(dp(1))
+                    val column = LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        for (page in pageNodes) addView(renderNode(page, screen), LinearLayout.LayoutParams(MATCH, pageHeight).apply { bottomMargin = spacing })
+                    }
+                    val scroll = object : ScrollView(context) {
+                        private val advance = object : Runnable {
+                            override fun run() {
+                                if (pageNodes.size < 2 || interval == 0 || reducedMotion) return
+                                val current = (carouselPages[carouselId] ?: properties.optInt("initial_page_index", 0)).coerceIn(0, pageNodes.lastIndex)
+                                if (current == pageNodes.lastIndex && !properties.optBoolean("loop", false)) return
+                                val next = if (current == pageNodes.lastIndex) 0 else current + 1
+                                carouselPages[carouselId] = next
+                                updateDots(next)
+                                smoothScrollTo(0, next * (pageHeight + spacing))
+                                postDelayed(this, interval.toLong())
+                            }
+                        }
+                        override fun onAttachedToWindow() {
+                            super.onAttachedToWindow()
+                            val selected = (carouselPages[carouselId] ?: properties.optInt("initial_page_index", 0)).coerceIn(0, (pageNodes.size - 1).coerceAtLeast(0))
+                            post { scrollTo(0, selected * (pageHeight + spacing)) }
+                            if (pageNodes.size > 1 && interval > 0 && !reducedMotion) postDelayed(advance, interval.toLong())
+                        }
+                        override fun onDetachedFromWindow() { removeCallbacks(advance); super.onDetachedFromWindow() }
+                    }.apply {
+                        isVerticalScrollBarEnabled = false
+                        addView(column, LayoutParams(MATCH, WRAP))
+                        setOnScrollChangeListener { _, _, scrollY, _, _ ->
+                            val stride = (pageHeight + spacing).coerceAtLeast(1)
+                            val selected = ((scrollY + stride / 2) / stride).coerceIn(0, (pageNodes.size - 1).coerceAtLeast(0))
+                            if (pageNodes.isNotEmpty()) { carouselPages[carouselId] = selected; updateDots(selected) }
+                        }
+                    }
+                    addView(scroll, lp(MATCH, pageHeight))
+                    if (pageNodes.size > 1 && pageControl != null) addView(dots, lp(MATCH, WRAP))
+                    updateDots((carouselPages[carouselId] ?: properties.optInt("initial_page_index", 0)).coerceIn(0, (pageNodes.size - 1).coerceAtLeast(0)))
+                    return@apply
+                }
                 val scroll = object : HorizontalScrollView(context) {
                     private val advance = object : Runnable {
                         override fun run() {

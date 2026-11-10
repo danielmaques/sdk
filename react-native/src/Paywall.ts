@@ -201,7 +201,7 @@ function MotionNode({ children, motion, accessibility }: { children: React.React
   }, children);
 }
 
-function PaywallCarousel({ id, pages, initialPage, loop, intervalMs, transitionMs, reducedMotion, renderPage }: {
+function PaywallCarousel({ id, pages, initialPage, loop, intervalMs, transitionMs, reducedMotion, vertical, pageHeight, renderPage }: {
   id: string;
   pages: PushifyPaywallNode[];
   initialPage: number;
@@ -209,11 +209,14 @@ function PaywallCarousel({ id, pages, initialPage, loop, intervalMs, transitionM
   intervalMs: number;
   transitionMs: number;
   reducedMotion: boolean;
+  vertical: boolean;
+  pageHeight: number;
   renderPage: (page: PushifyPaywallNode) => React.ReactNode;
 }): React.ReactElement {
   const [page, setPage] = useState(Math.max(0, Math.min(initialPage, pages.length - 1)));
   const list = useRef<FlatList<PushifyPaywallNode>>(null);
   const width = useRef(0);
+  const height = useRef(pageHeight);
   useEffect(() => {
     if (reducedMotion || intervalMs < 1000 || pages.length < 2) return;
     const timer = setInterval(() => {
@@ -223,27 +226,28 @@ function PaywallCarousel({ id, pages, initialPage, loop, intervalMs, transitionM
           return current;
         }
         const next = current >= pages.length - 1 ? 0 : current + 1;
-        requestAnimationFrame(() => list.current?.scrollToOffset({ offset: next * width.current, animated: transitionMs > 0 }));
+        requestAnimationFrame(() => list.current?.scrollToOffset({ offset: next * (vertical ? height.current : width.current), animated: transitionMs > 0 }));
         return next;
       });
     }, Math.max(1000, Math.min(60000, intervalMs)));
     return () => clearInterval(timer);
-  }, [id, intervalMs, loop, pages.length, reducedMotion, transitionMs]);
+  }, [id, intervalMs, loop, pages.length, reducedMotion, transitionMs, vertical]);
 
-  return React.createElement(View, { key: id, onLayout: (event: { nativeEvent: { layout: { width: number } } }) => { width.current = event.nativeEvent.layout.width; } },
+  return React.createElement(View, { key: id, style: vertical ? { height: pageHeight } : undefined, onLayout: (event: { nativeEvent: { layout: { width: number; height: number } } }) => { width.current = event.nativeEvent.layout.width; height.current = event.nativeEvent.layout.height; } },
     React.createElement(FlatList<PushifyPaywallNode>, {
       ref: list,
-      horizontal: true,
+      horizontal: !vertical,
       pagingEnabled: true,
       data: pages,
       initialScrollIndex: page,
       keyExtractor: (_, index) => `${id}-${index}`,
       showsHorizontalScrollIndicator: false,
-      onMomentumScrollEnd: (event: { nativeEvent: { layoutMeasurement: { width: number }; contentOffset: { x: number } } }) => {
-        const viewport = event.nativeEvent.layoutMeasurement.width;
-        if (viewport > 0) setPage(Math.max(0, Math.min(pages.length - 1, Math.round(event.nativeEvent.contentOffset.x / viewport))));
+      onMomentumScrollEnd: (event: { nativeEvent: { layoutMeasurement: { width: number; height: number }; contentOffset: { x: number; y: number } } }) => {
+        const viewport = vertical ? event.nativeEvent.layoutMeasurement.height : event.nativeEvent.layoutMeasurement.width;
+        const offset = vertical ? event.nativeEvent.contentOffset.y : event.nativeEvent.contentOffset.x;
+        if (viewport > 0) setPage(Math.max(0, Math.min(pages.length - 1, Math.round(offset / viewport))));
       },
-      renderItem: ({ item }) => React.createElement(View, { style: { width: '100%' } }, renderPage(item)),
+      renderItem: ({ item }) => React.createElement(View, { style: vertical ? { width: '100%', height: pageHeight } : { width: '100%' } }, renderPage(item)),
     }),
     React.createElement(View, { style: styles.dots }, ...pages.map((_, index) => React.createElement(View, { key: index, style: [styles.dot, page === index && styles.dotActive] }))),
   );
@@ -1240,6 +1244,8 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
           intervalMs: number(autoAdvance.ms_time_per_page) ?? 0,
           transitionMs: number(autoAdvance.ms_transition_time) ?? 400,
           reducedMotion,
+          vertical: node.properties.pushify_axis === 'vertical',
+          pageHeight: number(record(record(node.properties.size).height).value) ?? 220,
           renderPage: (page: PushifyPaywallNode) => renderNode(page),
         });
       }
