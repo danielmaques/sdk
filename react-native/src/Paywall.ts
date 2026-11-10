@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Alert, Animated, Easing, Image, Modal, NativeModules, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View, FlatList, Vibration, Platform, requireNativeComponent, useColorScheme } from 'react-native';
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import LottieView from 'lottie-react-native';
 import Svg, { Defs as SvgDefs, Path as SvgPath, RadialGradient as SvgRadialGradient, Rect as SvgRect, Stop as SvgStop } from 'react-native-svg';
@@ -44,6 +44,37 @@ type PushifyNativeVideoProps = {
 type TapActionRun = { waiting: boolean; interruptible: boolean; cancelled: boolean; timer?: ReturnType<typeof setTimeout>; resolveDelay?: (completed: boolean) => void };
 
 const NativePushifyVideo = requireNativeComponent<PushifyNativeVideoProps>('PushifyVideoView');
+
+function PaywallTypewriter({ value, settings, style }: { value: string; settings: Record<string, unknown>; style: StyleProp<TextStyle> }): React.ReactElement {
+  const intervalMs = Math.max(10, Math.min(500, number(settings.char_interval_ms) ?? 42));
+  const delayMs = Math.max(0, number(settings.start_delay_ms) ?? 0);
+  const cycleMs = Math.max(100, number(settings.cycle_ms) ?? 8400);
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let mounted = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let startedAt = Date.now();
+    const update = () => {
+      if (!mounted) return;
+      const elapsed = Date.now() - startedAt - delayMs;
+      setCount(elapsed < 0 ? 0 : Math.min(value.length, Math.floor((elapsed % cycleMs) / intervalMs)));
+    };
+    const begin = (reduced: boolean) => {
+      if (timer) clearInterval(timer);
+      timer = undefined;
+      if (reduced) { setCount(value.length); return; }
+      startedAt = Date.now();
+      update();
+      timer = setInterval(update, intervalMs);
+    };
+    void AccessibilityInfo.isReduceMotionEnabled().then(begin).catch(() => begin(false));
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', begin);
+    return () => { mounted = false; if (timer) clearInterval(timer); subscription.remove(); };
+  }, [value, intervalMs, delayMs, cycleMs]);
+  const reduced = count >= value.length;
+  const cursor = settings.cursor === true && !reduced ? '▏' : '';
+  return React.createElement(Text, { style }, `${value.slice(0, count)}${cursor}`);
+}
 
 function PaywallSlider({ value, minimum, maximum, step, orientation, label, onChange }: { value: number; minimum: number; maximum: number; step: number; orientation: 'horizontal' | 'vertical'; label: string; onChange: (value: number) => void }) {
   const vertical = orientation === 'vertical';
@@ -1062,7 +1093,14 @@ function PaywallRenderer(props: PaywallRendererProps): React.ReactElement {
       case 'stack': return renderStack(node, children, false);
       case 'hstack': return renderStack(node, children, true);
       case 'text':
-      case 'title': return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight), ...(node.properties.color != null ? { color: color(node.properties.color, colorScheme === 'dark' ? '#f5f5f5' : '#171717', colorScheme === 'dark') } : {}) }] }, localized(node));
+      case 'title': {
+        const style = [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight), ...(node.properties.color != null ? { color: color(node.properties.color, colorScheme === 'dark' ? '#f5f5f5' : '#171717', colorScheme === 'dark') } : {}) }];
+        const value = localized(node);
+        const typewriter = record(node.properties.pushify_typewriter);
+        return Object.keys(typewriter).length
+          ? React.createElement(PaywallTypewriter, { key: node.id ?? undefined, value, settings: typewriter, style })
+          : React.createElement(Text, { key: node.id ?? undefined, style }, value);
+      }
       case 'input': {
         const reference = text(node.properties.state_variable) ?? '';
         const name = reference.startsWith('state.') ? reference.slice(6) : '';

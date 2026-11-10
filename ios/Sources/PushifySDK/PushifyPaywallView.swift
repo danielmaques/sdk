@@ -87,6 +87,7 @@ public struct PushifyPaywallView: View {
     @State private var inAppBrowserLink: PushifyBrowserLink?
     @State private var selectedTabs: [String: String] = [:]
     @State private var carouselPages: [String: Int] = [:]
+    @State private var typewriterCounts: [String: Int] = [:]
     @State private var countdownStartedAt: [String: Date] = [:]
     @State private var failedExperienceIDs: Set<String> = []
     @State private var variables: [String: PushifyJSONValue]
@@ -330,9 +331,32 @@ public struct PushifyPaywallView: View {
                 }
                 .padding(EdgeInsets(top: CGFloat(number(margin["top"]) ?? 0), leading: CGFloat(number(margin["leading"]) ?? 0), bottom: CGFloat(number(margin["bottom"]) ?? 0), trailing: CGFloat(number(margin["trailing"]) ?? 0)))
         case "text", "title":
-            Text(localized(node, screen: screen)).font(.system(size: CGFloat(number(node.properties["font_size"]) ?? 20), weight: fontWeight(node.properties["font_weight"]), design: .default))
+            let textID = node.id ?? "text"
+            let fullText = localized(node, screen: screen)
+            let animation = object(node.properties["pushify_typewriter"])
+            let count = animation == nil ? fullText.count : min(fullText.count, max(0, typewriterCounts[textID] ?? 0))
+            let cursor = bool(animation?["cursor"]) && count < fullText.count ? "▏" : ""
+            Text("\(String(fullText.prefix(count)))\(cursor)").font(.system(size: CGFloat(number(node.properties["font_size"]) ?? 20), weight: fontWeight(node.properties["font_weight"]), design: .default))
                 .foregroundStyle(colorString(node.properties["color"], dark: colorScheme == .dark).map { Color(hex: $0) } ?? Color.primary)
                 .multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+                .task(id: "typewriter-\(textID)-\(screenID)") {
+                    guard let animation else { return }
+                    let interval = max(10, min(500, Int(number(animation["char_interval_ms"]) ?? 42)))
+                    let delay = max(0, number(animation["start_delay_ms"]) ?? 0)
+                    let cycle = max(100, number(animation["cycle_ms"]) ?? 8400)
+                    let started = Date.timeIntervalSinceReferenceDate
+                    while !Task.isCancelled {
+                        if reduceMotion {
+                            typewriterCounts[textID] = fullText.count
+                            return
+                        }
+                        let elapsed = Date.timeIntervalSinceReferenceDate - started - delay / 1000
+                        let count = elapsed < 0 ? 0 : min(fullText.count, Int((elapsed.truncatingRemainder(dividingBy: cycle / 1000)) * 1000 / Double(interval)))
+                        typewriterCounts[textID] = count
+                        do { try await Task.sleep(nanoseconds: UInt64(interval) * 1_000_000) }
+                        catch { return }
+                    }
+                }
         case "input":
             let reference = string(node.properties["state_variable"]) ?? ""
             let name = reference.hasPrefix("state.") ? String(reference.dropFirst(6)) : ""

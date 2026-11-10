@@ -429,10 +429,9 @@ extension _PaywallRendering on _PushifyPaywallState {
       case 'text':
       case 'title':
         final dark = Theme.of(context).brightness == Brightness.dark;
-        return Text(
-          _localized(node, screen),
-          textAlign: TextAlign.center,
-          style: TextStyle(
+        final value = _localized(node, screen);
+        final animation = _map(properties['pushify_typewriter']);
+        final style = TextStyle(
             fontSize: _number(properties['font_size']) ?? 20,
             fontWeight: _fontWeight(properties['font_weight']),
             color: properties.containsKey('color')
@@ -442,8 +441,19 @@ extension _PaywallRendering on _PushifyPaywallState {
                     dark: dark,
                   )
                 : null,
-          ),
-        );
+          );
+        if (animation.isNotEmpty) {
+          return _PaywallTypewriter(
+            key: ValueKey('pushify-typewriter-${node['id'] ?? value}'),
+            value: value,
+            style: style,
+            intervalMs: (_number(animation['char_interval_ms']) ?? 42).toInt(),
+            delayMs: (_number(animation['start_delay_ms']) ?? 0).toInt(),
+            cycleMs: (_number(animation['cycle_ms']) ?? 8400).toInt(),
+            cursor: animation['cursor'] == true,
+          );
+        }
+        return Text(value, textAlign: TextAlign.center, style: style);
       case 'input':
         final reference = properties['state_variable'] as String? ?? '';
         final name = reference.startsWith('state.') ? reference.substring(6) : '';
@@ -1271,6 +1281,85 @@ extension _PaywallRendering on _PushifyPaywallState {
   }
 }
 
+class _PaywallTypewriter extends StatefulWidget {
+  const _PaywallTypewriter({
+    super.key,
+    required this.value,
+    required this.style,
+    required this.intervalMs,
+    required this.delayMs,
+    required this.cycleMs,
+    required this.cursor,
+  });
+
+  final String value;
+  final TextStyle style;
+  final int intervalMs;
+  final int delayMs;
+  final int cycleMs;
+  final bool cursor;
+
+  @override
+  State<_PaywallTypewriter> createState() => _PaywallTypewriterState();
+}
+
+class _PaywallTypewriterState extends State<_PaywallTypewriter> {
+  Timer? _timer;
+  DateTime _startedAt = DateTime.now();
+  int _count = 0;
+  bool? _reducedMotion;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncMotionPreference(MediaQuery.disableAnimationsOf(context));
+  }
+
+  @override
+  void didUpdateWidget(covariant _PaywallTypewriter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value || oldWidget.intervalMs != widget.intervalMs || oldWidget.delayMs != widget.delayMs || oldWidget.cycleMs != widget.cycleMs) {
+      _syncMotionPreference(MediaQuery.disableAnimationsOf(context), restart: true);
+    }
+  }
+
+  void _syncMotionPreference(bool reduced, {bool restart = false}) {
+    if (_reducedMotion == reduced && !restart) return;
+    _reducedMotion = reduced;
+    _timer?.cancel();
+    _timer = null;
+    if (reduced) {
+      if (_count != widget.value.length) setState(() => _count = widget.value.length);
+      return;
+    }
+    _startedAt = DateTime.now();
+    _tick();
+    _timer = Timer.periodic(Duration(milliseconds: widget.intervalMs.clamp(10, 500)), (_) => _tick());
+  }
+
+  void _tick() {
+    if (!mounted || _reducedMotion == true) return;
+    final elapsed = DateTime.now().difference(_startedAt).inMilliseconds - widget.delayMs;
+    final count = elapsed < 0
+        ? 0
+        : ((elapsed % widget.cycleMs.clamp(100, 60000)) ~/ widget.intervalMs.clamp(10, 500)).clamp(0, widget.value.length).toInt();
+    if (count != _count) setState(() => _count = count);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = widget.value.substring(0, _count);
+    final cursor = widget.cursor && _count < widget.value.length ? '▏' : '';
+    return Text('$text$cursor', textAlign: TextAlign.center, style: widget.style);
+  }
+}
+
 class _WheelConfetti extends StatefulWidget {
   const _WheelConfetti({required this.reducedMotion});
 
@@ -1347,7 +1436,7 @@ class _WheelConfettiPainter extends CustomPainter {
       final spread = 18 + (i % 7) * 3.0;
       final x = size.width * .5 + math.cos(seed) * spread + math.cos(seed) * progress * 105;
       final y = size.height * .46 + math.sin(seed) * spread - (i % 4) * progress * 42 + progress * progress * 380;
-      paint.color = _colors[i % _colors.length].withOpacity((1 - progress).clamp(0, 1));
+      paint.color = _colors[i % _colors.length].withValues(alpha: (1 - progress).clamp(0, 1));
       canvas.save();
       canvas.translate(x, y);
       canvas.rotate(seed + progress * 8);

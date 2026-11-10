@@ -350,7 +350,38 @@ public class PushifyPaywallView @JvmOverloads constructor(
                     addView(childView, params)
                 }
             }
-            "text", "title" -> TextView(context).apply {
+            "text", "title" -> object : TextView(context) {
+                private var typewriterTask: Runnable? = null
+                override fun onAttachedToWindow() {
+                    super.onAttachedToWindow()
+                    val animation = properties.optJSONObject("pushify_typewriter") ?: return
+                    val animationScale = android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+                    val reduceMotion = animationScale <= 0f || (android.os.Build.VERSION.SDK_INT >= 26 && !android.animation.ValueAnimator.areAnimatorsEnabled())
+                    if (reduceMotion) return
+                    val fullText = localized(node, screen)
+                    contentDescription = fullText
+                    val interval = animation.optInt("char_interval_ms", 42).coerceIn(10, 500)
+                    val delay = animation.optInt("start_delay_ms", 0).coerceIn(0, 60000)
+                    val cycle = animation.optInt("cycle_ms", 8400).coerceIn(100, 60000)
+                    val started = SystemClock.uptimeMillis()
+                    val target = this
+                    val updateRunnable = object : Runnable {
+                        override fun run() {
+                            val elapsed = SystemClock.uptimeMillis() - started - delay
+                            val count = if (elapsed < 0) 0 else ((elapsed % cycle) / interval).coerceIn(0, fullText.length.toLong()).toInt()
+                            target.text = fullText.take(count) + if (animation.optBoolean("cursor", false) && count < fullText.length) "▏" else ""
+                            postDelayed(this, interval.toLong())
+                        }
+                    }
+                    typewriterTask = updateRunnable
+                    post(updateRunnable)
+                }
+                override fun onDetachedFromWindow() {
+                    typewriterTask?.let(::removeCallbacks)
+                    typewriterTask = null
+                    super.onDetachedFromWindow()
+                }
+            }.apply {
                 text = localized(node, screen)
                 textSize = properties.optDouble("font_size", 20.0).toFloat().coerceIn(10f, 72f)
                 gravity = Gravity.CENTER
