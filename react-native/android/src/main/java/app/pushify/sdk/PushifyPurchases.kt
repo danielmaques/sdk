@@ -330,6 +330,27 @@ public class PushifyPurchases(
     /** Reconciles current Play ownership without showing purchase UI. */
     public fun syncPurchases(completion: (Result<JSONObject>) -> Unit) = syncOwnedPurchases(completion)
 
+    /** Counts Play purchases awaiting acknowledgement without exposing purchase tokens. */
+    public fun debugRetryQueueCount(completion: (Int?) -> Unit) {
+        if (!billing.isReady) { main.post { completion(null) }; return }
+        val found = mutableListOf<Purchase>()
+        var remaining = 2
+        var failed = false
+        listOf(BillingClient.ProductType.SUBS, BillingClient.ProductType.INAPP).forEach { type ->
+            billing.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(type).build()) { result, purchases ->
+                synchronized(found) {
+                    if (result.responseCode == BillingClient.BillingResponseCode.OK) found.addAll(purchases) else failed = true
+                    remaining--
+                    if (remaining == 0) {
+                        val count = if (failed) null else found.distinctBy { it.purchaseToken }
+                            .count { it.purchaseState == Purchase.PurchaseState.PURCHASED && !it.isAcknowledged }
+                        main.post { completion(count) }
+                    }
+                }
+            }
+        }
+    }
+
     /** Starts a fresh anonymous customer without deleting server-side transaction history. */
     public fun logOut(completion: (Result<JSONObject>) -> Unit) {
         customerId = null

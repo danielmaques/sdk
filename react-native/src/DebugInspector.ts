@@ -8,11 +8,16 @@ export type PushifyDebugInspectorProps = { purchases: PushifyPurchases };
 export function PushifyDebugInspector({ purchases }: PushifyDebugInspectorProps): React.ReactElement {
   const [report, setReport] = React.useState('Enable diagnostics to collect a local support bundle.');
   const [expanded, setExpanded] = React.useState(false);
+  const mounted = React.useRef(true);
   React.useEffect(() => {
+    mounted.current = true;
     purchases.enableDebugInspector(true);
-    return () => purchases.enableDebugInspector(false);
+    return () => { mounted.current = false; purchases.enableDebugInspector(false); };
   }, [purchases]);
-  const refresh = () => setReport(purchases.debugExport() ?? 'No diagnostic report is available.');
+  const refresh = async () => {
+    await purchases.refreshDebugRetryQueueCount();
+    if (mounted.current) setReport(purchases.debugExport() ?? 'No diagnostic report is available.');
+  };
   return React.createElement(View, { style: { borderWidth: 1, borderColor: '#888', borderRadius: 8, padding: 16, gap: 8 } },
     React.createElement(Pressable, { accessibilityRole: 'button', onPress: () => { setExpanded((value) => !value); refresh(); } },
       React.createElement(Text, { style: { fontSize: 18, fontWeight: '600' } }, expanded ? 'Hide Pushify diagnostics' : 'Show Pushify diagnostics')),

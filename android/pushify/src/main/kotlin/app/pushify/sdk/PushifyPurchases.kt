@@ -53,6 +53,7 @@ public class PushifyPurchases(
     private var lastSnapshot: JSONObject? = readCachedSnapshot()
     private var lastOfferings: JSONObject? = readCachedOfferings()
     @Volatile private var debugInspectorEnabled: Boolean = false
+    @Volatile private var cachedRetryQueueCount: Int? = null
     private val diagnosticEvents = ArrayDeque<JSONObject>()
     private val diagnosticLock = Any()
     private val customerInfoListeners = CopyOnWriteArraySet<CustomerInfoListener>()
@@ -384,7 +385,30 @@ public class PushifyPurchases(
             .put("api_host", runCatching { URL(endpoint).host }.getOrDefault("unknown"))
             .put("masked_public_key", maskPublicKey(publicApiKey)).put("cached_offering_count", offerings.length())
             .put("cached_product_ids", products).put("active_entitlement_count", active)
+            .put("retry_queue_count", cachedRetryQueueCount ?: JSONObject.NULL)
             .put("recent_retryable_failure_count", retryableFailureCount).put("events", events)
+    }
+
+    /** Counts Play purchases awaiting acknowledgement without exposing purchase tokens. */
+    public fun debugRetryQueueCount(completion: (Int?) -> Unit) {
+        if (!debugInspectorEnabled || !billing.isReady) { main.post { completion(null) }; return }
+        val found = mutableListOf<Purchase>()
+        var remaining = 2
+        var failed = false
+        listOf(BillingClient.ProductType.SUBS, BillingClient.ProductType.INAPP).forEach { type ->
+            billing.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(type).build()) { result, purchases ->
+                synchronized(found) {
+                    if (result.responseCode == BillingClient.BillingResponseCode.OK) found.addAll(purchases) else failed = true
+                    remaining--
+                    if (remaining == 0) {
+                        val count = if (failed) null else found.distinctBy { it.purchaseToken }
+                            .count { it.purchaseState == Purchase.PurchaseState.PURCHASED && !it.isAcknowledged }
+                        cachedRetryQueueCount = count
+                        main.post { completion(count) }
+                    }
+                }
+            }
+        }
     }
 
     private fun maskPublicKey(key: String): String = if (key.length > 10) "${key.take(6)}…${key.takeLast(4)}" else "••••"

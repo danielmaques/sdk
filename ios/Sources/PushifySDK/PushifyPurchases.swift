@@ -186,6 +186,7 @@ public actor PushifyPurchases {
     private var cachedOfferings: PushifyOfferings?
     private var debugInspectorEnabled = false
     private var diagnosticEvents: [PushifyDiagnosticEvent] = []
+    private var cachedRetryQueueCount: Int?
     private var updatesTask: Task<Void, Never>?
     private var observers: [UUID: AsyncStream<PushifyCustomerSnapshot>.Continuation] = [:]
     private let snapshotKey: String
@@ -252,8 +253,18 @@ public actor PushifyPurchases {
             "schema": "pushify.sdk-diagnostics/v1", "platform": "ios", "api_host": baseURL.host ?? "unknown", "masked_public_key": maskedKey,
             "cached_offering_count": cachedOfferings?.offerings.count ?? 0, "cached_product_ids": products,
             "active_entitlement_count": cachedSnapshot?.entitlements.active.count ?? 0,
+            "retry_queue_count": cachedRetryQueueCount as Any? ?? NSNull(),
             "recent_retryable_failure_count": retryableFailureCount, "events": entries,
         ], options: [.sortedKeys])
+    }
+
+    /// Counts StoreKit transactions that are still unfinished without exposing their identifiers or proofs.
+    public func debugRetryQueueCount() async -> Int? {
+        guard debugInspectorEnabled else { return nil }
+        var count = 0
+        for await _ in Transaction.unfinished { count += 1 }
+        cachedRetryQueueCount = count
+        return count
     }
 
     private func recordDiagnostic(_ name: String, outcome: String, retryable: Bool, message: String) {

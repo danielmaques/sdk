@@ -57,9 +57,21 @@ class PushifyPurchases {
   final List<Map<String, Object?>> _diagnosticEvents = [];
   Map<String, Object?>? _cachedInfo;
   Map<String, Object?>? _cachedCatalog;
+  int? _retryQueueCount;
 
   /// Enables a bounded in-memory debug log. Nothing is uploaded automatically.
   void enableDebugInspector({bool enabled = true}) => _debugInspectorEnabled = enabled;
+
+  /// Refreshes the platform store's unfinished purchase count for the local inspector.
+  Future<int?> refreshDebugRetryQueueCount() async {
+    if (!_debugInspectorEnabled) return null;
+    try {
+      _retryQueueCount = await _invoke<int>('debugRetryQueueCount');
+    } on PlatformException {
+      _retryQueueCount = null;
+    }
+    return _retryQueueCount;
+  }
 
   /// Redacted JSON export; null until the host app explicitly enables diagnostics.
   String? debugExport() {
@@ -85,6 +97,7 @@ class PushifyPurchases {
       'masked_public_key': masked,
       'cached_offering_count': (_cachedCatalog?['offerings'] as List?)?.length ?? 0,
       'cached_product_ids': products.toSet().toList()..sort(), 'active_entitlement_count': active is List ? active.length : active is Map ? active.length : 0,
+      'retry_queue_count': _retryQueueCount,
       'recent_retryable_failure_count': _diagnosticEvents.where((event) => event['outcome'] == 'failure' && event['retryable'] == true).length,
       'events': List<Map<String, Object?>>.unmodifiable(_diagnosticEvents),
     });

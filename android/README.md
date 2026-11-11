@@ -229,4 +229,4 @@ Diagnostics are disabled by default, buffered in memory, and never uploaded:
 val inspector = PushifyDebugInspectorView(context, purchases)
 ```
 
-Review the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
+Review the redacted JSON before sharing it. It includes the count of purchased, unacknowledged Play purchases and omits customer IDs, attributes, receipts, purchase tokens, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

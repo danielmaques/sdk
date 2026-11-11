@@ -24,7 +24,9 @@ class _PushifyDebugInspectorState extends State<PushifyDebugInspector> {
     _refresh();
   }
 
-  void _refresh() {
+  Future<void> _refresh() async {
+    await widget.purchases.refreshDebugRetryQueueCount();
+    if (!mounted) return;
     setState(() {
       _report = widget.purchases.debugExport() ?? 'No diagnostic report is available.';
       _copied = false;

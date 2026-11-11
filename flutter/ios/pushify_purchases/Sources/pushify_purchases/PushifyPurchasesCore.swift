@@ -168,6 +168,7 @@ public actor PushifyPurchases {
     private var customerID: String?
     private var cachedSnapshot: PushifyCustomerSnapshot?
     private var cachedOfferings: PushifyOfferings?
+    private var cachedRetryQueueCount: Int?
     private var updatesTask: Task<Void, Never>?
     private var observers: [UUID: AsyncStream<PushifyCustomerSnapshot>.Continuation] = [:]
     private let snapshotKey: String
@@ -214,6 +215,14 @@ public actor PushifyPurchases {
     }
 
     public func cachedCustomerInfo() -> PushifyCustomerSnapshot? { cachedSnapshot }
+
+    /// Counts StoreKit transactions that remain unfinished without exposing their identifiers or proofs.
+    public func debugRetryQueueCount() async -> Int {
+        var count = 0
+        for await _ in Transaction.unfinished { count += 1 }
+        cachedRetryQueueCount = count
+        return count
+    }
 
     public func offerings(placement: String? = nil) async throws -> PushifyOfferings {
         let catalog: PushifyOfferings

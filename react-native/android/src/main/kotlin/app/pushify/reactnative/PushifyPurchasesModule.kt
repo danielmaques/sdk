@@ -91,6 +91,7 @@ class PushifyPurchasesModule(context: ReactApplicationContext) : ReactContextBas
 
     @ReactMethod fun customerInfo(promise: Promise) = withPurchases(promise) { it.customerInfo { sendJson(promise, it) } }
     @ReactMethod fun cachedCustomerInfo(promise: Promise) = promise.resolve(purchases?.cachedCustomerInfo()?.let(::toWritableMap))
+    @ReactMethod fun debugRetryQueueCount(promise: Promise) = withPurchases(promise) { sdk -> sdk.debugRetryQueueCount(promise::resolve) }
     @ReactMethod fun offerings(placement: String?, promise: Promise) = withPurchases(promise) { it.offerings(placement) { sendJson(promise, it) } }
     @ReactMethod fun customerCenter(locale: String?, promise: Promise) = withPurchases(promise) { it.customerCenter(locale) { sendJson(promise, it) } }
     @ReactMethod fun createSupportTicket(email: String, message: String, promise: Promise) = withPurchases(promise) { it.createSupportTicket(email, message) { sendJson(promise, it) } }

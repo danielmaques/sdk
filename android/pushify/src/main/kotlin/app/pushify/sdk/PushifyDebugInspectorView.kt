@@ -27,7 +27,7 @@ public class PushifyDebugInspectorView(context: Context, private val purchases: 
         val actions = LinearLayout(context).apply { gravity = Gravity.END }
         actions.addView(Button(context).apply {
             text = "Refresh"
-            setOnClickListener { report.text = purchases.debugExport()?.toString(2) ?: "No diagnostic report is available." }
+            setOnClickListener { refreshReport() }
         })
         actions.addView(Button(context).apply {
             text = "Copy"
@@ -42,7 +42,11 @@ public class PushifyDebugInspectorView(context: Context, private val purchases: 
         addView(note)
         addView(actions)
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-        report.text = purchases.debugExport()?.toString(2) ?: report.text
+        refreshReport()
+    }
+
+    private fun refreshReport() {
+        purchases.debugRetryQueueCount { report.text = purchases.debugExport()?.toString(2) ?: "No diagnostic report is available." }
     }
 
     override fun onDetachedFromWindow() {

@@ -184,4 +184,4 @@ await purchases.enableDebugInspector()
 PushifyDebugInspector(purchases: purchases)
 ```
 
-The export omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
+The export includes the current StoreKit unfinished-transaction count and omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

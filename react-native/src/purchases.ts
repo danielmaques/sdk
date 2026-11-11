@@ -60,6 +60,7 @@ type NativePurchasesModule = {
   configure(options: PushifyPurchasesOptions): Promise<PushifyCustomerInfo | null>;
   customerInfo(): Promise<PushifyCustomerInfo>;
   cachedCustomerInfo(): Promise<PushifyCustomerInfo | null>;
+  debugRetryQueueCount(): Promise<number | null>;
   offerings(placement?: string): Promise<PushifyOfferings>;
   customerCenter(locale?: string): Promise<{ schema: 'pushify.customer-center/v1'; customer_id: string; configuration: Record<string, unknown> }>;
   createSupportTicket(email: string, message: string): Promise<{ accepted: boolean }>;
@@ -86,6 +87,7 @@ export class PushifyPurchases {
   private diagnosticEvents: Array<{ name: string; timestamp_ms: number; correlation_id: string; outcome: string; retryable: boolean; message: string }> = [];
   private cachedInfo: PushifyCustomerInfo | null = null;
   private cachedCatalog: PushifyOfferings | null = null;
+  private retryQueueCount: number | null = null;
 
   constructor(options: PushifyPurchasesOptions) {
     if (!options.publicApiKey.trim()) throw new Error('A Pushify public app key is required.');
@@ -105,6 +107,14 @@ export class PushifyPurchases {
   /** Enables an opt-in, bounded in-memory event buffer for local debugging. */
   enableDebugInspector(enabled = true): void { this.diagnosticsEnabled = enabled; }
 
+  /** Refreshes the platform store's unfinished purchase count for the local inspector. */
+  async refreshDebugRetryQueueCount(): Promise<number | null> {
+    if (!this.diagnosticsEnabled) return null;
+    try { this.retryQueueCount = await this.requireNative().debugRetryQueueCount(); }
+    catch { this.retryQueueCount = null; }
+    return this.retryQueueCount;
+  }
+
   /** Returns a redacted JSON support bundle, or null until explicitly enabled. */
   debugExport(): string | null {
     if (!this.diagnosticsEnabled) return null;
@@ -115,6 +125,7 @@ export class PushifyPurchases {
       schema: "pushify.sdk-diagnostics/v1", platform: "react-native", api_host: new URL(this.options.apiBaseUrl!).host,
       masked_public_key: masked, cached_offering_count: this.cachedCatalog?.offerings.length ?? 0,
       cached_product_ids: productIds, active_entitlement_count: this.cachedInfo?.entitlements.active.length ?? 0,
+      retry_queue_count: this.retryQueueCount,
       recent_retryable_failure_count: this.diagnosticEvents.filter((event) => event.outcome === 'failure' && event.retryable).length,
       events: this.diagnosticEvents,
     }, null, 2);

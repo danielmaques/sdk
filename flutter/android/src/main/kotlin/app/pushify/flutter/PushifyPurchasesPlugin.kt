@@ -44,6 +44,7 @@ class PushifyPurchasesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
             "openUrl" -> openCustomerCenterUrl(call.argument<String>("url"), result)
             "customerInfo" -> withPurchases(result) { it.customerInfo { sendJson(result, it) } }
             "cachedCustomerInfo" -> result.success(purchases?.cachedCustomerInfo()?.let(::toFlutter))
+            "debugRetryQueueCount" -> withPurchases(result) { sdk -> sdk.debugRetryQueueCount { result.success(it) } }
             "offerings" -> withPurchases(result) { it.offerings(call.argument<String>("placement")) { sendJson(result, it) } }
             "customerCenter" -> withPurchases(result) { it.customerCenter(call.argument<String>("locale")) { sendJson(result, it) } }
             "createSupportTicket" -> withPurchases(result) { sdk ->

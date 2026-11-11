@@ -80,6 +80,12 @@ final class PushifyPurchasesModule: RCTEventEmitter {
         Task { if let value = await purchases.cachedCustomerInfo() { resolve(try self.encode(value)) } else { resolve(nil) } }
     }
 
+    @objc func debugRetryQueueCount(_ resolve: @escaping RCTPromiseResolveBlock,
+                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let purchases else { resolve(nil); return }
+        Task { resolve(await purchases.debugRetryQueueCount()) }
+    }
+
     @objc func offerings(_ placement: String?, resolver resolve: @escaping RCTPromiseResolveBlock,
                          rejecter reject: @escaping RCTPromiseRejectBlock) {
         perform(resolve, reject) { try self.encode(try await $0.offerings(placement: placement)) }

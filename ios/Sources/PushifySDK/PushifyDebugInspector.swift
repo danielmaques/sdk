@@ -33,6 +33,7 @@ public struct PushifyDebugInspector: View {
     }
 
     private func refresh() async {
+        _ = await purchases.debugRetryQueueCount()
         guard let data = await purchases.debugExport(), let value = String(data: data, encoding: .utf8) else { return }
         report = value
         copied = false

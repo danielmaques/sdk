@@ -68,6 +68,8 @@ public final class PushifyPurchasesPlugin: NSObject, FlutterPlugin, FlutterStrea
         case "cachedCustomerInfo":
             guard let client = purchases else { result(nil); return }
             Task { if let value = await client.cachedCustomerInfo() { self.finish(result, try self.encode(value)) } else { self.finish(result, NSNull()) } }
+        case "debugRetryQueueCount":
+            withClient(result) { client in self.finish(result, await client.debugRetryQueueCount()) }
         case "offerings":
             withClient(result) { client in self.finish(result, try await self.encode(try await client.offerings(placement: args["placement"] as? String))) }
         case "customerCenter":

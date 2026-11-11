@@ -174,4 +174,4 @@ Diagnostics are disabled by default, held in a bounded memory buffer, and never 
 PushifyDebugInspector(purchases: purchases)
 ```
 
-Preview the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
+Preview the redacted JSON before sharing it. It includes the current platform retry-queue count and omits customer IDs, attributes, receipts, transaction IDs, purchase tokens, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
