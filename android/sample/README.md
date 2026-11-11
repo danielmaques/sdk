@@ -14,7 +14,7 @@ For a self-hosted server, add `-PPUSHIFY_API_BASE_URL=https://api.example.test`.
 
 ## Runner intents
 
-The activity accepts explicit intents for `offerings_refresh`, `purchase`, `restore`, and `entitlement_refresh`. A local runner can launch them with Android Debug Bridge:
+The activity accepts explicit intents for `offerings_refresh`, `purchase`, `restore`, and `entitlement_refresh`. You can launch one manually with Android Debug Bridge, or use `pushify test mobile --platform android` to launch scenarios and collect the session report:
 
 ```sh
 adb shell am start -n app.pushify.testlab/.MainActivity --es pushify_scenario restore

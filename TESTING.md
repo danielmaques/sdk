@@ -4,7 +4,7 @@
 
 ## Repeatable Test Store runs
 
-`pushify test purchases` runs the selected lifecycle scenarios against a Pushify Test Store app and product. Use a sandbox project and a secret key scoped to that project. The generated customer IDs start with `pushify-testlab` (change the prefix with `--customer-prefix`); scenarios create normal sandbox customer, transaction, event, and webhook records so that the timeline and integrations can be inspected after the run.
+`pushify test purchases` runs the selected lifecycle scenarios against a Pushify Test Store app and product. Use a sandbox project and a secret key scoped to that project. Each scenario is applied through the purchase pipeline in a rollback-only transaction by default; the CLI saves a redacted run summary but no customer, transaction, event, or webhook data. Pass `--keep-data` only when you want the sandbox records retained for inspection. Generated customer IDs start with `pushify-testlab` (change the prefix with `--customer-prefix`).
 
 ```sh
 npx pushify test purchases \
@@ -12,7 +12,7 @@ npx pushify test purchases \
   --to-project proj_your_sandbox_project \
   --app-id app_your_test_store_app \
   --product-id prod_your_test_product \
-  --scenarios purchase,trial,trial_conversion,renewal,cancel,billing_issue,refund,expire \
+  --scenarios purchase,restore,duplicate_delivery,trial,trial_conversion,renewal,cancel,billing_issue,refund,expire \
   --format junit > purchase-tests.xml
 ```
 
@@ -22,7 +22,7 @@ The JSON report uses `pushify.purchase-test-report/v1`; JUnit exits with code 1 
 
 ### Native sample runners
 
-The Flutter, Android and iOS samples provide developer-operated StoreKit/Play Billing flows for offerings, purchase, restore and entitlement refresh. Setup and manual runner commands are documented in [`android/sample/README.md`](android/sample/README.md) and [`ios/sample/README.md`](ios/sample/README.md). Native samples write a session-local `pushify.mobile-test-run/v1` report with SDK correlation IDs and without customer identifiers, transaction identifiers or purchase tokens. The CLI does not yet launch or attach to the sample apps.
+The Flutter, Android and iOS samples provide developer-operated StoreKit/Play Billing flows for offerings, purchase, restore and entitlement refresh. Setup and manual runner commands are documented in [`android/sample/README.md`](android/sample/README.md) and [`ios/sample/README.md`](ios/sample/README.md). Native samples write a session-local `pushify.mobile-test-run/v1` report with SDK correlation IDs and without customer identifiers, transaction identifiers or purchase tokens. `pushify test mobile` launches the installed Android/iOS sample, collects that local report, and emits JSON/JUnit.
 
 The local CLI bridge is available for an already installed, developer-operated sample app:
 

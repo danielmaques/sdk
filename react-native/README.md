@@ -187,3 +187,15 @@ const uploaded = await purchases.uploadHealthTelemetry();
 ```
 
 The upload sends only allowlisted outcomes and aggregate counts. Network failures are ignored and do not affect purchases.
+
+## Purchase Test Lab
+
+Render the local runner on a developer-only screen after `configure()`. It exercises the host's StoreKit/Play Billing sandbox for offerings, purchase, restore and entitlement refresh. The session report stays in memory on the screen, includes safe SDK correlation IDs, and is selectable for copying; it is never uploaded automatically.
+
+```tsx
+import { PushifyPurchaseTestLab } from '@pushify/purchases';
+
+<PushifyPurchaseTestLab purchases={purchases} />
+```
+
+Configure a StoreKit test account or Google Play license tester before running purchase or restore actions. Server-side Test Store lifecycle scenarios and JSON/JUnit reports are available through [`pushify test purchases`](../TESTING.md); installed native iOS/Android sample collection uses `pushify test mobile`.
