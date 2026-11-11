@@ -23,6 +23,11 @@ android {
         buildConfigField("String", "PUSHIFY_PUBLIC_APP_KEY", "\"$publicKey\"")
         buildConfigField("String", "PUSHIFY_API_BASE_URL", "\"$apiBaseUrl\"")
     }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
     buildFeatures { buildConfig = true }
 }
 
