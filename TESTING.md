@@ -1,4 +1,4 @@
-<!-- Pushify SDK test guide: https://pushify.app/docs/sdk/testing -->
+<!-- Pushify SDK test guide: https://pushify.app/docs/sdks/testing -->
 
 # Mobile purchase testing
 
