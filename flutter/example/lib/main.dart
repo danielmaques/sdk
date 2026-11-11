@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pushify_purchases/pushify_purchases.dart';
+import 'purchase_test_lab.dart';
 
 const _publicKey = String.fromEnvironment('PUSHIFY_PUBLIC_APP_KEY');
 
@@ -128,6 +129,17 @@ class _PushifyExampleAppState extends State<PushifyExampleApp> {
                   ),
                 ),
                 child: const Text('Open SDK diagnostics'),
+              ),
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => Scaffold(
+                      appBar: AppBar(title: const Text('Purchase Test Lab')),
+                      body: PurchaseTestLab(purchases: _purchases!),
+                    ),
+                  ),
+                ),
+                child: const Text('Open Purchase Test Lab'),
               ),
             ],
           );
