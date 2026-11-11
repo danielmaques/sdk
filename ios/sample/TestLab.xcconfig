@@ -1,0 +1,3 @@
+// This public sandbox key is injected by the developer or CI; never store a secret key here.
+PUSHIFY_PUBLIC_APP_KEY =
+PUSHIFY_API_BASE_URL = https://api.pushify.app

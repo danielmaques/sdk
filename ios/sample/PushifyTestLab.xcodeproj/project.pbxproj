@@ -1,0 +1,72 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* PushifyTestLabApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* PushifyTestLabApp.swift */; };
+		A10000000000000000000002 /* PurchaseLabModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* PurchaseLabModel.swift */; };
+		A10000000000000000000003 /* PurchaseLabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* PurchaseLabView.swift */; };
+		A10000000000000000000004 /* PushifySDK in Frameworks */ = {isa = PBXBuildFile; productRef = A80000000000000000000001 /* PushifySDK */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* PushifyTestLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushifyTestLabApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* PurchaseLabModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchaseLabModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* PurchaseLabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchaseLabView.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000005 /* TestLab.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = TestLab.xcconfig; sourceTree = "<group>"; };
+		A20000000000000000000006 /* PushifyTestLab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PushifyTestLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000004 /* PushifySDK in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000000000000000000001 = {isa = PBXGroup; children = (A40000000000000000000002 /* PushifyTestLab */, A40000000000000000000003 /* Products */, A40000000000000000000004 /* Config */); sourceTree = "<group>"; };
+		A40000000000000000000002 /* PushifyTestLab */ = {isa = PBXGroup; children = (A20000000000000000000001 /* PushifyTestLabApp.swift */, A20000000000000000000002 /* PurchaseLabModel.swift */, A20000000000000000000003 /* PurchaseLabView.swift */, A20000000000000000000004 /* Info.plist */); path = PushifyTestLab; sourceTree = "<group>"; };
+		A40000000000000000000003 /* Products */ = {isa = PBXGroup; children = (A20000000000000000000006 /* PushifyTestLab.app */,); name = Products; sourceTree = "<group>"; };
+		A40000000000000000000004 /* Config */ = {isa = PBXGroup; children = (A20000000000000000000005 /* TestLab.xcconfig */,); name = Config; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000000000000000000001 /* PushifyTestLab */ = {isa = PBXNativeTarget; buildConfigurationList = A60000000000000000000002 /* Build configuration list for PBXNativeTarget "PushifyTestLab" */; buildPhases = (A30000000000000000000002 /* Sources */, A30000000000000000000001 /* Frameworks */, A30000000000000000000003 /* Resources */,); buildRules = (); dependencies = (); name = PushifyTestLab; packageProductDependencies = (A80000000000000000000001 /* PushifySDK */,); productName = PushifyTestLab; productReference = A20000000000000000000006 /* PushifyTestLab.app */; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A50000000000000000000002 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 1600; TargetAttributes = {A50000000000000000000001 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = A60000000000000000000001 /* Build configuration list for PBXProject "PushifyTestLab" */; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = A40000000000000000000001; packageReferences = (A70000000000000000000001 /* XCLocalSwiftPackageReference ".." */,); productRefGroup = A40000000000000000000003 /* Products */; projectDirPath = ""; projectRoot = ""; targets = (A50000000000000000000001 /* PushifyTestLab */,); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A30000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A30000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001 /* PushifyTestLabApp.swift in Sources */, A10000000000000000000002 /* PurchaseLabModel.swift in Sources */, A10000000000000000000003 /* PurchaseLabView.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A60000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.9;}; name = Debug; };
+		A60000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.9;}; name = Release; };
+		A60000000000000000000005 /* Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = A20000000000000000000005 /* TestLab.xcconfig */; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = PushifyTestLab/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; PRODUCT_BUNDLE_IDENTIFIER = app.pushify.testlab.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.9; TARGETED_DEVICE_FAMILY = "1,2";}; name = Debug; };
+		A60000000000000000000006 /* Release */ = {isa = XCBuildConfiguration; baseConfigurationReference = A20000000000000000000005 /* TestLab.xcconfig */; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = PushifyTestLab/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; PRODUCT_BUNDLE_IDENTIFIER = app.pushify.testlab.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.9; TARGETED_DEVICE_FAMILY = "1,2";}; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A60000000000000000000001 /* Build configuration list for PBXProject "PushifyTestLab" */ = {isa = XCConfigurationList; buildConfigurations = (A60000000000000000000003 /* Debug */, A60000000000000000000004 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A60000000000000000000002 /* Build configuration list for PBXNativeTarget "PushifyTestLab" */ = {isa = XCConfigurationList; buildConfigurations = (A60000000000000000000005 /* Debug */, A60000000000000000000006 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A70000000000000000000001 /* XCLocalSwiftPackageReference ".." */ = {isa = XCLocalSwiftPackageReference; relativePath = ..; };
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A80000000000000000000001 /* PushifySDK */ = {isa = XCSwiftPackageProductDependency; package = A70000000000000000000001 /* XCLocalSwiftPackageReference ".." */; productName = PushifySDK; };
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A50000000000000000000002 /* Project object */;
+}

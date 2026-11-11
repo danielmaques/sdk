@@ -18,6 +18,10 @@ import app.pushify.sdk.PushifyPurchases
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 class MainActivity : Activity() {
@@ -163,7 +167,7 @@ class MainActivity : Activity() {
             "purchase" -> if (packageId.isNullOrBlank()) {
                 record("purchase", "failed")
             } else purchase(packageId)
-            else -> record(scenario, "unsupported")
+            else -> record("unsupported", "unsupported")
         }
     }
 
@@ -184,7 +188,9 @@ class MainActivity : Activity() {
                 else -> "failed"
             })
             .put("outcome", outcome)
-            .put("occurred_at", System.currentTimeMillis())
+            .put("occurred_at", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.format(Date()))
             .put("correlation_ids", diagnosticCorrelationIds())
         operations.put(operation)
         report.put("schema", "pushify.mobile-test-run/v1")

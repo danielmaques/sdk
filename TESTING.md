@@ -22,7 +22,16 @@ The JSON report uses `pushify.purchase-test-report/v1`; JUnit exits with code 1 
 
 ### Native sample runners
 
-The Flutter example and Android sample provide developer-operated StoreKit/Play Billing flows for offerings, purchase, restore and entitlement refresh. Android build/setup and manual ADB intents are documented in [`android/sample/README.md`](android/sample/README.md). The Android app writes a session-local `pushify.mobile-test-run/v1` report with SDK correlation IDs and without customer identifiers or purchase tokens. The CLI does not yet launch or attach to either sample, and iOS has no standalone native sample app yet.
+The Flutter, Android and iOS samples provide developer-operated StoreKit/Play Billing flows for offerings, purchase, restore and entitlement refresh. Setup and manual runner commands are documented in [`android/sample/README.md`](android/sample/README.md) and [`ios/sample/README.md`](ios/sample/README.md). Native samples write a session-local `pushify.mobile-test-run/v1` report with SDK correlation IDs and without customer identifiers, transaction identifiers or purchase tokens. The CLI does not yet launch or attach to the sample apps.
+
+The local CLI bridge is available for an already installed, developer-operated sample app:
+
+```sh
+npx pushify test mobile --platform ios --scenarios offerings_refresh,restore
+npx pushify test mobile --platform android --scenarios purchase --package-id pkg_monthly --device emulator-5554 --format junit
+```
+
+Use `--bundle-id` for a custom iOS sample bundle id, `--android-app-id` for a custom Android application id, and `--timeout-seconds` to allow time for a manual store sheet interaction. The iOS command targets a booted Simulator by default; Android uses the selected ADB device. Purchase requires the matching StoreKit/Play sandbox product. The CLI reads the app-private report locally and returns JSON or JUnit; it does not create store transactions or run a device fleet.
 
 ## Apple sandbox and StoreKit Testing
 

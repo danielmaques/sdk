@@ -11,6 +11,8 @@ The Pushify Swift package uses StoreKit 2 and the first-party Pushify `/sdk/v1` 
 - A Pushify **public app key** for your app.
 - Associated Domains / Universal Links or a URL scheme configured by the host app if links should open the app. The SDK does not configure entitlements or app navigation.
 
+For a runnable native sandbox sample, see [iOS Purchase Test Lab](sample/README.md). It is developer-operated and requires StoreKit sandbox configuration for purchase flows.
+
 ## Add the Swift package
 
 The package has not been released to a public registry yet. For local development in Xcode, add the repository's `ios/` directory as a local Swift package. In Swift Package Manager, choose **Add Local…** and select `sdk/ios` (or use **File → Add Package Dependencies… → Add Local…**).
