@@ -175,3 +175,12 @@ PushifyDebugInspector(purchases: purchases)
 ```
 
 Preview the redacted JSON before sharing it. It includes the current platform retry-queue count and omits customer IDs, attributes, receipts, transaction IDs, purchase tokens, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
+
+Health telemetry is a separate explicit opt-in:
+
+```dart
+purchases.enableHealthTelemetry();
+final uploaded = await purchases.uploadHealthTelemetry();
+```
+
+The upload sends only allowlisted outcomes and aggregate counts. Network failures are ignored and do not affect purchases.

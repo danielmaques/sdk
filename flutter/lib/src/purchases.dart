@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 /// Error envelope raised by the Pushify purchase plugin.
 class PushifyException implements Exception {
@@ -39,10 +40,9 @@ class PushifyPurchaseResult {
 
 /// First-party Flutter client for customer state, StoreKit/Play purchases and Pushify app features.
 class PushifyPurchases {
-  PushifyPurchases({required String publicApiKey, Uri? apiBaseUrl, String? appVersion})
+  PushifyPurchases({required String publicApiKey, Uri? apiBaseUrl, this.appVersion})
     : _publicApiKey = publicApiKey.trim(),
-      _apiBaseUrl = apiBaseUrl ?? Uri.https('api.pushify.app', ''),
-      _appVersion = appVersion {
+      _apiBaseUrl = apiBaseUrl ?? Uri.https('api.pushify.app', '') {
     if (_publicApiKey.isEmpty ||
         _apiBaseUrl.scheme != 'https' ||
         _apiBaseUrl.host.isEmpty) {
@@ -54,10 +54,12 @@ class PushifyPurchases {
   static const EventChannel _events = EventChannel('app.pushify/customer-info');
   final String _publicApiKey;
   final Uri _apiBaseUrl;
-  final String? _appVersion;
+  final String? appVersion;
   bool _configured = false;
   bool _debugInspectorEnabled = false;
+  bool _healthTelemetryEnabled = false;
   final List<Map<String, Object?>> _diagnosticEvents = [];
+  final List<Map<String, String>> _pendingHealthEvents = [];
   Map<String, Object?>? _cachedInfo;
   Map<String, Object?>? _cachedCatalog;
   int? _retryQueueCount;
@@ -65,9 +67,48 @@ class PushifyPurchases {
   /// Enables a bounded in-memory debug log. Nothing is uploaded automatically.
   void enableDebugInspector({bool enabled = true}) => _debugInspectorEnabled = enabled;
 
+  /// Explicitly opts into capturing and uploading aggregate SDK health counters.
+  void enableHealthTelemetry({bool enabled = true}) {
+    _healthTelemetryEnabled = enabled;
+    if (!enabled) _pendingHealthEvents.clear();
+  }
+
+  /// Uploads an allowlisted aggregate report. Network errors never affect purchase flows.
+  Future<bool> uploadHealthTelemetry() async {
+    if (!_healthTelemetryEnabled) return false;
+    final batch = _pendingHealthEvents.take(100).toList(growable: false);
+    final events = batch.map((event) => {'name': event['name'], 'outcome': event['outcome']}).toList(growable: false);
+    final offerings = _cachedCatalog?['offerings'];
+    var missing = 0;
+    if (offerings is List) {
+      for (final offering in offerings.whereType<Map>()) {
+        final packages = offering['packages'];
+        if (packages is! List) continue;
+        for (final item in packages.whereType<Map>()) {
+          final product = item['product'];
+          if (product is Map && (product['localized_price'] is! String || (product['localized_price'] as String).isEmpty)) missing++;
+        }
+      }
+    }
+    final payload = {
+      'schema': 'pushify.sdk-diagnostics/v1', 'platform': 'flutter',
+      'app_environment': kReleaseMode ? 'production' : 'development',
+      'retry_queue_count': _retryQueueCount,
+      'store_product_lookup': {'missing_count': _cachedCatalog == null ? null : missing}, 'events': events,
+    };
+    try {
+      final response = await http.post(_apiBaseUrl.resolve('/v1/diagnostics'), headers: {
+        'Authorization': 'Bearer $_publicApiKey', 'X-Platform': 'flutter', 'Content-Type': 'application/json',
+      }, body: jsonEncode(payload)).timeout(const Duration(seconds: 5));
+      final uploaded = response.statusCode >= 200 && response.statusCode < 300;
+      if (uploaded) _pendingHealthEvents.removeRange(0, batch.length);
+      return uploaded;
+    } catch (_) { return false; }
+  }
+
   /// Refreshes the platform store's unfinished purchase count for the local inspector.
   Future<int?> refreshDebugRetryQueueCount() async {
-    if (!_debugInspectorEnabled) return null;
+    if (!_debugInspectorEnabled && !_healthTelemetryEnabled) return null;
     try {
       _retryQueueCount = await _invoke<int>('debugRetryQueueCount');
     } on PlatformException {
@@ -104,7 +145,7 @@ class PushifyPurchases {
     }
     return jsonEncode({
       'schema': 'pushify.sdk-diagnostics/v1', 'platform': 'flutter', 'api_host': _apiBaseUrl.host,
-      'sdk_version': '0.1.0', 'app_version': _appVersion, 'app_environment': kReleaseMode ? 'production' : 'development',
+      'sdk_version': '0.1.0', 'app_version': appVersion, 'app_environment': kReleaseMode ? 'production' : 'development',
       'customer_state': _cachedInfo == null ? 'not_loaded' : 'cached',
       'masked_public_key': masked,
       'cached_offering_count': (_cachedCatalog?['offerings'] as List?)?.length ?? 0,
@@ -142,12 +183,17 @@ class PushifyPurchases {
   }
 
   void _recordDiagnostic(String name, String outcome, bool retryable, String message) {
-    if (!_debugInspectorEnabled) return;
-    _diagnosticEvents.add({
+    if (!_debugInspectorEnabled && !_healthTelemetryEnabled) return;
+    final event = {
       'name': name, 'timestamp_ms': DateTime.now().toUtc().millisecondsSinceEpoch,
       'correlation_id': _eventId(), 'outcome': outcome, 'retryable': retryable, 'message': message,
-    });
+    };
+    _diagnosticEvents.add(event);
     if (_diagnosticEvents.length > 100) _diagnosticEvents.removeRange(0, _diagnosticEvents.length - 100);
+    if (_healthTelemetryEnabled && const {'offerings_requested', 'entitlement_sync_completed'}.contains(name) && const {'success', 'failure'}.contains(outcome)) {
+      _pendingHealthEvents.add({'name': name, 'outcome': outcome});
+      if (_pendingHealthEvents.length > 100) _pendingHealthEvents.removeRange(0, _pendingHealthEvents.length - 100);
+    }
   }
 
   /// Configures the native StoreKit 2 or Google Play Billing implementation.

@@ -185,6 +185,8 @@ public actor PushifyPurchases {
     private var cachedSnapshot: PushifyCustomerSnapshot?
     private var cachedOfferings: PushifyOfferings?
     private var debugInspectorEnabled = false
+    private var healthTelemetryEnabled = false
+    private var pendingHealthEvents: [PushifyDiagnosticEvent] = []
     private var diagnosticEvents: [PushifyDiagnosticEvent] = []
     private var cachedRetryQueueCount: Int?
     private var cachedStoreProductCount: Int?
@@ -241,6 +243,41 @@ public actor PushifyPurchases {
     /// Enables a bounded, in-memory diagnostics buffer for a developer-controlled debug session.
     public func enableDebugInspector(_ enabled: Bool = true) { debugInspectorEnabled = enabled }
 
+    /// Explicitly opts this app into capturing and uploading aggregate SDK health counters.
+    public func enableHealthTelemetry(_ enabled: Bool = true) {
+        healthTelemetryEnabled = enabled
+        if !enabled { pendingHealthEvents.removeAll() }
+    }
+
+    /// Uploads only allowlisted counters. Network and server failures are ignored so purchases are unaffected.
+    @discardableResult
+    public func uploadHealthTelemetry() async -> Bool {
+        guard healthTelemetryEnabled else { return false }
+        let batch = Array(pendingHealthEvents.prefix(100))
+        let events = batch.filter { ["offerings_requested", "entitlement_sync_completed"].contains($0.name) && ["success", "failure"].contains($0.outcome) }
+            .map { ["name": $0.name, "outcome": $0.outcome] }
+        let missing = cachedStoreProductMissingCount
+        let payload: [String: Any] = [
+            "schema": "pushify.sdk-diagnostics/v1", "platform": "ios", "app_environment": Self.diagnosticEnvironment,
+            "retry_queue_count": cachedRetryQueueCount as Any? ?? NSNull(),
+            "store_product_lookup": ["missing_count": missing as Any? ?? NSNull()], "events": events,
+        ]
+        guard let url = URL(string: "/v1/diagnostics", relativeTo: baseURL)?.absoluteURL,
+              let body = try? JSONSerialization.data(withJSONObject: payload) else { return false }
+        var request = URLRequest(url: url, timeoutInterval: 5)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("ios", forHTTPHeaderField: "X-Platform")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        do {
+            let (_, response) = try await session.data(for: request)
+            let uploaded = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+            if uploaded { pendingHealthEvents.removeFirst(min(batch.count, pendingHealthEvents.count)) }
+            return uploaded
+        } catch { return false }
+    }
+
     /// A redacted local export. Returns nil until the host app explicitly enables the inspector.
     public func debugExport() -> Data? {
         guard debugInspectorEnabled else { return nil }
@@ -289,7 +326,7 @@ public actor PushifyPurchases {
 
     /// Counts StoreKit transactions that are still unfinished without exposing their identifiers or proofs.
     public func debugRetryQueueCount() async -> Int? {
-        guard debugInspectorEnabled else { return nil }
+        guard debugInspectorEnabled || healthTelemetryEnabled else { return nil }
         var count = 0
         for await _ in Transaction.unfinished { count += 1 }
         cachedRetryQueueCount = count
@@ -297,9 +334,14 @@ public actor PushifyPurchases {
     }
 
     private func recordDiagnostic(_ name: String, outcome: String, retryable: Bool, message: String) {
-        guard debugInspectorEnabled else { return }
-        diagnosticEvents.append(PushifyDiagnosticEvent(name: name, timestamp: Date(), correlationId: UUID().uuidString, outcome: outcome, retryable: retryable, message: message))
+        guard debugInspectorEnabled || healthTelemetryEnabled else { return }
+        let event = PushifyDiagnosticEvent(name: name, timestamp: Date(), correlationId: UUID().uuidString, outcome: outcome, retryable: retryable, message: message)
+        diagnosticEvents.append(event)
         if diagnosticEvents.count > 100 { diagnosticEvents.removeFirst(diagnosticEvents.count - 100) }
+        if healthTelemetryEnabled && ["success", "failure"].contains(outcome) {
+            pendingHealthEvents.append(event)
+            if pendingHealthEvents.count > 100 { pendingHealthEvents.removeFirst(pendingHealthEvents.count - 100) }
+        }
     }
 
     public func offerings(placement: String? = nil) async throws -> PushifyOfferings {

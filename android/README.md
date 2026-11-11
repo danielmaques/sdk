@@ -232,3 +232,12 @@ val inspector = PushifyDebugInspectorView(context, purchases)
 ```
 
 Review the redacted JSON before sharing it. It includes the count of purchased, unacknowledged Play purchases and omits customer IDs, attributes, receipts, purchase tokens, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
+
+Health telemetry is separate and disabled by default. Opt in and request an aggregate upload from a developer-controlled flow:
+
+```kotlin
+purchases.enableHealthTelemetry()
+purchases.uploadHealthTelemetry { result -> /* result.getOrDefault(false) */ }
+```
+
+Only allowlisted outcomes and aggregate counts are sent. Upload failures are best-effort and do not affect purchases.

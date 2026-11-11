@@ -54,11 +54,13 @@ public class PushifyPurchases(
     private var lastSnapshot: JSONObject? = readCachedSnapshot()
     private var lastOfferings: JSONObject? = readCachedOfferings()
     @Volatile private var debugInspectorEnabled: Boolean = false
+    @Volatile private var healthTelemetryEnabled: Boolean = false
     @Volatile private var cachedRetryQueueCount: Int? = null
     @Volatile private var cachedStoreProductCount: Int? = null
     @Volatile private var cachedStoreProductMissingCount: Int? = null
     @Volatile private var cachedStoreProductLookupChecked = false
     private val diagnosticEvents = ArrayDeque<JSONObject>()
+    private val pendingHealthEvents = ArrayDeque<JSONObject>()
     private val diagnosticLock = Any()
     private val customerInfoListeners = CopyOnWriteArraySet<CustomerInfoListener>()
     private var pendingPurchaseCompletion: ((Result<PurchaseOutcome>) -> Unit)? = null
@@ -373,6 +375,49 @@ public class PushifyPurchases(
     /** Enables bounded, in-memory diagnostics for a developer-controlled debug session. */
     public fun enableDebugInspector(enabled: Boolean = true) { debugInspectorEnabled = enabled }
 
+    /** Explicitly opts this app into capturing and uploading aggregate SDK health counters. */
+    public fun enableHealthTelemetry(enabled: Boolean = true) {
+        healthTelemetryEnabled = enabled
+        if (!enabled) synchronized(diagnosticLock) { pendingHealthEvents.clear() }
+    }
+
+    /** Uploads only allowlisted counters; failures are ignored and never affect purchase flows. */
+    public fun uploadHealthTelemetry(completion: (Result<Boolean>) -> Unit = {}) {
+        if (!healthTelemetryEnabled) { post(completion, Result.success(false)); return }
+        var batchSize = 0
+        val payload = synchronized(diagnosticLock) {
+            val events = JSONArray()
+            val batch = pendingHealthEvents.take(100)
+            batchSize = batch.size
+            batch.filter {
+                it.optString("name") in setOf("offerings_requested", "entitlement_sync_completed") && it.optString("outcome") in setOf("success", "failure")
+            }.forEach { events.put(JSONObject().put("name", it.optString("name")).put("outcome", it.optString("outcome"))) }
+            JSONObject().put("schema", "pushify.sdk-diagnostics/v1").put("platform", "android")
+                .put("app_environment", if (appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) "development" else "production")
+                .put("retry_queue_count", cachedRetryQueueCount ?: JSONObject.NULL)
+                .put("store_product_lookup", JSONObject().put("missing_count", cachedStoreProductMissingCount ?: JSONObject.NULL))
+                .put("events", events)
+        }
+        executor.execute {
+            val uploaded = runCatching {
+                val connection = (URL("$endpoint/v1/diagnostics").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"; connectTimeout = 5_000; readTimeout = 5_000; doOutput = true
+                    setRequestProperty("Authorization", "Bearer $publicApiKey")
+                    setRequestProperty("X-Platform", "android")
+                    setRequestProperty("Content-Type", "application/json")
+                }
+                try {
+                    connection.outputStream.use { it.write(payload.toString().toByteArray(StandardCharsets.UTF_8)) }
+                    connection.responseCode in 200..299
+                } finally { connection.disconnect() }
+            }.getOrDefault(false)
+            if (uploaded) synchronized(diagnosticLock) {
+                repeat(minOf(batchSize, pendingHealthEvents.size)) { pendingHealthEvents.removeFirst() }
+            }
+            post(completion, Result.success(uploaded))
+        }
+    }
+
     /** Redacted local export; no customer ids, attributes, receipt data, request paths, or response bodies. */
     public fun debugExport(): JSONObject? {
         if (!debugInspectorEnabled) return null
@@ -423,7 +468,7 @@ public class PushifyPurchases(
 
     /** Counts Play purchases awaiting acknowledgement without exposing purchase tokens. */
     public fun debugRetryQueueCount(completion: (Int?) -> Unit) {
-        if (!debugInspectorEnabled || !billing.isReady) { main.post { completion(null) }; return }
+        if ((!debugInspectorEnabled && !healthTelemetryEnabled) || !billing.isReady) { main.post { completion(null) }; return }
         val found = mutableListOf<Purchase>()
         var remaining = 2
         var failed = false
@@ -446,13 +491,18 @@ public class PushifyPurchases(
     private fun maskPublicKey(key: String): String = if (key.length > 10) "${key.take(6)}…${key.takeLast(4)}" else "••••"
 
     private fun recordDiagnostic(name: String, success: Boolean, retryable: Boolean, message: String) {
-        if (!debugInspectorEnabled) return
+        if (!debugInspectorEnabled && !healthTelemetryEnabled) return
         val row = JSONObject().put("name", name).put("timestamp_ms", System.currentTimeMillis())
             .put("correlation_id", UUID.randomUUID().toString()).put("outcome", if (success) "success" else "failure")
             .put("retryable", retryable).put("message", message)
         synchronized(diagnosticLock) {
             diagnosticEvents.addLast(row)
             while (diagnosticEvents.size > 100) diagnosticEvents.removeFirst()
+            val outcome = if (success) "success" else "failure"
+            if (healthTelemetryEnabled && name in setOf("offerings_requested", "entitlement_sync_completed")) {
+                pendingHealthEvents.addLast(JSONObject().put("name", name).put("outcome", outcome))
+                while (pendingHealthEvents.size > 100) pendingHealthEvents.removeFirst()
+            }
         }
     }
 

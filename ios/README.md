@@ -187,3 +187,12 @@ PushifyDebugInspector(purchases: purchases)
 ```
 
 The export includes the current StoreKit unfinished-transaction count and omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
+
+Health telemetry is a separate explicit opt-in. After the host app has collected diagnostics, it can send aggregate counters:
+
+```swift
+await purchases.enableHealthTelemetry()
+let uploaded = await purchases.uploadHealthTelemetry()
+```
+
+The upload contains only allowlisted outcomes and aggregate counts; failures are best-effort and do not affect purchases.

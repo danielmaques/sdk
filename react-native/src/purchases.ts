@@ -85,7 +85,9 @@ const emitter = native ? new NativeEventEmitter(NativeModules.PushifyPurchases) 
 export class PushifyPurchases {
   private readonly options: PushifyPurchasesOptions;
   private diagnosticsEnabled = false;
+  private healthTelemetryEnabled = false;
   private diagnosticEvents: Array<{ name: string; timestamp_ms: number; correlation_id: string; outcome: string; retryable: boolean; message: string }> = [];
+  private pendingHealthEvents: Array<{ name: string; outcome: string }> = [];
   private cachedInfo: PushifyCustomerInfo | null = null;
   private cachedCatalog: PushifyOfferings | null = null;
   private retryQueueCount: number | null = null;
@@ -108,9 +110,35 @@ export class PushifyPurchases {
   /** Enables an opt-in, bounded in-memory event buffer for local debugging. */
   enableDebugInspector(enabled = true): void { this.diagnosticsEnabled = enabled; }
 
+  /** Explicitly opts into capturing and uploading aggregate SDK health counters. */
+  enableHealthTelemetry(enabled = true): void {
+    this.healthTelemetryEnabled = enabled;
+    if (!enabled) this.pendingHealthEvents = [];
+  }
+
+  /** Uploads only allowlisted aggregate counters; failures never affect purchase flows. */
+  async uploadHealthTelemetry(): Promise<boolean> {
+    if (!this.healthTelemetryEnabled) return false;
+    const productIds = [...new Set(this.cachedCatalog?.offerings.flatMap((offering) => offering.packages.map((item) => item.product.product_id)) ?? [])];
+    const resolved = new Set(this.cachedCatalog?.offerings.flatMap((offering) => offering.packages)
+      .filter((item) => typeof item.product.localized_price === 'string' && item.product.localized_price.length > 0)
+      .map((item) => item.product.product_id) ?? []);
+    const batch = this.pendingHealthEvents.slice(0, 100);
+    const events = batch.map(({ name, outcome }) => ({ name, outcome }));
+    try {
+      const response = await fetch(`${this.options.apiBaseUrl}/v1/diagnostics`, {
+        method: 'POST', headers: { Authorization: `Bearer ${this.options.publicApiKey}`, 'X-Platform': 'react-native', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schema: 'pushify.sdk-diagnostics/v1', platform: 'react-native', app_environment: __DEV__ ? 'development' : 'production',
+          retry_queue_count: this.retryQueueCount, store_product_lookup: { missing_count: this.cachedCatalog ? productIds.filter((id) => !resolved.has(id)).length : null }, events }),
+      });
+      if (response.ok) this.pendingHealthEvents.splice(0, batch.length);
+      return response.ok;
+    } catch { return false; }
+  }
+
   /** Refreshes the platform store's unfinished purchase count for the local inspector. */
   async refreshDebugRetryQueueCount(): Promise<number | null> {
-    if (!this.diagnosticsEnabled) return null;
+    if (!this.diagnosticsEnabled && !this.healthTelemetryEnabled) return null;
     try { this.retryQueueCount = await this.requireNative().debugRetryQueueCount(); }
     catch { this.retryQueueCount = null; }
     return this.retryQueueCount;
@@ -193,9 +221,13 @@ export class PushifyPurchases {
   }
 
   private recordDiagnostic(name: string, outcome: string, retryable: boolean, message: string): void {
-    if (!this.diagnosticsEnabled) return;
+    if (!this.diagnosticsEnabled && !this.healthTelemetryEnabled) return;
     this.diagnosticEvents.push({ name, timestamp_ms: Date.now(), correlation_id: createEventId(), outcome, retryable, message });
     if (this.diagnosticEvents.length > 100) this.diagnosticEvents.splice(0, this.diagnosticEvents.length - 100);
+    if (this.healthTelemetryEnabled && ['offerings_requested', 'entitlement_sync_completed'].includes(name) && ['success', 'failure'].includes(outcome)) {
+      this.pendingHealthEvents.push({ name, outcome });
+      if (this.pendingHealthEvents.length > 100) this.pendingHealthEvents.splice(0, this.pendingHealthEvents.length - 100);
+    }
   }
 
   logEvent(name: string, properties: Record<string, unknown> = {}, eventId = createEventId()): Promise<number> {
