@@ -172,8 +172,8 @@ For the shared attribution contract and privacy behavior, see [Acquisition links
 Diagnostics are off by default, bounded in memory, and never uploaded:
 
 ```ts
-purchases.enableDebugInspector();
-const report = purchases.debugExport();
+// Render on a developer-only diagnostics screen.
+<PushifyDebugInspector purchases={purchases} />
 ```
 
 Preview the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

@@ -15,3 +15,5 @@ export {
 } from './purchases';
 export { PushifyPaywallView, type PushifyPaywallProps } from './Paywall';
 export { PushifyCustomerCenterView, type PushifyCustomerCenterProps } from './CustomerCenter';
+
+export { PushifyDebugInspector, type PushifyDebugInspectorProps } from './DebugInspector';

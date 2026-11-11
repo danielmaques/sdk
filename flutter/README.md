@@ -170,8 +170,8 @@ For the shared attribution contract and privacy behavior, see [Acquisition links
 Diagnostics are disabled by default, held in a bounded memory buffer, and never uploaded:
 
 ```dart
-purchases.enableDebugInspector();
-final report = purchases.debugExport();
+// Place this widget on a developer-only diagnostics screen.
+PushifyDebugInspector(purchases: purchases)
 ```
 
 Preview the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

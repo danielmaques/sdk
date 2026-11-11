@@ -1,0 +1,24 @@
+import * as React from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { PushifyPurchases } from './purchases';
+
+export type PushifyDebugInspectorProps = { purchases: PushifyPurchases };
+
+/** Opt-in local inspector with a preview and copy-ready redacted JSON bundle. */
+export function PushifyDebugInspector({ purchases }: PushifyDebugInspectorProps): React.ReactElement {
+  const [report, setReport] = React.useState('Enable diagnostics to collect a local support bundle.');
+  const [expanded, setExpanded] = React.useState(false);
+  React.useEffect(() => {
+    purchases.enableDebugInspector(true);
+    return () => purchases.enableDebugInspector(false);
+  }, [purchases]);
+  const refresh = () => setReport(purchases.debugExport() ?? 'No diagnostic report is available.');
+  return React.createElement(View, { style: { borderWidth: 1, borderColor: '#888', borderRadius: 8, padding: 16, gap: 8 } },
+    React.createElement(Pressable, { accessibilityRole: 'button', onPress: () => { setExpanded((value) => !value); refresh(); } },
+      React.createElement(Text, { style: { fontSize: 18, fontWeight: '600' } }, expanded ? 'Hide Pushify diagnostics' : 'Show Pushify diagnostics')),
+    expanded ? React.createElement(React.Fragment, null,
+      React.createElement(Text, null, 'Stored on this device. Nothing is uploaded automatically.'),
+      React.createElement(Pressable, { accessibilityRole: 'button', onPress: refresh }, React.createElement(Text, null, 'Refresh')),
+      React.createElement(ScrollView, { style: { maxHeight: 280 } },
+        React.createElement(Text, { selectable: true, style: { fontFamily: 'monospace', fontSize: 12 } }, report))) : null);
+}

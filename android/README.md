@@ -225,8 +225,8 @@ For the shared attribution contract and privacy behavior, see [Acquisition links
 Diagnostics are disabled by default, buffered in memory, and never uploaded:
 
 ```kotlin
-purchases.enableDebugInspector()
-val report = purchases.debugExport()?.toString(2)
+// Embed this view in a developer-only diagnostics screen.
+val inspector = PushifyDebugInspectorView(context, purchases)
 ```
 
 Review the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

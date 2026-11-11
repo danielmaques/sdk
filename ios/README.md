@@ -181,9 +181,7 @@ Diagnostics are off by default, remain in memory, and are never uploaded. Enable
 
 ```swift
 await purchases.enableDebugInspector()
-if let data = await purchases.debugExport(), let report = String(data: data, encoding: .utf8) {
-    print(report)
-}
+PushifyDebugInspector(purchases: purchases)
 ```
 
 The export omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
