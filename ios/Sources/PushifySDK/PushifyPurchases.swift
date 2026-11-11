@@ -246,7 +246,7 @@ public actor PushifyPurchases {
         guard debugInspectorEnabled else { return nil }
         let key = Array(apiKey)
         let maskedKey = key.count > 10 ? String(key.prefix(6)) + "…" + String(key.suffix(4)) : "••••"
-        let products = cachedOfferings?.offerings.flatMap(\.packages).map { $0.product.productId } ?? []
+        let products = Array(Set(cachedOfferings?.offerings.flatMap(\.packages).map { $0.product.productId } ?? [])).sorted()
         let entries = diagnosticEvents.map { event in
             ["name": event.name, "timestamp_ms": Int64(event.timestamp.timeIntervalSince1970 * 1000), "correlation_id": event.correlationId,
              "outcome": event.outcome, "retryable": event.retryable, "message": event.message] as [String: Any]

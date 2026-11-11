@@ -104,7 +104,7 @@ class PushifyPurchases {
     }
     return jsonEncode({
       'schema': 'pushify.sdk-diagnostics/v1', 'platform': 'flutter', 'api_host': _apiBaseUrl.host,
-      'sdk_version': '0.1.0', 'app_version': _appVersion, 'app_environment': kDebugMode ? 'development' : 'production',
+      'sdk_version': '0.1.0', 'app_version': _appVersion, 'app_environment': kReleaseMode ? 'production' : 'development',
       'customer_state': _cachedInfo == null ? 'not_loaded' : 'cached',
       'masked_public_key': masked,
       'cached_offering_count': (_cachedCatalog?['offerings'] as List?)?.length ?? 0,

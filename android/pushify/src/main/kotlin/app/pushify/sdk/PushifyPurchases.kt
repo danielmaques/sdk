@@ -377,14 +377,15 @@ public class PushifyPurchases(
     public fun debugExport(): JSONObject? {
         if (!debugInspectorEnabled) return null
         val offerings = lastOfferings?.optJSONArray("offerings") ?: JSONArray()
-        val products = JSONArray()
+        val productIds = sortedSetOf<String>()
         for (i in 0 until offerings.length()) {
             val packages = offerings.optJSONObject(i)?.optJSONArray("packages") ?: continue
             for (j in 0 until packages.length()) {
                 val id = packages.optJSONObject(j)?.optJSONObject("product")?.optString("product_id")
-                if (!id.isNullOrBlank() && id != "null") products.put(id)
+                if (!id.isNullOrBlank() && id != "null") productIds.add(id)
             }
         }
+        val products = JSONArray().also { array -> productIds.forEach { array.put(it) } }
         val active = lastSnapshot?.optJSONObject("entitlements")?.optJSONObject("active")?.length() ?: 0
         val events = JSONArray()
         val retryableFailureCount = synchronized(diagnosticLock) {
