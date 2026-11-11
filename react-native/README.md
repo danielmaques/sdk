@@ -177,7 +177,7 @@ Diagnostics are off by default, bounded in memory, and never uploaded:
 <PushifyDebugInspector purchases={purchases} />
 ```
 
-Preview the redacted JSON before sharing it. It includes the current platform retry-queue count and omits customer IDs, attributes, receipts, transaction IDs, purchase tokens, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
+Preview the redacted JSON before sharing it. Tap **Share support report** to open the native share sheet. The export includes the current platform retry-queue count and omits customer IDs, attributes, receipts, transaction IDs, purchase tokens, request paths and server response bodies. Nothing is shared automatically. See the [shared diagnostics contract](../DIAGNOSTICS.md).
 
 Health telemetry is a separate explicit opt-in:
 
@@ -190,7 +190,7 @@ The upload sends only allowlisted outcomes and aggregate counts. Network failure
 
 ## Purchase Test Lab
 
-Render the local runner on a developer-only screen after `configure()`. It exercises the host's StoreKit/Play Billing sandbox for offerings, purchase, restore and entitlement refresh. The session report stays in memory on the screen, includes safe SDK correlation IDs, and is selectable for copying; it is never uploaded automatically.
+Render the local runner on a developer-only screen after `configure()`. It exercises the host's StoreKit/Play Billing sandbox for offerings, purchase, restore and entitlement refresh. The session report stays in memory on the screen, includes safe SDK correlation IDs, can be shared from the native share sheet after an explicit tap, and is never uploaded automatically.
 
 ```tsx
 import { PushifyPurchaseTestLab } from '@pushify/purchases';

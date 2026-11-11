@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { PushifyPurchases, type PushifyOfferings, type PushifyPurchaseResult } from './purchases';
 
 type OperationName = 'offerings_refresh' | 'purchase' | 'restore' | 'entitlement_refresh';
@@ -66,8 +66,17 @@ export function PushifyPurchaseTestLab({ purchases }: PushifyPurchaseTestLabProp
   const restore = () => run('restore', async () => { await purchases.restorePurchases(); return 'passed'; });
   const refreshEntitlements = () => run('entitlement_refresh', async () => { await purchases.syncPurchases(); return 'passed'; });
   const purchase = (packageId: string) => run('purchase', () => purchases.purchase(packageId));
+  const shareReport = async () => {
+    try {
+      await Share.share({ title: 'Pushify mobile test report', message: report });
+    } catch {
+      if (mounted.current) setError('The report could not be shared. Its contents remain on this screen.');
+    }
+  };
   const report = JSON.stringify({
-    schema: 'pushify.mobile-test-run/v1', run_id: runId, platform: Platform.OS, environment: __DEV__ ? 'development' : 'production', operations,
+    schema: 'pushify.mobile-test-run/v1', run_id: runId, platform: Platform.OS,
+    environment: Platform.OS === 'ios' ? 'storekit_sandbox' : 'play_sandbox',
+    app_environment: __DEV__ ? 'development' : 'production', operations,
   }, null, 2);
 
   const button = (label: string, onPress: () => void, key?: string) => React.createElement(Pressable, {
@@ -93,6 +102,7 @@ export function PushifyPurchaseTestLab({ purchases }: PushifyPurchaseTestLabProp
     React.createElement(Text, { accessibilityRole: 'header', style: { fontWeight: '600' } }, `Run report · ${operations.length} operation(s)`),
     React.createElement(ScrollView, { style: { maxHeight: 240 } },
       React.createElement(Text, { selectable: true, style: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12 } }, report)),
+    button('Share run report', () => { void shareReport(); }),
     button('Clear session report', () => setOperations([])),
   );
 }

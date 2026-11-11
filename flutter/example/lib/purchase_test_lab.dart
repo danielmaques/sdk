@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pushify_purchases/pushify_purchases.dart';
 
 /// Developer-operated StoreKit / Play Billing runner for the example app.
@@ -17,7 +19,26 @@ class _PurchaseTestLabState extends State<PurchaseTestLab> {
   Map<String, Object?>? _catalog;
   final List<Map<String, Object?>> _results = [];
   bool _busy = false;
+  bool _copied = false;
   String? _error;
+  late final String _runId = 'flutter-${DateTime.now().toUtc().microsecondsSinceEpoch}';
+
+  String get _platform => Platform.isIOS ? 'ios' : 'android';
+  String get _environment => Platform.isIOS ? 'storekit_sandbox' : 'play_sandbox';
+
+  @override
+  void dispose() {
+    widget.purchases.enableDebugInspector(enabled: false);
+    super.dispose();
+  }
+
+  String get _report => const JsonEncoder.withIndent('  ').convert({
+        'schema': 'pushify.mobile-test-run/v1',
+        'run_id': _runId,
+        'environment': _environment,
+        'platform': _platform,
+        'operations': _results,
+      });
 
   Future<void> _loadOfferings() async {
     setState(() { _busy = true; _error = null; });
@@ -65,11 +86,28 @@ class _PurchaseTestLabState extends State<PurchaseTestLab> {
 
   void _record(String scenario, String outcome) {
     if (!mounted) return;
-    setState(() => _results.insert(0, {
-      'scenario': scenario,
-      'outcome': outcome,
-      'occurred_at': DateTime.now().toUtc().toIso8601String(),
-    }));
+    final status = switch (outcome) {
+      'pending' => 'pending',
+      'cancelled' => 'cancelled',
+      'failed' => 'failed',
+      _ => 'passed',
+    };
+    setState(() {
+      _results.insert(0, {
+        'scenario': scenario,
+        'status': status,
+        'outcome': outcome,
+        'occurred_at': DateTime.now().toUtc().toIso8601String(),
+        'correlation_ids': purchaseTestCorrelationIds(widget.purchases.debugExport()),
+      });
+      if (_results.length > 50) _results.removeRange(50, _results.length);
+      _copied = false;
+    });
+  }
+
+  Future<void> _copyReport() async {
+    await Clipboard.setData(ClipboardData(text: _report));
+    if (mounted) setState(() => _copied = true);
   }
 
   List<Map<String, Object?>> get _packages {
@@ -85,6 +123,7 @@ class _PurchaseTestLabState extends State<PurchaseTestLab> {
   @override
   void initState() {
     super.initState();
+    widget.purchases.enableDebugInspector();
     _loadOfferings();
   }
 
@@ -116,8 +155,32 @@ class _PurchaseTestLabState extends State<PurchaseTestLab> {
               ),
             ),
           const Divider(),
-          Row(children: [Expanded(child: Text('Run history', style: Theme.of(context).textTheme.titleMedium)), TextButton(onPressed: () => setState(_results.clear), child: const Text('Clear'))]),
-          SelectableText(const JsonEncoder.withIndent('  ').convert({'schema': 'pushify.mobile-test-run/v1', 'results': _results}), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          Row(children: [
+            Expanded(child: Text('Run history', style: Theme.of(context).textTheme.titleMedium)),
+            TextButton(onPressed: _copyReport, child: Text(_copied ? 'Copied' : 'Copy report')),
+            TextButton(onPressed: () => setState(() { _results.clear(); _copied = false; }), child: const Text('Clear')),
+          ]),
+          SelectableText(_report, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
         ],
       );
+}
+
+/// Extracts only UUID correlation IDs from the already-redacted SDK debug export.
+List<String> purchaseTestCorrelationIds(String? debugExport) {
+  if (debugExport == null) return const [];
+  try {
+    final decoded = jsonDecode(debugExport);
+    if (decoded is! Map || decoded['events'] is! List) return const [];
+    return (decoded['events'] as List)
+        .whereType<Map>()
+        .map((event) => event['correlation_id'])
+        .whereType<String>()
+        .where((id) => RegExp(r'^[0-9a-f-]{36}$', caseSensitive: false).hasMatch(id))
+        .toList(growable: false)
+        .reversed
+        .take(20)
+        .toList(growable: false);
+  } on FormatException {
+    return const [];
+  }
 }

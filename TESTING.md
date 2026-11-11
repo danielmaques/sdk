@@ -22,7 +22,7 @@ The JSON report uses `pushify.purchase-test-report/v1`; JUnit exits with code 1 
 
 ### Native sample runners
 
-The Flutter, Android and iOS samples provide developer-operated StoreKit/Play Billing flows for offerings, purchase, restore and entitlement refresh. Setup and manual runner commands are documented in [`android/sample/README.md`](android/sample/README.md) and [`ios/sample/README.md`](ios/sample/README.md). Native samples write a session-local `pushify.mobile-test-run/v1` report with SDK correlation IDs and without customer identifiers, transaction identifiers or purchase tokens. `pushify test mobile` launches the installed Android/iOS sample, collects that local report, and emits JSON/JUnit.
+The Flutter, React Native, Android and iOS sample runners provide developer-operated StoreKit/Play Billing flows for offerings, purchase, restore and entitlement refresh. Flutter and React Native keep a bounded `pushify.mobile-test-run/v1` report in memory and expose explicit copy/share actions; native iOS/Android samples persist their redacted report locally. Reports include safe SDK correlation IDs and omit customer identifiers, transaction identifiers and purchase tokens. `pushify test mobile` currently launches and collects the installed native Android/iOS sample, then emits JSON/JUnit.
 
 The local CLI bridge is available for an already installed, developer-operated sample app:
 
