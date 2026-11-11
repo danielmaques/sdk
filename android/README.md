@@ -9,6 +9,8 @@ The Pushify Android package is an original Kotlin library using Google Play Bill
 - Android API 23 or newer.
 - Kotlin and Android Gradle Plugin versions supported by your app.
 - A Pushify **public app key** for the app in your Pushify project.
+
+For a runnable native sandbox sample, see [Android Purchase Test Lab](sample/README.md). It is developer-operated and requires the relevant Google Play sandbox setup for purchase flows.
 - HTTPS App Links / intent-filter configuration in your app if you want Android to open your app from a web link. The SDK does not configure your domain or navigation routes.
 
 ## Add the library

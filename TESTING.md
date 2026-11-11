@@ -20,6 +20,10 @@ Set `REVENUEDOT_API_KEY` in the CI secret store, or run interactively and enter 
 
 The JSON report uses `pushify.purchase-test-report/v1`; JUnit exits with code 1 when any requested scenario fails. Test Store scenarios use the same purchase, event, entitlement, and webhook pipeline as ordinary simulated purchases. This runner exercises the server lifecycle; it does not launch a mobile app or claim that StoreKit / Play Billing was invoked.
 
+### Native sample runners
+
+The Flutter example and Android sample provide developer-operated StoreKit/Play Billing flows for offerings, purchase, restore and entitlement refresh. Android build/setup and manual ADB intents are documented in [`android/sample/README.md`](android/sample/README.md). The Android app writes a session-local `pushify.mobile-test-run/v1` report with SDK correlation IDs and without customer identifiers or purchase tokens. The CLI does not yet launch or attach to either sample, and iOS has no standalone native sample app yet.
+
 ## Apple sandbox and StoreKit Testing
 
 These are developer-operated store tests. Create an App Store Connect sandbox tester and use a sandbox-signed app with matching bundle ID and product identifiers. For local StoreKit Testing, attach an Xcode StoreKit configuration file to the scheme and select the intended product and renewal behavior. Install on a device or simulator configured for the selected flow, make the purchase in the native sheet, then verify the SDK customer snapshot, Customer Access Trace, store notification health, and webhook delivery. Apple controls sandbox accounts and transaction timing; Pushify cannot create these transactions remotely.
