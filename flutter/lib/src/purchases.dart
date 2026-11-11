@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/services.dart';
@@ -52,20 +53,72 @@ class PushifyPurchases {
   final String _publicApiKey;
   final Uri _apiBaseUrl;
   bool _configured = false;
+  bool _debugInspectorEnabled = false;
+  final List<Map<String, Object?>> _diagnosticEvents = [];
+  Map<String, Object?>? _cachedInfo;
+  Map<String, Object?>? _cachedCatalog;
+
+  /// Enables a bounded in-memory debug log. Nothing is uploaded automatically.
+  void enableDebugInspector({bool enabled = true}) => _debugInspectorEnabled = enabled;
+
+  /// Redacted JSON export; null until the host app explicitly enables diagnostics.
+  String? debugExport() {
+    if (!_debugInspectorEnabled) return null;
+    final key = _publicApiKey;
+    final masked = key.length > 10 ? '${key.substring(0, 6)}…${key.substring(key.length - 4)}' : '••••';
+    final entitlements = _cachedInfo?['entitlements'];
+    final active = entitlements is Map ? entitlements['active'] : null;
+    final offerings = _cachedCatalog?['offerings'];
+    final products = <String>[];
+    if (offerings is List) {
+      for (final offering in offerings.whereType<Map>()) {
+        final packages = offering['packages'];
+        if (packages is! List) continue;
+        for (final item in packages.whereType<Map>()) {
+          final product = item['product'];
+          if (product is Map && product['product_id'] is String) products.add(product['product_id'] as String);
+        }
+      }
+    }
+    return jsonEncode({
+      'schema': 'pushify.sdk-diagnostics/v1', 'platform': 'flutter', 'api_host': _apiBaseUrl.host,
+      'masked_public_key': masked,
+      'cached_offering_count': (_cachedCatalog?['offerings'] as List?)?.length ?? 0,
+      'cached_product_ids': products.toSet().toList()..sort(), 'active_entitlement_count': active is List ? active.length : active is Map ? active.length : 0,
+      'events': List<Map<String, Object?>>.unmodifiable(_diagnosticEvents),
+    });
+  }
+
+  Future<T> _debugged<T>(String name, Future<T> Function() operation, String message) async {
+    try { final value = await operation(); _recordDiagnostic(name, 'success', false, message); return value; }
+    catch (_) { _recordDiagnostic('request_failed', 'failure', true, 'SDK operation failed; response details are omitted.'); rethrow; }
+  }
+
+  void _recordDiagnostic(String name, String outcome, bool retryable, String message) {
+    if (!_debugInspectorEnabled) return;
+    _diagnosticEvents.add({
+      'name': name, 'timestamp_ms': DateTime.now().toUtc().millisecondsSinceEpoch,
+      'correlation_id': _eventId(), 'outcome': outcome, 'retryable': retryable, 'message': message,
+    });
+    if (_diagnosticEvents.length > 100) _diagnosticEvents.removeRange(0, _diagnosticEvents.length - 100);
+  }
 
   /// Configures the native StoreKit 2 or Google Play Billing implementation.
   Future<Map<String, Object?>?> configure() async {
-    final value = await _invoke<Map<Object?, Object?>>('configure', {
+    final value = await _debugged('sdk_configured', () => _invoke<Map<Object?, Object?>>('configure', {
       'publicApiKey': _publicApiKey,
       'apiBaseUrl': _apiBaseUrl.toString().replaceFirst(RegExp(r'/$'), ''),
-    });
+    }), 'SDK configured.');
     _configured = true;
-    return value == null ? null : _stringMap(value);
+    _cachedInfo = value == null ? null : _stringMap(value);
+    return _cachedInfo;
   }
 
   /// Returns the current server snapshot.
-  Future<Map<String, Object?>> customerInfo() async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('customerInfo'));
+  Future<Map<String, Object?>> customerInfo() async {
+    final info = _requireMap(await _debugged('customer_info_requested', () => _invoke<Map<Object?, Object?>>('customerInfo'), 'Customer state synchronized.'));
+    _cachedInfo = info; return info;
+  }
 
   /// Returns the last server-verified snapshot saved on this device, if available.
   Future<Map<String, Object?>?> cachedCustomerInfo() async {
@@ -75,11 +128,13 @@ class PushifyPurchases {
 
   /// Gets current offerings and published paywall documents for this app.
   Future<Map<String, Object?>> offerings({String? placement}) async =>
-      _requireMap(
-        await _invoke<Map<Object?, Object?>>('offerings', {
+      _cacheOfferings(_requireMap(
+        await _debugged('offerings_requested', () => _invoke<Map<Object?, Object?>>('offerings', {
           ..._optionalField('placement', placement),
-        }),
-      );
+        }), 'Offerings request completed.'),
+      ));
+
+  Map<String, Object?> _cacheOfferings(Map<String, Object?> offerings) { _cachedCatalog = offerings; return offerings; }
 
   /// Loads the published localized Customer Center configuration.
   Future<Map<String, Object?>> customerCenter({String? locale}) async =>
@@ -130,25 +185,37 @@ class PushifyPurchases {
 
   /// Starts the native Apple or Google purchase flow for an offering package ID.
   Future<PushifyPurchaseResult> purchase(String packageId) async {
-    final value = await _invoke<Map<Object?, Object?>>('purchase', {
-      'packageId': packageId,
-    });
-    if (value == null) {
-      throw const PushifyException(
-        'invalid_response',
-        'The store returned no purchase result.',
-      );
+    _recordDiagnostic('purchase_started', 'started', false, 'Store purchase flow started.');
+    try {
+      final value = await _invoke<Map<Object?, Object?>>('purchase', {'packageId': packageId});
+      if (value == null) throw const PushifyException('invalid_response', 'The store returned no purchase result.');
+      final result = PushifyPurchaseResult.fromMap(value);
+      if (result.customerInfo != null) _cachedInfo = result.customerInfo;
+      final outcome = result.isPending ? 'pending' : result.isCancelled ? 'cancelled' : result.isPurchased ? 'success' : 'failure';
+      _recordDiagnostic('purchase_completed', outcome, false, switch (outcome) {
+        'pending' => 'Store purchase is pending approval.',
+        'cancelled' => 'Store purchase was cancelled.',
+        'success' => 'Store purchase flow completed.',
+        _ => 'Store purchase returned an unsupported result.',
+      });
+      return result;
+    } catch (_) {
+      _recordDiagnostic('request_failed', 'failure', true, 'SDK operation failed; response details are omitted.');
+      rethrow;
     }
-    return PushifyPurchaseResult.fromMap(value);
   }
 
   /// Restores store purchases and synchronizes verified customer state.
-  Future<Map<String, Object?>> restorePurchases() async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('restorePurchases'));
+  Future<Map<String, Object?>> restorePurchases() async {
+    final info = _requireMap(await _debugged('restore_completed', () => _invoke<Map<Object?, Object?>>('restorePurchases'), 'Restore completed.'));
+    _cachedInfo = info; return info;
+  }
 
   /// Reconciles current store ownership without presenting a purchase UI.
-  Future<Map<String, Object?>> syncPurchases() async =>
-      _requireMap(await _invoke<Map<Object?, Object?>>('syncPurchases'));
+  Future<Map<String, Object?>> syncPurchases() async {
+    final info = _requireMap(await _debugged('customer_info_requested', () => _invoke<Map<Object?, Object?>>('syncPurchases'), 'Purchase sync completed.'));
+    _cachedInfo = info; return info;
+  }
 
   /// Sends a deduplicated app event. Reuse [eventId] to safely retry that event.
   Future<int> logEvent(

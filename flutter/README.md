@@ -164,3 +164,14 @@ Future<void> continueFromCampaign(PushifyAcquisitionLinks pushifyLinks) async {
 - The package is not published; use a local path dependency until a version is released.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).
+
+## Local debug inspector
+
+Diagnostics are disabled by default, held in a bounded memory buffer, and never uploaded:
+
+```dart
+purchases.enableDebugInspector();
+final report = purchases.debugExport();
+```
+
+Preview the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

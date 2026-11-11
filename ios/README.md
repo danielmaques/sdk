@@ -174,3 +174,16 @@ For the shared attribution contract and privacy behavior, see [Acquisition links
 ```sh
 xcodebuild -scheme PushifySDK -destination 'generic/platform=iOS Simulator' build
 ```
+
+## Local debug inspector
+
+Diagnostics are off by default, remain in memory, and are never uploaded. Enable them only in a developer flow, then preview the redacted JSON before sharing it:
+
+```swift
+await purchases.enableDebugInspector()
+if let data = await purchases.debugExport(), let report = String(data: data, encoding: .utf8) {
+    print(report)
+}
+```
+
+The export omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

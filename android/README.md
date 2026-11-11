@@ -219,3 +219,14 @@ Pass `appUserId` only when you have the actual app user ID. The parameter is opt
 - This package is not published yet; install from the source workspace during development.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).
+
+## Local debug inspector
+
+Diagnostics are disabled by default, buffered in memory, and never uploaded:
+
+```kotlin
+purchases.enableDebugInspector()
+val report = purchases.debugExport()?.toString(2)
+```
+
+Review the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).

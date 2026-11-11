@@ -52,6 +52,9 @@ public class PushifyPurchases(
     private var customerId: String? = prefs.getString(identityKey, null)
     private var lastSnapshot: JSONObject? = readCachedSnapshot()
     private var lastOfferings: JSONObject? = readCachedOfferings()
+    @Volatile private var debugInspectorEnabled: Boolean = false
+    private val diagnosticEvents = ArrayDeque<JSONObject>()
+    private val diagnosticLock = Any()
     private val customerInfoListeners = CopyOnWriteArraySet<CustomerInfoListener>()
     private var pendingPurchaseCompletion: ((Result<PurchaseOutcome>) -> Unit)? = null
     private var pendingOffer: StorePackage? = null
@@ -76,6 +79,7 @@ public class PushifyPurchases(
                     else post(completion, Result.failure(error("billing_unavailable", result.debugMessage, true)))
                     return
                 }
+                recordDiagnostic("sdk_configured", true, false, "SDK configured.")
                 customerInfo { customer ->
                     customer.fold(onSuccess = { bootstrap ->
                         syncOwnedPurchases { sync ->
@@ -292,7 +296,9 @@ public class PushifyPurchases(
 
     /** Starts the native Google Play purchase sheet for the package selected from [offerings]. */
     public fun purchase(activity: Activity, packageId: String, completion: (Result<PurchaseOutcome>) -> Unit) {
+        recordDiagnostic("purchase_started", true, false, "Store purchase flow started.")
         if (pendingPurchaseCompletion != null) {
+            recordDiagnostic("purchase_completed", false, false, "A purchase is already in progress.")
             completion(Result.failure(error("purchase_in_progress", "A purchase is already in progress.", false)))
             return
         }
@@ -325,7 +331,11 @@ public class PushifyPurchases(
     }
 
     /** Restores and syncs current subscriptions and one-time products owned by this Play account. */
-    public fun restorePurchases(completion: (Result<JSONObject>) -> Unit) = syncOwnedPurchases(completion)
+    public fun restorePurchases(completion: (Result<JSONObject>) -> Unit) = syncOwnedPurchases { result ->
+        recordDiagnostic("restore_completed", result.isSuccess, (result.exceptionOrNull() as? PushifyApiException)?.retryable ?: false,
+            if (result.isSuccess) "Restore completed." else "Restore failed; response details are omitted.")
+        completion(result)
+    }
 
     /** Reconciles current Play ownership without showing purchase UI. */
     public fun syncPurchases(completion: (Result<JSONObject>) -> Unit) = syncOwnedPurchases(completion)
@@ -347,6 +357,43 @@ public class PushifyPurchases(
     }
 
     public fun cachedCustomerInfo(): JSONObject? = lastSnapshot?.let { JSONObject(it.toString()) }
+
+    /** Enables bounded, in-memory diagnostics for a developer-controlled debug session. */
+    public fun enableDebugInspector(enabled: Boolean = true) { debugInspectorEnabled = enabled }
+
+    /** Redacted local export; no customer ids, attributes, receipt data, request paths, or response bodies. */
+    public fun debugExport(): JSONObject? {
+        if (!debugInspectorEnabled) return null
+        val offerings = lastOfferings?.optJSONArray("offerings") ?: JSONArray()
+        val products = JSONArray()
+        for (i in 0 until offerings.length()) {
+            val packages = offerings.optJSONObject(i)?.optJSONArray("packages") ?: continue
+            for (j in 0 until packages.length()) {
+                val id = packages.optJSONObject(j)?.optJSONObject("product")?.optString("product_id")
+                if (!id.isNullOrBlank() && id != "null") products.put(id)
+            }
+        }
+        val active = lastSnapshot?.optJSONObject("entitlements")?.optJSONObject("active")?.length() ?: 0
+        val events = JSONArray()
+        synchronized(diagnosticLock) { diagnosticEvents.forEach { events.put(JSONObject(it.toString())) } }
+        return JSONObject().put("schema", "pushify.sdk-diagnostics/v1").put("platform", "android")
+            .put("api_host", runCatching { URL(endpoint).host }.getOrDefault("unknown"))
+            .put("masked_public_key", maskPublicKey(publicApiKey)).put("cached_offering_count", offerings.length())
+            .put("cached_product_ids", products).put("active_entitlement_count", active).put("events", events)
+    }
+
+    private fun maskPublicKey(key: String): String = if (key.length > 10) "${key.take(6)}…${key.takeLast(4)}" else "••••"
+
+    private fun recordDiagnostic(name: String, success: Boolean, retryable: Boolean, message: String) {
+        if (!debugInspectorEnabled) return
+        val row = JSONObject().put("name", name).put("timestamp_ms", System.currentTimeMillis())
+            .put("correlation_id", UUID.randomUUID().toString()).put("outcome", if (success) "success" else "failure")
+            .put("retryable", retryable).put("message", message)
+        synchronized(diagnosticLock) {
+            diagnosticEvents.addLast(row)
+            while (diagnosticEvents.size > 100) diagnosticEvents.removeFirst()
+        }
+    }
 
     private fun publishSnapshot(snapshot: JSONObject) {
         val copy = JSONObject(snapshot.toString())
@@ -408,6 +455,14 @@ public class PushifyPurchases(
     }
 
     private fun completePurchase(result: Result<PurchaseOutcome>) {
+        val outcome = result.getOrNull()
+        val retryable = (result.exceptionOrNull() as? PushifyApiException)?.retryable ?: false
+        recordDiagnostic("purchase_completed", outcome != null, retryable, when (outcome) {
+            is PurchaseOutcome.Purchased -> "Store purchase flow completed."
+            PurchaseOutcome.Pending -> "Store purchase is pending approval."
+            PurchaseOutcome.Cancelled -> "Store purchase was cancelled."
+            null -> "Store purchase failed; response details are omitted."
+        })
         val completion = pendingPurchaseCompletion
         pendingPurchaseCompletion = null
         pendingOffer = null
@@ -578,6 +633,17 @@ public class PushifyPurchases(
                     JSONObject(text)
                 } finally { connection.disconnect() }
             }
+            result.fold(
+                onSuccess = {
+                    val name = when {
+                        path.contains("/offerings") -> "offerings_requested"
+                        path.contains("/customers/bootstrap") -> "customer_info_requested"
+                        else -> null
+                    }
+                    if (name != null) recordDiagnostic(name, true, false, "Pushify API request succeeded.")
+                },
+                onFailure = { recordDiagnostic("request_failed", false, (it as? PushifyApiException)?.retryable ?: true, "Pushify API request failed; response details are omitted.") },
+            )
             post(completion, result)
         }
     }

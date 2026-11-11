@@ -165,6 +165,15 @@ public enum PushifyError: Error, Sendable {
     case productUnavailable(String)
 }
 
+public struct PushifyDiagnosticEvent: Codable, Sendable {
+    public let name: String
+    public let timestamp: Date
+    public let correlationId: String
+    public let outcome: String
+    public let retryable: Bool
+    public let message: String
+}
+
 /// First-party StoreKit 2 client for the Pushify SDK API.
 public actor PushifyPurchases {
     private let apiKey: String
@@ -175,6 +184,8 @@ public actor PushifyPurchases {
     private var customerID: String?
     private var cachedSnapshot: PushifyCustomerSnapshot?
     private var cachedOfferings: PushifyOfferings?
+    private var debugInspectorEnabled = false
+    private var diagnosticEvents: [PushifyDiagnosticEvent] = []
     private var updatesTask: Task<Void, Never>?
     private var observers: [UUID: AsyncStream<PushifyCustomerSnapshot>.Continuation] = [:]
     private let snapshotKey: String
@@ -205,6 +216,7 @@ public actor PushifyPurchases {
     /// usable with its last verified cache; calls that require fresh server data still report their errors.
     public static func configure(apiKey: String, apiBaseURL: URL = URL(string: "https://api.pushify.app")!) async throws -> PushifyPurchases {
         let purchases = try PushifyPurchases(apiKey: apiKey, apiBaseURL: apiBaseURL)
+        await purchases.recordDiagnostic("sdk_configured", outcome: "success", retryable: false, message: "SDK configured.")
         await purchases.listenForTransactionUpdates()
         Task {
             _ = try? await purchases.customerInfo()
@@ -221,6 +233,32 @@ public actor PushifyPurchases {
     }
 
     public func cachedCustomerInfo() -> PushifyCustomerSnapshot? { cachedSnapshot }
+
+    /// Enables a bounded, in-memory diagnostics buffer for a developer-controlled debug session.
+    public func enableDebugInspector(_ enabled: Bool = true) { debugInspectorEnabled = enabled }
+
+    /// A redacted local export. Returns nil until the host app explicitly enables the inspector.
+    public func debugExport() -> Data? {
+        guard debugInspectorEnabled else { return nil }
+        let key = Array(apiKey)
+        let maskedKey = key.count > 10 ? String(key.prefix(6)) + "…" + String(key.suffix(4)) : "••••"
+        let products = cachedOfferings?.offerings.flatMap(\.packages).map { $0.product.productId } ?? []
+        let entries = diagnosticEvents.map { event in
+            ["name": event.name, "timestamp_ms": Int64(event.timestamp.timeIntervalSince1970 * 1000), "correlation_id": event.correlationId,
+             "outcome": event.outcome, "retryable": event.retryable, "message": event.message] as [String: Any]
+        }
+        return try? JSONSerialization.data(withJSONObject: [
+            "schema": "pushify.sdk-diagnostics/v1", "platform": "ios", "api_host": baseURL.host ?? "unknown", "masked_public_key": maskedKey,
+            "cached_offering_count": cachedOfferings?.offerings.count ?? 0, "cached_product_ids": products,
+            "active_entitlement_count": cachedSnapshot?.entitlements.active.count ?? 0, "events": entries,
+        ], options: [.sortedKeys])
+    }
+
+    private func recordDiagnostic(_ name: String, outcome: String, retryable: Bool, message: String) {
+        guard debugInspectorEnabled else { return }
+        diagnosticEvents.append(PushifyDiagnosticEvent(name: name, timestamp: Date(), correlationId: UUID().uuidString, outcome: outcome, retryable: retryable, message: message))
+        if diagnosticEvents.count > 100 { diagnosticEvents.removeFirst(diagnosticEvents.count - 100) }
+    }
 
     public func offerings(placement: String? = nil) async throws -> PushifyOfferings {
         let catalog: PushifyOfferings
@@ -367,6 +405,7 @@ public actor PushifyPurchases {
 
     /// Uses StoreKit's native purchase sheet and grants access only after Pushify verifies the signed transaction.
     public func purchase(packageID: String) async throws -> PushifyPurchaseResult {
+        recordDiagnostic("purchase_started", outcome: "started", retryable: false, message: "Store purchase flow started.")
         let catalog = try await offerings()
         guard let package = catalog.offerings.flatMap(\.packages).first(where: { $0.id == packageID }) else { throw PushifyError.productUnavailable(packageID) }
         let products = try await Product.products(for: [package.product.productId])
@@ -378,14 +417,17 @@ public actor PushifyPurchases {
                 let snapshot = try await sync(transaction, proof: verification.jwsRepresentation)
                 await transaction.finish()
                 save(snapshot)
+                recordDiagnostic("purchase_completed", outcome: "success", retryable: false, message: "Store purchase flow completed.")
                 return .purchased(snapshot)
             } catch {
                 // StoreKit keeps the transaction unfinished. Launch/updates retry it without losing the proof.
                 throw error
             }
         case .pending:
+            recordDiagnostic("purchase_completed", outcome: "pending", retryable: false, message: "Store purchase is pending approval.")
             return .pending
         case .userCancelled:
+            recordDiagnostic("purchase_completed", outcome: "cancelled", retryable: false, message: "Store purchase was cancelled.")
             return .cancelled
         @unknown default:
             throw PushifyError.invalidResponse
@@ -394,7 +436,9 @@ public actor PushifyPurchases {
 
     public func restorePurchases() async throws -> PushifyCustomerSnapshot {
         try await AppStore.sync()
-        return try await syncPurchases()
+        let snapshot = try await syncPurchases()
+        recordDiagnostic("restore_completed", outcome: "success", retryable: false, message: "Restore completed.")
+        return snapshot
     }
 
     private func syncUnfinishedTransactions() async throws {
@@ -495,17 +539,27 @@ public actor PushifyPurchases {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.fragmentsAllowed, .sortedKeys])
         }
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else { throw PushifyError.invalidResponse }
-        guard (200..<300).contains(response.statusCode) else {
-            if let error = try? JSONDecoder().decode(PushifyErrorEnvelope.self, from: data).error {
-                throw PushifyError.server(status: response.statusCode, code: error.code, message: error.message, retryable: error.retryable)
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let response = response as? HTTPURLResponse else { throw PushifyError.invalidResponse }
+            guard (200..<300).contains(response.statusCode) else {
+                if let error = try? JSONDecoder().decode(PushifyErrorEnvelope.self, from: data).error {
+                    throw PushifyError.server(status: response.statusCode, code: error.code, message: error.message, retryable: error.retryable)
+                }
+                throw PushifyError.invalidResponse
             }
-            throw PushifyError.invalidResponse
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            decoder.dateDecodingStrategy = .iso8601
+            let decoded = try decoder.decode(T.self, from: data)
+            let name = path.contains("/offerings") ? "offerings_requested" : path.contains("/customers/bootstrap") ? "customer_info_requested" : nil
+            if let name { recordDiagnostic(name, outcome: "success", retryable: false, message: "Pushify API request succeeded.") }
+            return decoded
+        } catch {
+            let retryable: Bool
+            if case PushifyError.server(_, _, _, let value) = error { retryable = value } else { retryable = true }
+            recordDiagnostic("request_failed", outcome: "failure", retryable: retryable, message: "Pushify API request failed; response details are omitted.")
+            throw error
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(T.self, from: data)
     }
 }

@@ -34,4 +34,4 @@ Set a button action to `custom_action` and give it a name such as `help_center`.
 
 The SDKs are **not production-ready yet**. Paywalls and several client-facing capabilities in the product plan are missing, and the full Apple/Google sandbox acceptance suite has not passed. No package has been published. Each guide records its platform-specific build and capability limits.
 
-See the shared [acquisition-link contract](docs/acquisition-links.md) and the [SDK product plan](../prd/sdks/PRD.md).
+See the [mobile purchase testing guide](TESTING.md), the shared [acquisition-link contract](docs/acquisition-links.md), and the [SDK product plan](../prd/sdks/PRD.md).

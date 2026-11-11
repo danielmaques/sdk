@@ -166,3 +166,14 @@ The optional `appUserId` should match the ID used by your Pushify identity integ
 - The package is not published; use the local package path until a release is available.
 
 For the shared attribution contract and privacy behavior, see [Acquisition links in Pushify SDKs](../docs/acquisition-links.md). For planned full SDK scope, see the [SDK PRD](../../prd/sdks/PRD.md).
+
+## Local debug inspector
+
+Diagnostics are off by default, bounded in memory, and never uploaded:
+
+```ts
+purchases.enableDebugInspector();
+const report = purchases.debugExport();
+```
+
+Preview the redacted JSON before sharing it. It omits customer IDs, attributes, receipts, transaction IDs, request paths and server response bodies. See the [shared diagnostics contract](../DIAGNOSTICS.md).
