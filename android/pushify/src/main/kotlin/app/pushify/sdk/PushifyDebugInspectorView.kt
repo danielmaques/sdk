@@ -10,7 +10,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /** Opt-in local inspector that previews and copies a redacted SDK support bundle. */
-public class PushifyDebugInspectorView(context: Context, purchases: PushifyPurchases) : LinearLayout(context) {
+public class PushifyDebugInspectorView(context: Context, private val purchases: PushifyPurchases) : LinearLayout(context) {
     private val report = TextView(context).apply {
         textSize = 12f
         typeface = android.graphics.Typeface.MONOSPACE
@@ -43,5 +43,10 @@ public class PushifyDebugInspectorView(context: Context, purchases: PushifyPurch
         addView(actions)
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         report.text = purchases.debugExport()?.toString(2) ?: report.text
+    }
+
+    override fun onDetachedFromWindow() {
+        purchases.enableDebugInspector(false)
+        super.onDetachedFromWindow()
     }
 }

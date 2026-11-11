@@ -29,6 +29,7 @@ public struct PushifyDebugInspector: View {
         }
         .padding()
         .task { await purchases.enableDebugInspector(true); await refresh() }
+        .onDisappear { Task { await purchases.enableDebugInspector(false) } }
     }
 
     private func refresh() async {
