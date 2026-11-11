@@ -12,11 +12,11 @@ npx pushify test purchases \
   --to-project proj_your_sandbox_project \
   --app-id app_your_test_store_app \
   --product-id prod_your_test_product \
-  --scenarios purchase,restore,duplicate_delivery,trial,trial_conversion,renewal,cancel,billing_issue,refund,expire \
+  --scenarios purchase,restore,duplicate_delivery,pending_retry,trial,trial_conversion,renewal,cancel,billing_issue,refund,expire \
   --format junit > purchase-tests.xml
 ```
 
-Set `REVENUEDOT_API_KEY` in the CI secret store, or run interactively and enter the key at the hidden prompt. Do not put a production customer ID in `--customer-prefix`. The CLI makes one request per scenario and does not retry non-idempotent requests. `trial_conversion` needs a subscription and simulates at least seven elapsed days; `renewal`, `billing_issue`, `cancel`, and `expire` need a subscription product. Refund supports subscriptions and one-time products. Incompatible products fail as a scenario result.
+Set `REVENUEDOT_API_KEY` in the CI secret store, or run interactively and enter the key at the hidden prompt. Do not put a production customer ID in `--customer-prefix`. The CLI makes one request per scenario and does not retry non-idempotent requests. `pending_retry` needs an active product linked to an entitlement; its report proves pending and HTTP 503 phases wrote no purchase or entitlement, then verifies one successful retry. A separate receipt contract check exercises a real transient verifier 503 and reposts the identical token. `trial_conversion` needs a subscription and simulates at least seven elapsed days; `renewal`, `billing_issue`, `cancel`, and `expire` need a subscription product. Refund supports subscriptions and one-time products. Incompatible products fail as a scenario result.
 
 The JSON report uses `pushify.purchase-test-report/v1`; JUnit exits with code 1 when any requested scenario fails. Test Store scenarios use the same purchase, event, entitlement, and webhook pipeline as ordinary simulated purchases. This runner exercises the server lifecycle; it does not launch a mobile app or claim that StoreKit / Play Billing was invoked.
 
