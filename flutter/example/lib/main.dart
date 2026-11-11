@@ -115,6 +115,20 @@ class _PushifyExampleAppState extends State<PushifyExampleApp> {
                 ),
                 child: const Text('Open Customer Center'),
               ),
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => Scaffold(
+                      appBar: AppBar(title: const Text('SDK diagnostics')),
+                      body: ListView(
+                        padding: const EdgeInsets.all(20),
+                        children: [PushifyDebugInspector(purchases: _purchases!)],
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('Open SDK diagnostics'),
+              ),
             ],
           );
         },
