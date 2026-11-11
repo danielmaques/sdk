@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Error envelope raised by the Pushify purchase plugin.
@@ -38,9 +39,10 @@ class PushifyPurchaseResult {
 
 /// First-party Flutter client for customer state, StoreKit/Play purchases and Pushify app features.
 class PushifyPurchases {
-  PushifyPurchases({required String publicApiKey, Uri? apiBaseUrl})
+  PushifyPurchases({required String publicApiKey, Uri? apiBaseUrl, String? appVersion})
     : _publicApiKey = publicApiKey.trim(),
-      _apiBaseUrl = apiBaseUrl ?? Uri.https('api.pushify.app', '') {
+      _apiBaseUrl = apiBaseUrl ?? Uri.https('api.pushify.app', ''),
+      _appVersion = appVersion {
     if (_publicApiKey.isEmpty ||
         _apiBaseUrl.scheme != 'https' ||
         _apiBaseUrl.host.isEmpty) {
@@ -52,6 +54,7 @@ class PushifyPurchases {
   static const EventChannel _events = EventChannel('app.pushify/customer-info');
   final String _publicApiKey;
   final Uri _apiBaseUrl;
+  final String? _appVersion;
   bool _configured = false;
   bool _debugInspectorEnabled = false;
   final List<Map<String, Object?>> _diagnosticEvents = [];
@@ -82,30 +85,60 @@ class PushifyPurchases {
     final active = entitlements is Map ? entitlements['active'] : null;
     final offerings = _cachedCatalog?['offerings'];
     final products = <String>[];
+    final resolvedStoreProducts = <String>{};
     if (offerings is List) {
       for (final offering in offerings.whereType<Map>()) {
         final packages = offering['packages'];
         if (packages is! List) continue;
         for (final item in packages.whereType<Map>()) {
           final product = item['product'];
-          if (product is Map && product['product_id'] is String) products.add(product['product_id'] as String);
+          if (product is Map) {
+            if (product['product_id'] is String) {
+              final id = product['product_id'] as String;
+              products.add(id);
+              if (product['localized_price'] is String && (product['localized_price'] as String).isNotEmpty) resolvedStoreProducts.add(id);
+            }
+          }
         }
       }
     }
     return jsonEncode({
       'schema': 'pushify.sdk-diagnostics/v1', 'platform': 'flutter', 'api_host': _apiBaseUrl.host,
+      'sdk_version': '0.1.0', 'app_version': _appVersion, 'app_environment': kDebugMode ? 'development' : 'production',
+      'customer_state': _cachedInfo == null ? 'not_loaded' : 'cached',
       'masked_public_key': masked,
       'cached_offering_count': (_cachedCatalog?['offerings'] as List?)?.length ?? 0,
       'cached_product_ids': products.toSet().toList()..sort(), 'active_entitlement_count': active is List ? active.length : active is Map ? active.length : 0,
+      'store_product_count': _cachedCatalog == null ? null : resolvedStoreProducts.length,
+      'store_product_lookup': {
+        'status': _cachedCatalog == null ? 'not_checked' : 'checked',
+        'resolved_count': _cachedCatalog == null ? null : resolvedStoreProducts.length,
+        'missing_count': _cachedCatalog == null ? null : (products.toSet().difference(resolvedStoreProducts).length),
+      },
       'retry_queue_count': _retryQueueCount,
       'recent_retryable_failure_count': _diagnosticEvents.where((event) => event['outcome'] == 'failure' && event['retryable'] == true).length,
+      'last_offerings_result': _lastDiagnosticResult(const {'offerings_requested'}),
+      'last_sync_result': _lastDiagnosticResult(const {'customer_info_requested', 'restore_completed', 'entitlement_sync_completed'}),
       'events': List<Map<String, Object?>>.unmodifiable(_diagnosticEvents),
     });
   }
 
+  Map<String, Object?>? _lastDiagnosticResult(Set<String> names) {
+    for (final event in _diagnosticEvents.reversed) {
+      if (names.contains(event['name'])) {
+        return {
+          'outcome': event['outcome'],
+          'timestamp_ms': event['timestamp_ms'],
+          'correlation_id': event['correlation_id'],
+        };
+      }
+    }
+    return null;
+  }
+
   Future<T> _debugged<T>(String name, Future<T> Function() operation, String message) async {
     try { final value = await operation(); _recordDiagnostic(name, 'success', false, message); return value; }
-    catch (_) { _recordDiagnostic('request_failed', 'failure', true, 'SDK operation failed; response details are omitted.'); rethrow; }
+    catch (_) { _recordDiagnostic(name, 'failure', true, 'SDK operation failed; response details are omitted.'); rethrow; }
   }
 
   void _recordDiagnostic(String name, String outcome, bool retryable, String message) {
@@ -214,7 +247,7 @@ class PushifyPurchases {
       });
       return result;
     } catch (_) {
-      _recordDiagnostic('request_failed', 'failure', true, 'SDK operation failed; response details are omitted.');
+      _recordDiagnostic('purchase_completed', 'failure', true, 'SDK operation failed; response details are omitted.');
       rethrow;
     }
   }
@@ -227,7 +260,7 @@ class PushifyPurchases {
 
   /// Reconciles current store ownership without presenting a purchase UI.
   Future<Map<String, Object?>> syncPurchases() async {
-    final info = _requireMap(await _debugged('customer_info_requested', () => _invoke<Map<Object?, Object?>>('syncPurchases'), 'Purchase sync completed.'));
+    final info = _requireMap(await _debugged('entitlement_sync_completed', () => _invoke<Map<Object?, Object?>>('syncPurchases'), 'Purchase sync completed.'));
     _cachedInfo = info; return info;
   }
 

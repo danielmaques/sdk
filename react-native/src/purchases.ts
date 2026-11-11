@@ -54,6 +54,7 @@ export type PushifyPurchaseResult =
 export type PushifyPurchasesOptions = {
   publicApiKey: string;
   apiBaseUrl?: string;
+  appVersion?: string;
 };
 
 type NativePurchasesModule = {
@@ -120,15 +121,34 @@ export class PushifyPurchases {
     if (!this.diagnosticsEnabled) return null;
     const key = this.options.publicApiKey;
     const masked = key.length > 10 ? `${key.slice(0, 6)}…${key.slice(-4)}` : "••••";
-    const productIds = this.cachedCatalog?.offerings.flatMap((offering) => offering.packages.map((item) => item.product.product_id)) ?? [];
+    const productIds = [...new Set(this.cachedCatalog?.offerings.flatMap((offering) => offering.packages.map((item) => item.product.product_id)) ?? [])];
+    const resolvedStoreProducts = new Set(this.cachedCatalog?.offerings.flatMap((offering) => offering.packages)
+      .filter((item) => typeof item.product.localized_price === 'string' && item.product.localized_price.length > 0)
+      .map((item) => item.product.product_id) ?? []);
+    const storeProductCount = this.cachedCatalog ? resolvedStoreProducts.size : null;
     return JSON.stringify({
       schema: "pushify.sdk-diagnostics/v1", platform: "react-native", api_host: new URL(this.options.apiBaseUrl!).host,
+      sdk_version: "0.1.0", app_version: this.options.appVersion ?? null, app_environment: __DEV__ ? "development" : "production",
+      customer_state: this.cachedInfo ? "cached" : "not_loaded",
       masked_public_key: masked, cached_offering_count: this.cachedCatalog?.offerings.length ?? 0,
       cached_product_ids: productIds, active_entitlement_count: this.cachedInfo?.entitlements.active.length ?? 0,
+      store_product_count: storeProductCount,
+      store_product_lookup: {
+        status: this.cachedCatalog ? "checked" : "not_checked",
+        resolved_count: storeProductCount,
+        missing_count: this.cachedCatalog ? productIds.filter((id) => !resolvedStoreProducts.has(id)).length : null,
+      },
       retry_queue_count: this.retryQueueCount,
       recent_retryable_failure_count: this.diagnosticEvents.filter((event) => event.outcome === 'failure' && event.retryable).length,
+      last_offerings_result: this.lastDiagnosticResult(["offerings_requested"]),
+      last_sync_result: this.lastDiagnosticResult(["customer_info_requested", "restore_completed", "entitlement_sync_completed"]),
       events: this.diagnosticEvents,
     }, null, 2);
+  }
+
+  private lastDiagnosticResult(names: string[]): { outcome: string; timestamp_ms: number; correlation_id: string } | null {
+    const event = [...this.diagnosticEvents].reverse().find((item) => names.includes(item.name));
+    return event ? { outcome: event.outcome, timestamp_ms: event.timestamp_ms, correlation_id: event.correlation_id } : null;
   }
 
   async customerInfo(): Promise<PushifyCustomerInfo> {
@@ -150,7 +170,7 @@ export class PushifyPurchases {
     this.cachedInfo = info; return info;
   }
   async syncPurchases(): Promise<PushifyCustomerInfo> {
-    const info = await this.debugged("customer_info_requested", () => this.requireNative().syncPurchases(), "Purchase sync completed.");
+    const info = await this.debugged("entitlement_sync_completed", () => this.requireNative().syncPurchases(), "Purchase sync completed.");
     this.cachedInfo = info; return info;
   }
   async purchase(packageId: string): Promise<PushifyPurchaseResult> {
@@ -162,14 +182,14 @@ export class PushifyPurchases {
       this.recordDiagnostic("purchase_completed", outcome, false, result.status === "pending" ? "Store purchase is pending approval." : result.status === "cancelled" ? "Store purchase was cancelled." : "Store purchase flow completed.");
       return result;
     } catch (error) {
-      this.recordDiagnostic("request_failed", "failure", true, "SDK operation failed; response details are omitted.");
+      this.recordDiagnostic("purchase_completed", "failure", true, "SDK operation failed; response details are omitted.");
       throw error;
     }
   }
 
   private async debugged<T>(name: string, operation: () => Promise<T>, message: string): Promise<T> {
     try { const value = await operation(); this.recordDiagnostic(name, "success", false, message); return value; }
-    catch (error) { this.recordDiagnostic("request_failed", "failure", true, "SDK operation failed; response details are omitted."); throw error; }
+    catch (error) { this.recordDiagnostic(name, "failure", true, "SDK operation failed; response details are omitted."); throw error; }
   }
 
   private recordDiagnostic(name: string, outcome: string, retryable: boolean, message: string): void {

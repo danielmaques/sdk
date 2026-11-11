@@ -35,14 +35,14 @@ import 'package:pushify_purchases/pushify_purchases.dart';
 
 void main() {
   const publicKey = String.fromEnvironment('PUSHIFY_PUBLIC_APP_KEY');
-  final purchases = PushifyPurchases(publicApiKey: publicKey);
+  final purchases = PushifyPurchases(publicApiKey: publicKey, appVersion: '1.0.0');
   runApp(MyApp(purchases: purchases));
 }
 ```
 
 Run with `--dart-define=PUSHIFY_PUBLIC_APP_KEY=pushify_public_app_key`, then call `await purchases.configure()` once before purchase APIs. Keep the instance in your app-level dependency provider.
 
-The runnable sample is in [`example/`](example/README.md). It loads the current offering and customer, and provides buttons for the published paywall and Customer Center.
+`appVersion` is optional and appears only in an explicitly enabled local Debug Inspector export. The runnable sample is in [`example/`](example/README.md). It loads the current offering and customer, and provides buttons for the published paywall and Customer Center.
 
 ```dart
 final snapshot = await purchases.customerInfo();

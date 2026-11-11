@@ -2,6 +2,7 @@ package app.pushify.sdk
 
 import android.app.Activity
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.security.keystore.KeyGenParameterSpec
@@ -54,6 +55,9 @@ public class PushifyPurchases(
     private var lastOfferings: JSONObject? = readCachedOfferings()
     @Volatile private var debugInspectorEnabled: Boolean = false
     @Volatile private var cachedRetryQueueCount: Int? = null
+    @Volatile private var cachedStoreProductCount: Int? = null
+    @Volatile private var cachedStoreProductMissingCount: Int? = null
+    @Volatile private var cachedStoreProductLookupChecked = false
     private val diagnosticEvents = ArrayDeque<JSONObject>()
     private val diagnosticLock = Any()
     private val customerInfoListeners = CopyOnWriteArraySet<CustomerInfoListener>()
@@ -143,6 +147,9 @@ public class PushifyPurchases(
         queryOfferingProductGroup(groups, 0, details) { failure ->
             if (failure != null) post(completion, Result.failure(failure))
             else {
+                cachedStoreProductCount = details.size
+                cachedStoreProductMissingCount = (unique.size - details.size).coerceAtLeast(0)
+                cachedStoreProductLookupChecked = true
                 val enriched = enrichOfferingBody(body, details)
                 lastOfferings = JSONObject(enriched.toString())
                 runCatching { encrypt(enriched.toString()) }.onSuccess { prefs.edit().putString(offeringsKey, it).apply() }
@@ -339,7 +346,11 @@ public class PushifyPurchases(
     }
 
     /** Reconciles current Play ownership without showing purchase UI. */
-    public fun syncPurchases(completion: (Result<JSONObject>) -> Unit) = syncOwnedPurchases(completion)
+    public fun syncPurchases(completion: (Result<JSONObject>) -> Unit) = syncOwnedPurchases { result ->
+        recordDiagnostic("entitlement_sync_completed", result.isSuccess, (result.exceptionOrNull() as? PushifyApiException)?.retryable ?: false,
+            if (result.isSuccess) "Entitlement refresh completed." else "Entitlement refresh failed; response details are omitted.")
+        completion(result)
+    }
 
     /** Starts a fresh anonymous customer without deleting server-side transaction history. */
     public fun logOut(completion: (Result<JSONObject>) -> Unit) {
@@ -381,12 +392,32 @@ public class PushifyPurchases(
                 diagnosticEvents.forEach { row -> events.put(JSONObject(row.toString())) }
             }
         }
+        val appVersion = runCatching { appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName }
+            .getOrNull()?.takeIf(String::isNotBlank)
+        val environment = if (appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) "development" else "production"
         return JSONObject().put("schema", "pushify.sdk-diagnostics/v1").put("platform", "android")
             .put("api_host", runCatching { URL(endpoint).host }.getOrDefault("unknown"))
+            .put("sdk_version", "0.1.0").put("app_version", appVersion ?: JSONObject.NULL)
+            .put("app_environment", environment).put("customer_state", if (lastSnapshot == null) "not_loaded" else "cached")
             .put("masked_public_key", maskPublicKey(publicApiKey)).put("cached_offering_count", offerings.length())
             .put("cached_product_ids", products).put("active_entitlement_count", active)
+            .put("store_product_count", cachedStoreProductCount ?: JSONObject.NULL)
+            .put("store_product_lookup", JSONObject()
+                .put("status", if (cachedStoreProductLookupChecked) "checked" else "not_checked")
+                .put("resolved_count", cachedStoreProductCount ?: JSONObject.NULL)
+                .put("missing_count", cachedStoreProductMissingCount ?: JSONObject.NULL))
             .put("retry_queue_count", cachedRetryQueueCount ?: JSONObject.NULL)
             .put("recent_retryable_failure_count", retryableFailureCount).put("events", events)
+            .put("last_offerings_result", diagnosticResult("offerings_requested") ?: JSONObject.NULL)
+            .put("last_sync_result", diagnosticResult("customer_info_requested", "restore_completed", "entitlement_sync_completed") ?: JSONObject.NULL)
+    }
+
+    private fun diagnosticResult(vararg names: String): JSONObject? = synchronized(diagnosticLock) {
+        diagnosticEvents.lastOrNull { names.contains(it.optString("name")) }?.let { event ->
+            JSONObject().put("outcome", event.optString("outcome"))
+                .put("timestamp_ms", event.optLong("timestamp_ms"))
+                .put("correlation_id", event.optString("correlation_id"))
+        }
     }
 
     /** Counts Play purchases awaiting acknowledgement without exposing purchase tokens. */
@@ -667,11 +698,20 @@ public class PushifyPurchases(
                     val name = when {
                         path.contains("/offerings") -> "offerings_requested"
                         path.contains("/customers/bootstrap") -> "customer_info_requested"
+                        path.contains("/transactions/sync") -> "entitlement_sync_completed"
                         else -> null
                     }
                     if (name != null) recordDiagnostic(name, true, false, "Pushify API request succeeded.")
                 },
-                onFailure = { recordDiagnostic("request_failed", false, (it as? PushifyApiException)?.retryable ?: true, "Pushify API request failed; response details are omitted.") },
+                onFailure = {
+                    val name = when {
+                        path.contains("/offerings") -> "offerings_requested"
+                        path.contains("/customers/bootstrap") -> "customer_info_requested"
+                        path.contains("/transactions/sync") -> "entitlement_sync_completed"
+                        else -> "request_failed"
+                    }
+                    recordDiagnostic(name, false, (it as? PushifyApiException)?.retryable ?: true, "Pushify API request failed; response details are omitted.")
+                },
             )
             post(completion, result)
         }

@@ -43,6 +43,7 @@ export const pushifyLinks = new PushifyAcquisitionLinks({
 
 export const pushifyPurchases = new PushifyPurchases({
   publicApiKey: PUSHIFY_PUBLIC_APP_KEY,
+  appVersion: '1.0.0', // Optional; included only in an enabled local diagnostics export.
 });
 ```
 

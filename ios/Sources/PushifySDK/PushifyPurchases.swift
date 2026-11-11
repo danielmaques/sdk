@@ -187,6 +187,9 @@ public actor PushifyPurchases {
     private var debugInspectorEnabled = false
     private var diagnosticEvents: [PushifyDiagnosticEvent] = []
     private var cachedRetryQueueCount: Int?
+    private var cachedStoreProductCount: Int?
+    private var cachedStoreProductMissingCount: Int?
+    private var cachedStoreProductLookupChecked = false
     private var updatesTask: Task<Void, Never>?
     private var observers: [UUID: AsyncStream<PushifyCustomerSnapshot>.Continuation] = [:]
     private let snapshotKey: String
@@ -249,13 +252,39 @@ public actor PushifyPurchases {
              "outcome": event.outcome, "retryable": event.retryable, "message": event.message] as [String: Any]
         }
         let retryableFailureCount = diagnosticEvents.filter { $0.outcome == "failure" && $0.retryable }.count
+        let appInfo = Bundle.main.infoDictionary ?? [:]
+        let appVersion = [appInfo["CFBundleShortVersionString"] as? String, appInfo["CFBundleVersion"] as? String]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "+")
         return try? JSONSerialization.data(withJSONObject: [
             "schema": "pushify.sdk-diagnostics/v1", "platform": "ios", "api_host": baseURL.host ?? "unknown", "masked_public_key": maskedKey,
+            "sdk_version": "0.1.0", "app_version": appVersion.isEmpty ? (NSNull() as Any) : (appVersion as Any),
+            "app_environment": Self.diagnosticEnvironment, "customer_state": cachedSnapshot == nil ? "not_loaded" : "cached",
             "cached_offering_count": cachedOfferings?.offerings.count ?? 0, "cached_product_ids": products,
+            "store_product_count": cachedStoreProductCount as Any? ?? NSNull(),
+            "store_product_lookup": [
+                "status": cachedStoreProductLookupChecked ? "checked" : "not_checked",
+                "resolved_count": cachedStoreProductCount as Any? ?? NSNull(),
+                "missing_count": cachedStoreProductMissingCount as Any? ?? NSNull(),
+            ],
             "active_entitlement_count": cachedSnapshot?.entitlements.active.count ?? 0,
             "retry_queue_count": cachedRetryQueueCount as Any? ?? NSNull(),
             "recent_retryable_failure_count": retryableFailureCount, "events": entries,
+            "last_offerings_result": (diagnosticResult(named: "offerings_requested") as Any?) ?? NSNull(),
+            "last_sync_result": (diagnosticResult(named: "customer_info_requested", "restore_completed", "entitlement_sync_completed") as Any?) ?? NSNull(),
         ], options: [.sortedKeys])
+    }
+
+    private static var diagnosticEnvironment: String {
+        #if DEBUG
+        "development"
+        #else
+        "production"
+        #endif
+    }
+
+    private func diagnosticResult(named names: String...) -> [String: Any]? {
+        guard let event = diagnosticEvents.last(where: { names.contains($0.name) }) else { return nil }
+        return ["outcome": event.outcome, "timestamp_ms": Int64(event.timestamp.timeIntervalSince1970 * 1000), "correlation_id": event.correlationId]
     }
 
     /// Counts StoreKit transactions that are still unfinished without exposing their identifiers or proofs.
@@ -290,6 +319,9 @@ public actor PushifyPurchases {
         }
         let identifiers = Array(Set(catalog.offerings.flatMap(\.packages).map(\.product.productId)))
         let storeProducts = try await Product.products(for: identifiers)
+        cachedStoreProductCount = storeProducts.count
+        cachedStoreProductMissingCount = max(0, identifiers.count - storeProducts.count)
+        cachedStoreProductLookupChecked = true
         let byIdentifier = Dictionary(uniqueKeysWithValues: storeProducts.map { ($0.id, $0) })
         return PushifyOfferings(
             currentOfferingId: catalog.currentOfferingId,
@@ -376,14 +408,20 @@ public actor PushifyPurchases {
 
     /// Reconciles unfinished transactions and current non-consumable/subscription entitlements without prompting for sign-in.
     public func syncPurchases() async throws -> PushifyCustomerSnapshot {
-        try await syncUnfinishedTransactions()
-        var latest = try await customerInfo()
-        for await result in Transaction.currentEntitlements {
-            guard case .verified(let transaction) = result else { continue }
-            latest = try await sync(transaction, proof: result.jwsRepresentation)
-            save(latest)
+        do {
+            try await syncUnfinishedTransactions()
+            var latest = try await customerInfo()
+            for await result in Transaction.currentEntitlements {
+                guard case .verified(let transaction) = result else { continue }
+                latest = try await sync(transaction, proof: result.jwsRepresentation)
+                save(latest)
+            }
+            recordDiagnostic("entitlement_sync_completed", outcome: "success", retryable: false, message: "Entitlement refresh completed.")
+            return latest
+        } catch {
+            recordDiagnostic("entitlement_sync_completed", outcome: "failure", retryable: true, message: "Entitlement refresh failed; response details are omitted.")
+            throw error
         }
-        return latest
     }
 
     /// Sends an app event to Pushify. The event identifier is generated once for this request and can be supplied
@@ -540,6 +578,10 @@ public actor PushifyPurchases {
 
     private func request<T: Decodable>(path: String, method: String, body: Any? = nil, headers: [String: String] = [:]) async throws -> T {
         guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else { throw PushifyError.invalidConfiguration }
+        let diagnosticName = path.contains("/offerings") ? "offerings_requested"
+            : path.contains("/customers/bootstrap") ? "customer_info_requested"
+            : path.contains("/transactions/sync") ? "entitlement_sync_completed"
+            : nil
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.httpMethod = method
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -565,13 +607,12 @@ public actor PushifyPurchases {
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             decoder.dateDecodingStrategy = .iso8601
             let decoded = try decoder.decode(T.self, from: data)
-            let name = path.contains("/offerings") ? "offerings_requested" : path.contains("/customers/bootstrap") ? "customer_info_requested" : nil
-            if let name { recordDiagnostic(name, outcome: "success", retryable: false, message: "Pushify API request succeeded.") }
+            if let diagnosticName { recordDiagnostic(diagnosticName, outcome: "success", retryable: false, message: "Pushify API request succeeded.") }
             return decoded
         } catch {
             let retryable: Bool
             if case PushifyError.server(_, _, _, let value) = error { retryable = value } else { retryable = true }
-            recordDiagnostic("request_failed", outcome: "failure", retryable: retryable, message: "Pushify API request failed; response details are omitted.")
+            recordDiagnostic(diagnosticName ?? "request_failed", outcome: "failure", retryable: retryable, message: "Pushify API request failed; response details are omitted.")
             throw error
         }
     }
