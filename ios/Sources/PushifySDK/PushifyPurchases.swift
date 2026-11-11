@@ -247,10 +247,12 @@ public actor PushifyPurchases {
             ["name": event.name, "timestamp_ms": Int64(event.timestamp.timeIntervalSince1970 * 1000), "correlation_id": event.correlationId,
              "outcome": event.outcome, "retryable": event.retryable, "message": event.message] as [String: Any]
         }
+        let retryableFailureCount = diagnosticEvents.filter { $0.outcome == "failure" && $0.retryable }.count
         return try? JSONSerialization.data(withJSONObject: [
             "schema": "pushify.sdk-diagnostics/v1", "platform": "ios", "api_host": baseURL.host ?? "unknown", "masked_public_key": maskedKey,
             "cached_offering_count": cachedOfferings?.offerings.count ?? 0, "cached_product_ids": products,
-            "active_entitlement_count": cachedSnapshot?.entitlements.active.count ?? 0, "events": entries,
+            "active_entitlement_count": cachedSnapshot?.entitlements.active.count ?? 0,
+            "recent_retryable_failure_count": retryableFailureCount, "events": entries,
         ], options: [.sortedKeys])
     }
 

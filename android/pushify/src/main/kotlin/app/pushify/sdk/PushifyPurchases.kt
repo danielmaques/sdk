@@ -375,11 +375,16 @@ public class PushifyPurchases(
         }
         val active = lastSnapshot?.optJSONObject("entitlements")?.optJSONObject("active")?.length() ?: 0
         val events = JSONArray()
-        synchronized(diagnosticLock) { diagnosticEvents.forEach { events.put(JSONObject(it.toString())) } }
+        val retryableFailureCount = synchronized(diagnosticLock) {
+            diagnosticEvents.count { it.optString("outcome") == "failure" && it.optBoolean("retryable") }.also {
+                diagnosticEvents.forEach { row -> events.put(JSONObject(row.toString())) }
+            }
+        }
         return JSONObject().put("schema", "pushify.sdk-diagnostics/v1").put("platform", "android")
             .put("api_host", runCatching { URL(endpoint).host }.getOrDefault("unknown"))
             .put("masked_public_key", maskPublicKey(publicApiKey)).put("cached_offering_count", offerings.length())
-            .put("cached_product_ids", products).put("active_entitlement_count", active).put("events", events)
+            .put("cached_product_ids", products).put("active_entitlement_count", active)
+            .put("recent_retryable_failure_count", retryableFailureCount).put("events", events)
     }
 
     private fun maskPublicKey(key: String): String = if (key.length > 10) "${key.take(6)}…${key.takeLast(4)}" else "••••"

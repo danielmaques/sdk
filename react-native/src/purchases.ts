@@ -115,6 +115,7 @@ export class PushifyPurchases {
       schema: "pushify.sdk-diagnostics/v1", platform: "react-native", api_host: new URL(this.options.apiBaseUrl!).host,
       masked_public_key: masked, cached_offering_count: this.cachedCatalog?.offerings.length ?? 0,
       cached_product_ids: productIds, active_entitlement_count: this.cachedInfo?.entitlements.active.length ?? 0,
+      recent_retryable_failure_count: this.diagnosticEvents.filter((event) => event.outcome === 'failure' && event.retryable).length,
       events: this.diagnosticEvents,
     }, null, 2);
   }

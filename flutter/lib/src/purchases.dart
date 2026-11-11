@@ -85,6 +85,7 @@ class PushifyPurchases {
       'masked_public_key': masked,
       'cached_offering_count': (_cachedCatalog?['offerings'] as List?)?.length ?? 0,
       'cached_product_ids': products.toSet().toList()..sort(), 'active_entitlement_count': active is List ? active.length : active is Map ? active.length : 0,
+      'recent_retryable_failure_count': _diagnosticEvents.where((event) => event['outcome'] == 'failure' && event['retryable'] == true).length,
       'events': List<Map<String, Object?>>.unmodifiable(_diagnosticEvents),
     });
   }
