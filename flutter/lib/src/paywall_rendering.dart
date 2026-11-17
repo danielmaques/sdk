@@ -1,151 +1,65 @@
 part of 'paywall.dart';
 
 extension _PaywallRendering on _PushifyPaywallState {
-  Widget _video(Map<String, Object?> properties) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final sources = _map(properties['source']);
-    final selected = _map(sources[dark ? 'dark' : 'light']);
-    final source = selected.isNotEmpty ? selected : _map(sources['light']);
-    final url = source['url'] as String?;
-    final fallback = _map(properties['fallback_source']);
-    final selectedPoster = _map(fallback[dark ? 'dark' : 'light']);
-    final posterSource = selectedPoster.isNotEmpty
-        ? selectedPoster
-        : _map(fallback['light']);
-    final posterUrl =
-        (posterSource['original'] ?? posterSource['url']) as String?;
-    final fitMode = properties['fit_mode'] == 'fit' ? 'fit' : 'fill';
-    final supported =
-        url != null &&
-        url.startsWith('https://') &&
-        (Platform.isAndroid || Platform.isIOS);
-    if (!supported) return _videoPoster(posterUrl, fitMode);
-
-    final player = <String, Object?>{
-      'url': url,
-      'posterUrl': posterUrl,
-      'autoPlay': properties['auto_play'] as bool? ?? true,
-      'loop': properties['loop'] as bool? ?? true,
-      'muted': properties['mute_audio'] as bool? ?? true,
-      'showControls': properties['show_controls'] as bool? ?? false,
-      'fitMode': fitMode,
-      'accessibilityLabel':
-          properties['accessibility_label'] as String? ?? 'Video',
-    };
-    final native = Platform.isAndroid
-        ? AndroidView(
-            key: ValueKey('pushify-video-$url'),
-            viewType: 'app.pushify/paywall-video',
-            creationParams: player,
-            creationParamsCodec: const StandardMessageCodec(),
-          )
-        : UiKitView(
-            key: ValueKey('pushify-video-$url'),
-            viewType: 'app.pushify/paywall-video',
-            layoutDirection: TextDirection.ltr,
-            creationParams: player,
-            creationParamsCodec: const StandardMessageCodec(),
-          );
-    final sourceWidth = (_number(source['width']) ?? 1)
-        .clamp(1, 100000)
-        .toDouble();
-    final sourceHeight = (_number(source['height']) ?? 1)
-        .clamp(1, 100000)
-        .toDouble();
-    final size = _map(properties['size']);
-    final heightSize = _map(size['height']);
-    final fixedHeight = heightSize['type'] == 'fixed'
-        ? _number(heightSize['value'])
-        : null;
-    final surface = ClipRect(child: native);
-    return fixedHeight == null
-        ? AspectRatio(aspectRatio: sourceWidth / sourceHeight, child: surface)
-        : SizedBox(height: fixedHeight, width: double.infinity, child: surface);
-  }
-
-  Widget _webView(
-    Map<String, Object?> properties,
-    Map<String, Object?> screen,
-  ) {
-    final url = properties['url'] as String? ?? '';
-    final fallbackNode = _map(properties['fallback']);
-    final fallback = fallbackNode.isEmpty
-        ? null
-        : _render(fallbackNode, screen);
-    final protocolVersion =
-        _number(properties['protocol_version'])?.toInt() ?? 1;
-    final size = _map(properties['size']);
-    final height = _map(size['height']);
-    final fixedHeight = height['type'] == 'fixed'
-        ? _number(height['value'])
-        : null;
-    final heightValue = (fixedHeight ?? 240).clamp(1, 100000).toDouble();
-    final uri = Uri.tryParse(url);
-    if (protocolVersion != 1 ||
-        uri == null ||
-        uri.scheme != 'https' ||
-        uri.host.isEmpty ||
-        !(Platform.isAndroid || Platform.isIOS)) {
-      return SizedBox(
-        height: heightValue,
-        child: fallback ?? _experienceUnavailable(),
-      );
-    }
-    return _PaywallExperienceWebView(
-      key: ValueKey('pushify-web-experience-$url'),
-      url: uri,
-      height: heightValue,
-      fallback: fallback,
-    );
-  }
-
-  Widget _experienceUnavailable() => ColoredBox(
-    color: Colors.black,
-    child: Center(
-      child: Semantics(
-        label: 'Interactive experience unavailable',
-        child: Icon(Icons.web_asset_off_outlined, color: Colors.white70),
-      ),
-    ),
-  );
-
-  Widget _videoPoster(String? url, String fitMode) {
-    if (url != null && url.startsWith('https://')) {
-      return Image.network(
-        url,
-        fit: fitMode == 'fit' ? BoxFit.contain : BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _videoUnavailable(),
-        semanticLabel: 'Video preview',
-      );
-    }
-    return _videoUnavailable();
-  }
-
-  Widget _videoUnavailable() => const ColoredBox(
-    color: Colors.black,
-    child: Center(
-      child: Icon(Icons.videocam_off_outlined, color: Colors.white70),
-    ),
-  );
-
   Widget _render(Map<String, Object?> node, Map<String, Object?> screen) {
+    final properties = _map(node['properties']);
+    return _decorateNode(_renderContent(node, screen), properties);
+  }
+
+  Widget _renderContent(Map<String, Object?> node, Map<String, Object?> screen) {
     final kind = node['kind'] as String? ?? '';
     final properties = _map(node['properties']);
     final children = _maps(node['children']);
     switch (kind) {
       case 'stack':
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children
-              .map(
-                (child) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: _render(child, screen),
-                ),
+        final dimension = _map(properties['dimension']);
+        final direction = dimension['type'] as String? ?? 'vertical';
+        final alignment = dimension['alignment'] as String? ?? 'center';
+        final spacing = (_number(properties['spacing']) ?? 0)
+            .clamp(0, 100000)
+            .toDouble();
+        if (direction == 'zlayer') {
+          return Stack(
+            alignment: _stackAlignment(alignment),
+            children: children
+                .map((child) => Align(
+                      alignment: _stackAlignment(alignment),
+                      child: _render(child, screen),
+                    ))
+                .toList(),
+          );
+        }
+        final horizontal = direction == 'horizontal';
+        final distribution = dimension['distribution'] as String? ?? 'start';
+        final rendered = <Widget>[];
+        for (var index = 0; index < children.length; index++) {
+          final child = children[index];
+          var widget = _render(child, screen);
+          final childSize = _map(_map(child['properties'])['size']);
+          final mainSize = _map(childSize[horizontal ? 'width' : 'height']);
+          if (horizontal && mainSize['type'] == 'fill') {
+            widget = Expanded(child: widget);
+          }
+          rendered.add(widget);
+          if (index < children.length - 1 && spacing > 0) {
+            rendered.add(SizedBox(
+              width: horizontal ? spacing : null,
+              height: horizontal ? null : spacing,
+            ));
+          }
+        }
+        return horizontal
+            ? Row(
+                mainAxisAlignment: _mainAxisAlignment(distribution),
+                crossAxisAlignment: _crossAxisAlignment(alignment, horizontal: true),
+                children: rendered,
               )
-              .toList(),
-        );
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: _mainAxisAlignment(distribution),
+                crossAxisAlignment: _crossAxisAlignment(alignment, horizontal: false),
+                children: rendered,
+              );
       case 'hstack':
         return Row(
           mainAxisSize: MainAxisSize.max,
@@ -164,10 +78,12 @@ extension _PaywallRendering on _PushifyPaywallState {
       case 'title':
         return Text(
           _localized(node, screen),
-          textAlign: TextAlign.center,
+          textAlign: _textAlignment(properties['horizontal_alignment'] as String?),
           style: TextStyle(
             fontSize: _number(properties['font_size']) ?? 20,
             fontWeight: _fontWeight(properties['font_weight']),
+            color: _color(properties['color'], Theme.of(context).colorScheme.onSurface),
+            fontFamily: properties['font_name'] as String?,
           ),
         );
       case 'package':
@@ -272,13 +188,16 @@ extension _PaywallRendering on _PushifyPaywallState {
       case 'spacer':
         return SizedBox(height: _number(properties['size']) ?? 8);
       case 'image':
-        final source = _map(_map(properties['source'])['light']);
-        final url = source['url'] as String?;
+        final sources = _map(properties['source']);
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        final chosen = _map(sources[dark ? 'dark' : 'light']);
+        final source = chosen.isNotEmpty ? chosen : _map(sources['light']);
+        final url = (source['url'] ?? source['original']) as String?;
         return url == null || !url.startsWith('https://')
             ? const SizedBox.shrink()
             : Image.network(
                 url,
-                fit: BoxFit.contain,
+                fit: _boxFit(properties['fit_mode'] as String?),
                 errorBuilder: (context, error, stackTrace) =>
                     const SizedBox.shrink(),
                 semanticLabel: properties['accessibility_label'] as String?,
@@ -301,7 +220,7 @@ extension _PaywallRendering on _PushifyPaywallState {
           'sparkles' => Icons.auto_awesome,
           _ => Icons.circle,
         };
-        final size = _number(properties['size']) ?? 24;
+        final size = _sizeValue(properties['size']) ?? 24;
         return Icon(
           glyph,
           size: size,
@@ -457,6 +376,179 @@ extension _PaywallRendering on _PushifyPaywallState {
     }, screen);
   }
 
+  Widget _decorateNode(Widget child, Map<String, Object?> properties) {
+    final size = _map(properties['size']);
+    final widthSize = _map(size['width']);
+    final heightSize = _map(size['height']);
+    final width = widthSize['type'] == 'fixed'
+        ? _number(widthSize['value'])
+        : widthSize['type'] == 'fill'
+        ? double.infinity
+        : null;
+    final height = heightSize['type'] == 'fixed'
+        ? _number(heightSize['value'])
+        : null;
+    final widthFactor = widthSize['type'] == 'relative'
+        ? _number(widthSize['value'])
+        : null;
+    final heightFactor = heightSize['type'] == 'relative'
+        ? _number(heightSize['value'])
+        : null;
+    final padding = _edgeInsets(properties['padding']);
+    final margin = _edgeInsets(properties['margin']);
+    final background = _map(properties['background']);
+    final colorValue = background['type'] == 'color'
+        ? background['value']
+        : properties['background_color'];
+    final gradientValue = _map(background['value']);
+    final gradient = gradientValue['type'] == 'linear'
+        ? _linearGradient(gradientValue)
+        : gradientValue['type'] == 'radial'
+        ? _radialGradient(gradientValue)
+        : null;
+    final shape = _map(properties['shape']);
+    final corners = _map(shape['corners']);
+    final radius = BorderRadiusDirectional.only(
+      topStart: Radius.circular(_number(corners['top_leading']) ?? 0),
+      topEnd: Radius.circular(_number(corners['top_trailing']) ?? 0),
+      bottomStart: Radius.circular(_number(corners['bottom_leading']) ?? 0),
+      bottomEnd: Radius.circular(_number(corners['bottom_trailing']) ?? 0),
+    );
+    final border = _map(properties['border']);
+    final shadow = _map(properties['shadow']);
+    final hasDecoration = colorValue != null || gradient != null ||
+        shape.isNotEmpty || border.isNotEmpty || shadow.isNotEmpty;
+    child = Container(
+      width: width,
+      height: height,
+      padding: padding,
+      decoration: hasDecoration
+          ? BoxDecoration(
+              color: colorValue == null || gradient != null
+                  ? null
+                  : _color(colorValue, Colors.transparent),
+              gradient: gradient,
+              borderRadius: shape['type'] == 'pill'
+                  ? BorderRadiusDirectional.circular(9999)
+                  : shape.isEmpty
+                  ? null
+                  : radius,
+              border: border.isEmpty
+                  ? null
+                  : Border.all(
+                      color: _color(border['color'], Colors.transparent),
+                      width: (_number(border['width']) ?? 1).clamp(0, 100).toDouble(),
+                    ),
+              boxShadow: shadow.isEmpty
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: _color(shadow['color'], Colors.transparent),
+                        blurRadius: (_number(shadow['radius']) ?? 0).clamp(0, 1000).toDouble(),
+                        offset: Offset(_number(shadow['x']) ?? 0, _number(shadow['y']) ?? 0),
+                      ),
+                    ],
+            )
+          : null,
+      child: child,
+    );
+    if (widthFactor != null || heightFactor != null) {
+      child = FractionallySizedBox(
+        widthFactor: widthFactor?.clamp(0, 1).toDouble(),
+        heightFactor: heightFactor?.clamp(0, 1).toDouble(),
+        alignment: AlignmentDirectional.topStart,
+        child: child,
+      );
+    }
+    if (margin != EdgeInsetsDirectional.zero) {
+      child = Padding(padding: margin, child: child);
+    }
+    return child;
+  }
+
+  EdgeInsetsDirectional _edgeInsets(Object? value) {
+    final sides = _map(value);
+    return EdgeInsetsDirectional.fromSTEB(
+      _number(sides['leading']) ?? 0,
+      _number(sides['top']) ?? 0,
+      _number(sides['trailing']) ?? 0,
+      _number(sides['bottom']) ?? 0,
+    );
+  }
+
+  MainAxisAlignment _mainAxisAlignment(String value) => switch (value) {
+    'center' => MainAxisAlignment.center,
+    'end' => MainAxisAlignment.end,
+    'space_between' => MainAxisAlignment.spaceBetween,
+    'space_around' => MainAxisAlignment.spaceAround,
+    'space_evenly' => MainAxisAlignment.spaceEvenly,
+    _ => MainAxisAlignment.start,
+  };
+
+  CrossAxisAlignment _crossAxisAlignment(
+    String value, {
+    required bool horizontal,
+  }) => switch ((horizontal, value)) {
+    (true, 'top') => CrossAxisAlignment.start,
+    (true, 'bottom') => CrossAxisAlignment.end,
+    (false, 'leading') => CrossAxisAlignment.start,
+    (false, 'trailing') => CrossAxisAlignment.end,
+    (_, 'center') => CrossAxisAlignment.center,
+    _ => CrossAxisAlignment.stretch,
+  };
+
+  TextAlign _textAlignment(String? value) => switch (value) {
+    'leading' => TextAlign.start,
+    'trailing' => TextAlign.end,
+    'left' => TextAlign.left,
+    'right' => TextAlign.right,
+    'justify' => TextAlign.justify,
+    _ => TextAlign.center,
+  };
+
+  AlignmentGeometry _stackAlignment(String? value) => switch (value) {
+    'leading' => AlignmentDirectional.centerStart,
+    'trailing' => AlignmentDirectional.centerEnd,
+    'top' => Alignment.topCenter,
+    'bottom' => Alignment.bottomCenter,
+    'top_leading' => AlignmentDirectional.topStart,
+    'top_trailing' => AlignmentDirectional.topEnd,
+    'bottom_leading' => AlignmentDirectional.bottomStart,
+    'bottom_trailing' => AlignmentDirectional.bottomEnd,
+    _ => Alignment.center,
+  };
+
+  BoxFit _boxFit(String? value) => value == 'fit' ? BoxFit.contain : BoxFit.cover;
+
+  double? _sizeValue(Object? value) {
+    final dimension = _map(value);
+    return _number(dimension['value']) ?? _number(dimension['width'] is Map ? _map(dimension['width'])['value'] : null);
+  }
+
+  LinearGradient _linearGradient(Map<String, Object?> value) {
+    final points = _maps(value['points']);
+    final colors = points.map((point) => _color(point['color'], Colors.transparent)).toList();
+    final stops = points.map((point) => (_number(point['percent']) ?? 0).clamp(0, 100).toDouble() / 100).toList();
+    final degrees = (_number(value['degrees']) ?? 180) * 3.141592653589793 / 180;
+    final center = Alignment(cos(degrees), sin(degrees));
+    return LinearGradient(
+      begin: Alignment(-center.x, -center.y),
+      end: center,
+      colors: colors.length > 1 ? colors : [Colors.transparent, Colors.transparent],
+      stops: stops.length == colors.length && colors.length > 1 ? stops : null,
+    );
+  }
+
+  RadialGradient _radialGradient(Map<String, Object?> value) {
+    final points = _maps(value['points']);
+    final colors = points.map((point) => _color(point['color'], Colors.transparent)).toList();
+    final stops = points.map((point) => (_number(point['percent']) ?? 0).clamp(0, 100).toDouble() / 100).toList();
+    return RadialGradient(
+      colors: colors.length > 1 ? colors : [Colors.transparent, Colors.transparent],
+      stops: stops.length == colors.length && colors.length > 1 ? stops : null,
+    );
+  }
+
   Widget _timelineItem(
     Map<String, Object?> item,
     Map<String, Object?> screen,
@@ -570,9 +662,11 @@ extension _PaywallRendering on _PushifyPaywallState {
   Color _color(Object? value, Color fallback) {
     if (value is Map) {
       final object = _map(value);
-      final directLight = _map(object['light']);
-      final nestedValue = _map(object['value']);
-      value = directLight['value'] ?? _map(nestedValue['light'])['value'];
+      final dark = Theme.of(context).brightness == Brightness.dark;
+      final variant = _map(object[dark ? 'dark' : 'light']);
+      final selected = variant.isNotEmpty ? variant : object;
+      final nestedValue = _map(selected['value']);
+      value = selected['value'] ?? nestedValue['value'];
     }
     if (value is! String) return fallback;
     final hex = value.replaceFirst('#', '');
