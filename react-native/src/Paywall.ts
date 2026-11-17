@@ -264,7 +264,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
     const radius = shape.type === 'pill' ? 9999 : number(corners.top_leading) ?? 0;
     const style: ViewStyle = {
       width: width.type === 'fixed' ? number(width.value) ?? undefined : width.type === 'fill' ? '100%' : undefined,
-      height: height.type === 'fixed' ? number(height.value) ?? undefined : undefined,
+      height: height.type === 'fixed' ? number(height.value) ?? undefined : height.type === 'fill' ? '100%' : undefined,
       flex: width.type === 'relative' ? number(width.value) ?? undefined : undefined,
       paddingTop: number(padding.top) ?? 0,
       paddingBottom: number(padding.bottom) ?? 0,
@@ -314,7 +314,11 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       }
       case 'hstack': return React.createElement(View, { key: node.id ?? undefined, style: styles.row }, ...children.map((child) => React.createElement(View, { style: styles.rowChild }, child)));
       case 'text':
-      case 'title': return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight), color: color(node.properties.color, colorScheme === 'dark' ? '#ffffff' : '#111111', colorScheme === 'dark'), textAlign: text(node.properties.horizontal_alignment) ?? 'center', fontFamily: text(node.properties.font_name) ?? undefined }] }, localized(node));
+      case 'title': {
+        const textAlignment = text(node.properties.horizontal_alignment);
+        const textAlign = textAlignment === 'leading' ? 'left' : textAlignment === 'trailing' ? 'right' : textAlignment ?? 'center';
+        return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight), color: color(node.properties.color, colorScheme === 'dark' ? '#ffffff' : '#111111', colorScheme === 'dark'), textAlign: textAlign as 'auto' | 'left' | 'right' | 'center' | 'justify', fontFamily: text(node.properties.font_name) ?? undefined }] }, localized(node));
+      }
       case 'package': {
         const id = typeof node.properties.package_id === 'string' ? node.properties.package_id : '';
         const item = packages.find((candidate) => candidate.id === id);
@@ -344,7 +348,7 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
         const imageHeight = record(imageSize.height);
         const sourceWidth = number(selectedSource.width);
         const sourceHeight = number(selectedSource.height);
-        return uri?.startsWith('https://') ? React.createElement(Image, { key: node.id ?? uri, source: { uri }, resizeMode: text(node.properties.fit_mode) === 'fit' ? 'contain' : 'cover', accessibilityLabel: text(node.properties.accessibility_label) ?? '', style: { width: record(imageSize.width).type === 'fixed' ? number(record(imageSize.width).value) ?? undefined : '100%', height: imageHeight.type === 'fixed' ? number(imageHeight.value) ?? undefined : undefined, aspectRatio: sourceWidth && sourceHeight && imageHeight.type !== 'fixed' ? sourceWidth / sourceHeight : undefined } }) : null;
+        return uri?.startsWith('https://') ? React.createElement(Image, { key: node.id ?? uri, source: { uri }, resizeMode: text(node.properties.fit_mode) === 'fit' ? 'contain' : 'cover', accessibilityLabel: text(node.properties.accessibility_label) ?? '', style: { width: record(imageSize.width).type === 'fixed' ? number(record(imageSize.width).value) ?? undefined : '100%', height: imageHeight.type === 'fixed' ? number(imageHeight.value) ?? undefined : imageHeight.type === 'fill' ? '100%' : undefined, aspectRatio: sourceWidth && sourceHeight && imageHeight.type !== 'fixed' ? sourceWidth / sourceHeight : undefined } }) : null;
       }
       case 'video': {
         const sources = record(node.properties.source);
