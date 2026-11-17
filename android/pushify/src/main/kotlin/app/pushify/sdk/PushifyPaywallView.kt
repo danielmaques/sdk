@@ -97,15 +97,37 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val children = node.optJSONArray("children") ?: JSONArray()
         return when (kind) {
             "stack", "hstack" -> LinearLayout(context).apply {
-                orientation = if (kind == "hstack") LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-                gravity = if (kind == "hstack") Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
-                for (i in 0 until children.length()) children.optJSONObject(i)?.let { child -> addView(renderNode(child, screen), lp(if (kind == "hstack") 0 else MATCH, WRAP, if (kind == "hstack") 1f else 0f)) }
+                val dimension = properties.optJSONObject("dimension") ?: JSONObject()
+                val horizontal = kind == "hstack" || dimension.optString("type") == "horizontal"
+                orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                val alignment = dimension.optString("alignment")
+                gravity = when (alignment) {
+                    "leading" -> Gravity.START
+                    "trailing" -> Gravity.END
+                    "top" -> Gravity.TOP
+                    "bottom" -> Gravity.BOTTOM
+                    else -> if (horizontal) Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
+                }
+                val spacing = dp(properties.optDouble("spacing", 0.0).toInt().coerceIn(0, 10000))
+                for (i in 0 until children.length()) children.optJSONObject(i)?.let { child ->
+                    val params = lp(if (horizontal) 0 else MATCH, if (horizontal) MATCH else WRAP, if (horizontal && child.optJSONObject("properties")?.optJSONObject("size")?.optJSONObject("width")?.optString("type") == "fill") 1f else 0f)
+                    if (i < children.length() - 1) {
+                        if (horizontal) params.marginEnd = spacing else params.bottomMargin = spacing
+                    }
+                    addView(renderNode(child, screen), params)
+                }
             }
             "text", "title" -> TextView(context).apply {
                 text = localized(node, screen)
                 textSize = properties.optDouble("font_size", 20.0).toFloat().coerceIn(10f, 72f)
-                gravity = Gravity.CENTER
+                gravity = when (properties.optString("horizontal_alignment")) {
+                    "leading", "left" -> Gravity.START
+                    "trailing", "right" -> Gravity.END
+                    "justify" -> Gravity.START
+                    else -> Gravity.CENTER
+                }
                 setTypeface(typeface, if (properties.optString("font_weight") in listOf("bold", "semibold")) Typeface.BOLD else Typeface.NORMAL)
+                setTextColor(colorValue(properties.optJSONObject("color"), if ((resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES) Color.WHITE else Color.DKGRAY))
                 setPadding(0, dp(6), 0, dp(6))
             }
             "package" -> packageView(node, screen, properties)
@@ -271,10 +293,12 @@ public class PushifyPaywallView @JvmOverloads constructor(
     }
 
     private fun imageView(properties: JSONObject): View {
-        val source = properties.optJSONObject("source")?.optJSONObject("light")
-        val url = source?.optString("url") ?: return View(context)
+        val sources = properties.optJSONObject("source") ?: return View(context)
+        val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val source = (if (dark) sources.optJSONObject("dark") else null) ?: sources.optJSONObject("light")
+        val url = source?.optString("url")?.takeIf(String::isNotBlank) ?: source?.optString("original") ?: return View(context)
         if (!url.startsWith("https://")) return View(context)
-        val image = ImageView(context).apply { contentDescription = properties.optString("accessibility_label"); adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER }
+        val image = ImageView(context).apply { contentDescription = properties.optString("accessibility_label"); adjustViewBounds = true; scaleType = if (properties.optString("fit_mode") == "fit") ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP }
         loadImage(url) { image.setImageBitmap(it) }
         return image
     }
@@ -681,8 +705,10 @@ public class PushifyPaywallView @JvmOverloads constructor(
     }
     private fun iconGlyph(name: String): String = when (name.lowercase()) { "check", "checkmark" -> "✓"; "star" -> "★"; "bell" -> "♢"; "unlock" -> "◇"; "heart" -> "♥"; "clock" -> "◷"; else -> "●" }
     private fun colorValue(value: JSONObject?, fallback: Int): Int {
-        val light = value?.optJSONObject("light") ?: value?.optJSONObject("value")?.optJSONObject("light")
-        val hex = light?.optString("value")?.takeIf(String::isNotBlank) ?: return fallback
+        val darkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val variants = value?.optJSONObject("value") ?: value
+        val selected = (if (darkMode) variants?.optJSONObject("dark") else null) ?: variants?.optJSONObject("light")
+        val hex = selected?.optString("value")?.takeIf(String::isNotBlank) ?: return fallback
         return runCatching { Color.parseColor(hex) }.getOrDefault(fallback)
     }
     private fun findNodeText(node: JSONObject?): String? {

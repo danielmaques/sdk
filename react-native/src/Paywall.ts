@@ -249,12 +249,72 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
   }
 
   function renderNode(node: PushifyPaywallNode): React.ReactNode {
+    const properties = node.properties;
+    const size = record(properties.size);
+    const width = record(size.width);
+    const height = record(size.height);
+    const background = record(properties.background);
+    const backgroundValue = background.type === 'color' ? background.value : properties.background_color;
+    const shape = record(properties.shape);
+    const corners = record(shape.corners);
+    const border = record(properties.border);
+    const shadow = record(properties.shadow);
+    const padding = record(properties.padding);
+    const margin = record(properties.margin);
+    const radius = shape.type === 'pill' ? 9999 : number(corners.top_leading) ?? 0;
+    const style: ViewStyle = {
+      width: width.type === 'fixed' ? number(width.value) ?? undefined : width.type === 'fill' ? '100%' : undefined,
+      height: height.type === 'fixed' ? number(height.value) ?? undefined : undefined,
+      flex: width.type === 'relative' ? number(width.value) ?? undefined : undefined,
+      paddingTop: number(padding.top) ?? 0,
+      paddingBottom: number(padding.bottom) ?? 0,
+      paddingStart: number(padding.leading) ?? 0,
+      paddingEnd: number(padding.trailing) ?? 0,
+      marginTop: number(margin.top) ?? 0,
+      marginBottom: number(margin.bottom) ?? 0,
+      marginStart: number(margin.leading) ?? 0,
+      marginEnd: number(margin.trailing) ?? 0,
+      backgroundColor: backgroundValue ? color(backgroundValue, colorScheme === 'dark' ? '#000000' : '#ffffff', colorScheme === 'dark') : undefined,
+      borderColor: border.color ? color(border.color, '#00000000', colorScheme === 'dark') : undefined,
+      borderWidth: number(border.width) ?? 0,
+      borderTopStartRadius: shape.type === 'pill' ? radius : number(corners.top_leading) ?? 0,
+      borderTopEndRadius: shape.type === 'pill' ? radius : number(corners.top_trailing) ?? 0,
+      borderBottomStartRadius: shape.type === 'pill' ? radius : number(corners.bottom_leading) ?? 0,
+      borderBottomEndRadius: shape.type === 'pill' ? radius : number(corners.bottom_trailing) ?? 0,
+      overflow: shape.type ? 'hidden' : undefined,
+    };
+    if (shadow.radius !== undefined) {
+      style.shadowColor = color(shadow.color, '#000000');
+      style.shadowOpacity = 0.2;
+      style.shadowRadius = number(shadow.radius) ?? 0;
+      style.shadowOffset = { width: number(shadow.x) ?? 0, height: number(shadow.y) ?? 0 };
+      style.elevation = Math.max(0, number(shadow.radius) ?? 0);
+    }
+    const content = renderNodeContent(node);
+    return React.createElement(View, { key: node.id ?? undefined, style }, content);
+  }
+
+  function renderNodeContent(node: PushifyPaywallNode): React.ReactNode {
     const children = node.children.map((child) => renderNode(child));
     switch (node.kind) {
-      case 'stack': return React.createElement(View, { key: node.id ?? undefined, style: styles.stack }, ...children);
+      case 'stack': {
+        const dimension = record(node.properties.dimension);
+        if (dimension.type === 'zlayer') {
+          const alignment = text(dimension.alignment) ?? 'center';
+          const horizontal: NonNullable<ViewStyle['alignItems']> = alignment.includes('leading') ? 'flex-start' : alignment.includes('trailing') ? 'flex-end' : 'center';
+          const vertical: NonNullable<ViewStyle['justifyContent']> = alignment.includes('top') ? 'flex-start' : alignment.includes('bottom') ? 'flex-end' : 'center';
+          return React.createElement(View, { key: node.id ?? undefined, style: { position: 'relative', minHeight: number(record(record(node.properties.size).height).value) ?? 1 } }, ...node.children.map((child) => React.createElement(View, { key: child.id ?? undefined, style: { ...StyleSheet.absoluteFillObject, alignItems: horizontal, justifyContent: vertical } }, renderNode(child))));
+        }
+        const horizontal = dimension.type === 'horizontal';
+        const alignments: Record<string, NonNullable<ViewStyle['alignItems']>> = horizontal
+          ? { top: 'flex-start', center: 'center', bottom: 'flex-end' }
+          : { leading: 'flex-start', center: 'center', trailing: 'flex-end' };
+        const distributions: Record<string, NonNullable<ViewStyle['justifyContent']>> = { start: 'flex-start', center: 'center', end: 'flex-end', space_between: 'space-between', space_around: 'space-around', space_evenly: 'space-evenly' };
+        return React.createElement(View, { key: node.id ?? undefined, style: { flexDirection: horizontal ? 'row' : 'column', alignItems: alignments[text(dimension.alignment) ?? ''] ?? 'stretch', justifyContent: distributions[text(dimension.distribution) ?? ''] ?? 'flex-start', gap: number(node.properties.spacing) ?? 0 } }, ...children);
+      }
       case 'hstack': return React.createElement(View, { key: node.id ?? undefined, style: styles.row }, ...children.map((child) => React.createElement(View, { style: styles.rowChild }, child)));
       case 'text':
-      case 'title': return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight) }] }, localized(node));
+      case 'title': return React.createElement(Text, { key: node.id ?? undefined, style: [styles.text, { fontSize: number(node.properties.font_size) ?? 20, fontWeight: weight(node.properties.font_weight), color: color(node.properties.color, colorScheme === 'dark' ? '#ffffff' : '#111111', colorScheme === 'dark'), textAlign: text(node.properties.horizontal_alignment) ?? 'center', fontFamily: text(node.properties.font_name) ?? undefined }] }, localized(node));
       case 'package': {
         const id = typeof node.properties.package_id === 'string' ? node.properties.package_id : '';
         const item = packages.find((candidate) => candidate.id === id);
@@ -277,9 +337,14 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       case 'spacer': return React.createElement(View, { key: node.id ?? undefined, style: { height: number(node.properties.size) ?? 8 } });
       case 'image': {
         const source = record(node.properties.source);
-        const light = record(source.light);
-        const uri = text(light.url);
-        return uri?.startsWith('https://') ? React.createElement(Image, { key: node.id ?? uri, source: { uri }, resizeMode: 'contain', accessibilityLabel: text(node.properties.accessibility_label) ?? '', style: styles.image }) : null;
+        const themed = record(source[colorScheme === 'dark' ? 'dark' : 'light']);
+        const selectedSource = Object.keys(themed).length ? themed : record(source.light);
+        const uri = text(selectedSource.url) ?? text(selectedSource.original);
+        const imageSize = record(node.properties.size);
+        const imageHeight = record(imageSize.height);
+        const sourceWidth = number(selectedSource.width);
+        const sourceHeight = number(selectedSource.height);
+        return uri?.startsWith('https://') ? React.createElement(Image, { key: node.id ?? uri, source: { uri }, resizeMode: text(node.properties.fit_mode) === 'fit' ? 'contain' : 'cover', accessibilityLabel: text(node.properties.accessibility_label) ?? '', style: { width: record(imageSize.width).type === 'fixed' ? number(record(imageSize.width).value) ?? undefined : '100%', height: imageHeight.type === 'fixed' ? number(imageHeight.value) ?? undefined : undefined, aspectRatio: sourceWidth && sourceHeight && imageHeight.type !== 'fixed' ? sourceWidth / sourceHeight : undefined } }) : null;
       }
       case 'video': {
         const sources = record(node.properties.source);
@@ -319,7 +384,8 @@ export function PushifyPaywallView(props: PushifyPaywallProps): React.ReactEleme
       case 'icon': {
         const name = text(node.properties.icon_name) ?? '★';
         const symbols: Record<string, string> = { check: '✓', checkmark: '✓', star: '★', bell: '♢', unlock: '◇', lock: '▣', heart: '♥', clock: '◷' };
-        return React.createElement(Text, { key: node.id ?? undefined, accessibilityLabel: text(node.properties.accessibility_label) ?? undefined, style: { fontSize: number(node.properties.size) ?? 24, color: color(node.properties.color, '#315ee8'), textAlign: 'center' } }, symbols[name] ?? '●');
+        const iconSize = record(node.properties.size);
+        return React.createElement(Text, { key: node.id ?? undefined, accessibilityLabel: text(node.properties.accessibility_label) ?? undefined, style: { fontSize: number(iconSize.value) ?? number(record(iconSize.width).value) ?? 24, color: color(node.properties.color, '#315ee8', colorScheme === 'dark'), textAlign: 'center' } }, symbols[name] ?? '●');
       }
       case 'timeline': {
         const items = array(node.properties.items).map(record);
@@ -475,10 +541,14 @@ function replaceCountdown(value: Record<string, unknown>, days: number, hours: s
 }
 function twoDigits(value: number): string { return String(value).padStart(2, '0'); }
 function iconGlyph(name: string | null): string { return ({ check: '✓', checkmark: '✓', star: '★', bell: '♢', unlock: '◇' } as Record<string, string>)[name ?? ''] ?? '•'; }
-function color(value: unknown, fallback: string): string {
+function color(value: unknown, fallback: string, dark = false): string {
   if (value && typeof value === 'object') {
     const object = record(value);
-    value = record(object.light).value ?? record(record(object.value).light).value;
+    const scheme = record(object.value);
+    value = record(object[dark ? 'dark' : 'light']).value
+      ?? record(scheme[dark ? 'dark' : 'light']).value
+      ?? record(object.light).value
+      ?? record(scheme.light).value;
   }
   if (typeof value === 'string' && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return value.length === 9 ? `#${value.slice(7)}${value.slice(1, 7)}` : value;
   return fallback;

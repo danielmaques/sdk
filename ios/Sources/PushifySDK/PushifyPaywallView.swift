@@ -67,22 +67,82 @@ public struct PushifyPaywallView: View {
     }
 
     private func render(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> AnyView {
-        AnyView(renderContent(node, screen: screen))
+        let properties = node.properties
+        let size = object(properties["size"]) ?? [:]
+        let width = object(size["width"]) ?? [:]
+        let height = object(size["height"]) ?? [:]
+        let padding = object(properties["padding"]) ?? [:]
+        let margin = object(properties["margin"]) ?? [:]
+        var view = AnyView(renderContent(node, screen: screen)
+            .padding(EdgeInsets(
+                top: CGFloat(number(padding["top"] ?? .integer(0)) ?? 0),
+                leading: CGFloat(number(padding["leading"] ?? .integer(0)) ?? 0),
+                bottom: CGFloat(number(padding["bottom"] ?? .integer(0)) ?? 0),
+                trailing: CGFloat(number(padding["trailing"] ?? .integer(0)) ?? 0)
+            ))
+            .frame(
+                width: string(width["type"]) == "fixed" ? CGFloat(number(width["value"] ?? .integer(0)) ?? 0) : nil,
+                height: string(height["type"]) == "fixed" ? CGFloat(number(height["value"] ?? .integer(0)) ?? 0) : nil,
+                alignment: .topLeading
+            )
+            .frame(
+                maxWidth: string(width["type"]) == "fill" ? .infinity : nil,
+                maxHeight: string(height["type"]) == "fill" ? .infinity : nil,
+                alignment: .topLeading
+            ))
+        let background = object(properties["background"])
+        let backgroundValue = background?["value"] ?? properties["background_color"]
+        if let fill = colorString(backgroundValue) {
+            view = AnyView(view.background(Color(hex: fill)))
+        }
+        let shape = object(properties["shape"]) ?? [:]
+        let corners = object(shape["corners"]) ?? [:]
+        let cornerRadius: CGFloat = string(shape["type"]) == "pill" ? 999 : CGFloat(number(corners["top_leading"] ?? .integer(0)) ?? 0)
+        if cornerRadius > 0 {
+            view = AnyView(view.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)))
+        }
+        if let border = object(properties["border"]), let color = colorString(border["color"]), let width = number(border["width"]) {
+            view = AnyView(view.overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(Color(hex: color), lineWidth: CGFloat(width))))
+        }
+        if let shadow = object(properties["shadow"]), let color = colorString(shadow["color"]) {
+            view = AnyView(view.shadow(color: Color(hex: color), radius: CGFloat(number(shadow["radius"]) ?? 0), x: CGFloat(number(shadow["x"]) ?? 0), y: CGFloat(number(shadow["y"]) ?? 0)))
+        }
+        view = AnyView(view.padding(EdgeInsets(
+            top: CGFloat(number(margin["top"] ?? .integer(0)) ?? 0),
+            leading: CGFloat(number(margin["leading"] ?? .integer(0)) ?? 0),
+            bottom: CGFloat(number(margin["bottom"] ?? .integer(0)) ?? 0),
+            trailing: CGFloat(number(margin["trailing"] ?? .integer(0)) ?? 0)
+        )))
+        return view
     }
 
     @ViewBuilder private func renderContent(_ node: PushifyPaywallNode, screen: PushifyPaywallScreen) -> some View {
         switch node.kind {
         case "stack":
-            VStack(alignment: .center, spacing: CGFloat(number(node.properties["spacing"]) ?? 12)) {
-                ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) }
-            }.frame(maxWidth: .infinity)
+            let dimension = object(node.properties["dimension"]) ?? [:]
+            let spacing = CGFloat(number(node.properties["spacing"]) ?? 0)
+            if string(dimension["type"]) == "horizontal" {
+                HStack(alignment: verticalAlignment(string(dimension["alignment"])), spacing: spacing) {
+                    ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) }
+                }.frame(maxWidth: .infinity)
+            } else if string(dimension["type"]) == "zlayer" {
+                ZStack(alignment: stackAlignment(string(dimension["alignment"]))) {
+                    ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) }
+                }.frame(maxWidth: .infinity)
+            } else {
+                VStack(alignment: horizontalAlignment(string(dimension["alignment"])), spacing: spacing) {
+                    ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) }
+                }.frame(maxWidth: .infinity)
+            }
         case "hstack":
             HStack(spacing: CGFloat(number(node.properties["spacing"]) ?? 12)) {
                 ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in AnyView(render(child, screen: screen)) }
             }.frame(maxWidth: .infinity)
         case "text", "title":
             Text(localized(node, screen: screen)).font(.system(size: CGFloat(number(node.properties["font_size"]) ?? 20), weight: fontWeight(node.properties["font_weight"]), design: .default))
-                .multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(Color(hex: colorString(node.properties["color"]) ?? (colorScheme == .dark ? "#ffffffff" : "#111111ff")))
+                .multilineTextAlignment(textAlignment(string(node.properties["horizontal_alignment"])))
+                .frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
         case "package":
             if let packageID = string(node.properties["package_id"]), let package = offering.packages.first(where: { $0.id == packageID }) {
                 Button { selectedPackageID = packageID } label: {
@@ -128,8 +188,9 @@ public struct PushifyPaywallView: View {
             Spacer(minLength: CGFloat(number(node.properties["size"]) ?? 8))
         case "image":
             if let url = mediaURL(node.properties, key: "source", dark: colorScheme == .dark) {
-                AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { ProgressView() }
+                AsyncImage(url: url) { image in image.resizable().aspectRatio(contentMode: string(node.properties["fit_mode"]) == "fit" ? .fit : .fill) } placeholder: { ProgressView() }
                     .accessibilityLabel(string(node.properties["accessibility_label"]) ?? "")
+                    .clipped()
             }
         case "video":
             if let url = mediaURL(node.properties, key: "source", dark: colorScheme == .dark), url.scheme?.lowercased() == "https" {
@@ -486,8 +547,10 @@ public struct PushifyPaywallView: View {
     }
 
     private func backgroundColor(_ value: PushifyJSONValue?) -> Color {
-        guard case .object(let root)? = value, case .object(let valueRoot)? = root["value"],
-              case .object(let light)? = valueRoot["light"], case .string(let hex)? = light["value"] else { return Color(uiColor: .systemBackground) }
+        guard case .object(let root)? = value, case .object(let valueRoot)? = root["value"] else { return Color(uiColor: .systemBackground) }
+        let appearance = colorScheme == .dark ? "dark" : "light"
+        let selected = valueRoot[appearance] ?? valueRoot["light"]
+        guard case .object(let color)? = selected, case .string(let hex)? = color["value"] else { return Color(uiColor: .systemBackground) }
         return Color(hex: hex)
     }
 
@@ -540,6 +603,8 @@ public struct PushifyPaywallView: View {
         if case .object(let object)? = value {
             let colors: [String: PushifyJSONValue]
             if case .object(let nested)? = object["value"] { colors = nested } else { colors = object }
+            let appearance = colorScheme == .dark ? "dark" : "light"
+            if case .object(let selected)? = colors[appearance], case .string(let color)? = selected["value"] { return color }
             if case .object(let light)? = colors["light"], case .string(let color)? = light["value"] { return color }
         }
         return nil
@@ -565,6 +630,32 @@ public struct PushifyPaywallView: View {
 
     private func fontWeight(_ value: PushifyJSONValue?) -> Font.Weight {
         switch string(value)?.lowercased() { case "bold", "semibold": return .semibold; case "medium": return .medium; case "light": return .light; default: return .regular }
+    }
+
+    private func horizontalAlignment(_ value: String?) -> HorizontalAlignment {
+        switch value { case "leading", "left": return .leading; case "trailing", "right": return .trailing; default: return .center }
+    }
+
+    private func verticalAlignment(_ value: String?) -> VerticalAlignment {
+        switch value { case "top": return .top; case "bottom": return .bottom; default: return .center }
+    }
+
+    private func stackAlignment(_ value: String?) -> Alignment {
+        switch value {
+        case "leading": return .leading
+        case "trailing": return .trailing
+        case "top": return .top
+        case "bottom": return .bottom
+        case "top_leading": return .topLeading
+        case "top_trailing": return .topTrailing
+        case "bottom_leading": return .bottomLeading
+        case "bottom_trailing": return .bottomTrailing
+        default: return .center
+        }
+    }
+
+    private func textAlignment(_ value: String?) -> TextAlignment {
+        switch value { case "leading", "left": return .leading; case "trailing", "right": return .trailing; case "justify": return .justified; default: return .center }
     }
 
     private func string(_ value: PushifyJSONValue?) -> String? { if case .string(let v)? = value { return v }; return nil }
