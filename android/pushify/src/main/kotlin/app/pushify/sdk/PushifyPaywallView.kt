@@ -95,7 +95,7 @@ public class PushifyPaywallView @JvmOverloads constructor(
         val kind = node.optString("kind")
         val properties = node.optJSONObject("properties") ?: JSONObject()
         val children = node.optJSONArray("children") ?: JSONArray()
-        return when (kind) {
+        val rendered = when (kind) {
             "stack", "hstack" -> LinearLayout(context).apply {
                 val dimension = properties.optJSONObject("dimension") ?: JSONObject()
                 val horizontal = kind == "hstack" || dimension.optString("type") == "horizontal"
@@ -267,6 +267,48 @@ public class PushifyPaywallView @JvmOverloads constructor(
                 for (i in 0 until children.length()) children.optJSONObject(i)?.let { addView(renderNode(it, screen), lp(MATCH, WRAP)) }
             } else TextView(context).apply { text = properties.optString("text") }
         }
+        return decorateNode(rendered, properties)
+    }
+
+    private fun decorateNode(view: View, properties: JSONObject): View {
+        properties.optJSONObject("padding")?.let { padding ->
+            view.setPadding(
+                dp(padding.optDouble("leading", 0.0).toInt()),
+                dp(padding.optDouble("top", 0.0).toInt()),
+                dp(padding.optDouble("trailing", 0.0).toInt()),
+                dp(padding.optDouble("bottom", 0.0).toInt()),
+            )
+        }
+        val background = properties.optJSONObject("background")
+        val backgroundValue = background?.optJSONObject("value") ?: properties.optJSONObject("background_color")
+        val shape = properties.optJSONObject("shape")
+        val border = properties.optJSONObject("border")
+        if (backgroundValue != null || shape != null || border != null) {
+            val drawable = GradientDrawable()
+            drawable.setColor(colorValue(backgroundValue, Color.TRANSPARENT))
+            if (shape?.optString("type") == "pill") {
+                drawable.cornerRadius = dp(999).toFloat()
+            } else {
+                val corners = shape?.optJSONObject("corners")
+                val topLeading = dp(corners?.optDouble("top_leading", 0.0)?.toInt() ?: 0).toFloat()
+                val topTrailing = dp(corners?.optDouble("top_trailing", 0.0)?.toInt() ?: 0).toFloat()
+                val bottomTrailing = dp(corners?.optDouble("bottom_trailing", 0.0)?.toInt() ?: 0).toFloat()
+                val bottomLeading = dp(corners?.optDouble("bottom_leading", 0.0)?.toInt() ?: 0).toFloat()
+                drawable.cornerRadii = floatArrayOf(topLeading, topLeading, topTrailing, topTrailing, bottomTrailing, bottomTrailing, bottomLeading, bottomLeading)
+            }
+            if (border != null) drawable.setStroke(dp(border.optDouble("width", 1.0).toInt()), colorValue(border.optJSONObject("color"), Color.TRANSPARENT))
+            view.background = drawable
+        }
+        properties.optJSONObject("size")?.let { size ->
+            val width = size.optJSONObject("width")
+            val height = size.optJSONObject("height")
+            if (width?.optString("type") == "fixed") view.minimumWidth = dp(width.optDouble("value", 0.0).toInt())
+            if (height?.optString("type") == "fixed") view.minimumHeight = dp(height.optDouble("value", 0.0).toInt())
+        }
+        properties.optJSONObject("shadow")?.let { shadow ->
+            view.elevation = dp(shadow.optDouble("radius", 0.0).toInt().coerceIn(0, 1000)).toFloat()
+        }
+        return view
     }
 
     private fun packageView(node: JSONObject, screen: JSONObject, props: JSONObject): View {
